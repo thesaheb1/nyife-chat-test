@@ -1,0 +1,23 @@
+{
+  "name": "nyife",
+  "version": "1.0.0",
+  "description": "Multi-tenant WhatsApp Marketing SaaS Platform",
+  "private": true,
+  "workspaces": [
+    "shared/*",
+    "services/*"
+  ],
+  "scripts": {
+    "migrate:all": "bash scripts/migrate-all.sh",
+    "kafka:setup": "bash scripts/setup-kafka-topics.sh",
+    "docker:dev": "docker-compose -f docker-compose.dev.yml up",
+    "docker:dev:build": "docker-compose -f docker-compose.dev.yml up --build",
+    "docker:dev:down": "docker-compose -f docker-compose.dev.yml down",
+    "docker:prod": "docker-compose up",
+    "docker:prod:build": "docker-compose up --build"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "UNLICENSED"
+}

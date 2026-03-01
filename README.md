@@ -1,67 +1,137 @@
-# Nyife — Claude Code Setup Kit
+# Nyife — WhatsApp Marketing SaaS Platform
 
-## 📁 What's in this kit
+Multi-tenant WhatsApp Marketing SaaS platform built with Node.js microservices architecture.
 
-| File | Purpose |
+## Tech Stack
+
+- **Runtime:** Node.js 20.x LTS
+- **Framework:** Express.js (17 microservices + API Gateway)
+- **Database:** MySQL 8.0 (Sequelize ORM with migrations)
+- **Cache:** Redis 7.x (ioredis)
+- **Message Broker:** Apache Kafka
+- **Real-time:** Socket.IO with Redis adapter
+- **Auth:** JWT (access + refresh tokens)
+- **Validation:** Zod
+- **Containerization:** Docker + docker-compose
+
+## Prerequisites
+
+- Node.js 20.x or higher
+- Docker and Docker Compose
+- Git
+
+## Quick Start
+
+### 1. Clone and install
+
+```bash
+git clone <repo-url> nyife
+cd nyife
+cp .env.example .env
+# Edit .env with your values
+npm install
+```
+
+### 2. Start infrastructure with Docker
+
+```bash
+docker-compose -f docker-compose.dev.yml up -d mysql redis zookeeper kafka
+```
+
+### 3. Run migrations
+
+```bash
+bash scripts/migrate-all.sh
+```
+
+### 4. Setup Kafka topics
+
+```bash
+docker exec nyife-kafka bash -c "$(cat scripts/setup-kafka-topics.sh)"
+```
+
+### 5. Start the API Gateway
+
+```bash
+cd services/api-gateway
+npm run dev
+```
+
+The gateway will be available at `http://localhost:3000`.
+
+### Health Check
+
+```bash
+curl http://localhost:3000/health
+# {"status":"ok","service":"api-gateway","timestamp":"...","uptime":...}
+```
+
+## Project Structure
+
+```
+nyife/
+├── services/              # Backend microservices
+│   ├── api-gateway/       # Entry point — routing, rate limiting, auth
+│   ├── auth-service/      # Authentication, JWT, OAuth
+│   ├── user-service/      # User profiles, settings
+│   ├── subscription-service/
+│   ├── wallet-service/
+│   ├── contact-service/
+│   ├── template-service/
+│   ├── campaign-service/
+│   ├── chat-service/
+│   ├── whatsapp-service/
+│   ├── automation-service/
+│   ├── organization-service/
+│   ├── notification-service/
+│   ├── email-service/
+│   ├── support-service/
+│   ├── admin-service/
+│   ├── analytics-service/
+│   └── media-service/
+├── shared/                # Shared libraries
+│   ├── shared-config/     # DB, Redis, Kafka factories + constants
+│   ├── shared-middleware/  # Auth, RBAC, error handler, rate limiter
+│   ├── shared-utils/      # AppError, response formatter, pagination, encryption
+│   └── shared-events/     # Kafka topics, schemas, producer/consumer
+├── docker/                # Docker configuration files
+├── scripts/               # Migration and setup scripts
+└── docs/                  # API and architecture documentation
+```
+
+## Service Port Map
+
+| Service | Port |
 |---|---|
-| `CLAUDE.md` | **THE BRAIN** — Place in project root. Claude Code auto-reads it. Contains architecture, conventions, rules, phase plan. |
-| `STRATEGY.md` | For YOU — How to use this system effectively, context management, troubleshooting. |
-| `WHATOMATE_EXTRACTION_GUIDE.md` | For YOU — How to extract useful patterns from whatomate WITHOUT burning context. |
-| `phase-prompts/phase-1.md` | Foundation: scaffold, shared libs, API gateway, Docker |
-| `phase-prompts/phase-2.md` | Auth, User, Organization services |
-| `phase-prompts/phase-3.md` | Subscription, Wallet services |
-| `phase-prompts/phase-4.md` | WhatsApp, Contact, Template, Media services |
-| `phase-prompts/phase-5.md` | Campaign, Chat services |
-| `phase-prompts/phase-6.md` | Automation, Notification, Email services |
-| `phase-prompts/phase-7.md` | Admin, Support, Analytics services |
-| `phase-prompts/phase-8.md` | Frontend: User Dashboard (React) |
-| `phase-prompts/phase-9.md` | Frontend: Admin Dashboard (React) |
-| `phase-prompts/phase-10.md` | Testing, Optimization, Deployment |
+| api-gateway | 3000 |
+| auth-service | 3001 |
+| user-service | 3002 |
+| subscription-service | 3003 |
+| wallet-service | 3004 |
+| contact-service | 3005 |
+| template-service | 3006 |
+| campaign-service | 3007 |
+| chat-service | 3008 |
+| whatsapp-service | 3009 |
+| automation-service | 3010 |
+| organization-service | 3011 |
+| notification-service | 3012 |
+| email-service | 3013 |
+| support-service | 3014 |
+| admin-service | 3015 |
+| analytics-service | 3016 |
+| media-service | 3017 |
 
-## 🚀 Quick Start
+## Scripts
 
-### Step 1: Prepare
 ```bash
-# Create project
-mkdir nyife && cd nyife
-git init
-
-# Copy CLAUDE.md to root
-cp /path/to/this-kit/CLAUDE.md ./CLAUDE.md
-
-# Create reference docs (from whatomate extraction)
-mkdir -p docs/whatsapp-reference
-# Follow WHATOMATE_EXTRACTION_GUIDE.md to extract patterns
+npm run docker:dev          # Start dev environment
+npm run docker:dev:build    # Build and start dev environment
+npm run docker:dev:down     # Stop dev environment
+npm run migrate:all         # Run all service migrations
+npm run kafka:setup         # Create Kafka topics
 ```
 
-### Step 2: Extract from Whatomate (Optional but Recommended)
-Follow `WHATOMATE_EXTRACTION_GUIDE.md` to create:
-- `docs/whatsapp-reference/meta-api-patterns.md`
-- `docs/whatsapp-reference/template-structures.md`
-- `docs/whatsapp-reference/webhook-events.md`
-- `docs/whatsapp-reference/business-logic.md`
+## License
 
-### Step 3: Open Claude Code
-```bash
-claude  # Start Claude Code in the nyife directory
-```
-Claude Code will auto-read `CLAUDE.md`.
-
-### Step 4: Execute Phase 1
-Copy the contents of `phase-prompts/phase-1.md` and paste into Claude Code.
-Wait for completion. Test. Commit.
-
-### Step 5: Repeat
-Continue with Phase 2, 3, 4... etc.
-Always commit between phases.
-If context degrades, start a new session.
-
-## ⚠️ Important Tips
-
-1. **One phase at a time** — Never paste multiple phases
-2. **Commit between phases** — Git is your safety net
-3. **Test before moving on** — Ensure services start and connect
-4. **Split large phases** — Phase 4 and 8 can be split by service/module
-5. **Don't feed whatomate raw code** — Extract patterns only per the guide
-6. **New session if quality drops** — CLAUDE.md will reload automatically
-7. **Read generated code** — Don't blindly accept everything
+UNLICENSED

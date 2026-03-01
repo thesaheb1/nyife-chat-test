@@ -1,0 +1,15 @@
+{
+  "name": "@nyife/shared-utils",
+  "version": "1.0.0",
+  "description": "Shared utilities for Nyife microservices",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "dependencies": {
+    "sanitize-html": "^2.11.0",
+    "uuid": "^9.0.0",
+    "zod": "^3.22.4"
+  },
+  "license": "UNLICENSED"
+}

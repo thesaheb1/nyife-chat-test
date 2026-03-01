@@ -12,6 +12,7 @@ const timestampField = z.string();
 const campaignExecuteSchema = z.object({
   campaignId: uuidField,
   userId: uuidField,
+  waAccountId: uuidField,
   contactId: uuidField,
   phoneNumber: z.string(),
   templateName: z.string(),
@@ -26,8 +27,8 @@ const campaignExecuteSchema = z.object({
  * Producer: whatsapp-service | Consumer: campaign-service
  */
 const campaignStatusSchema = z.object({
-  campaignId: uuidField,
-  contactId: uuidField,
+  campaignId: z.string(),
+  contactId: z.string(),
   messageId: z.string(),
   status: z.enum(['sent', 'delivered', 'read', 'failed']),
   timestamp: timestampField,

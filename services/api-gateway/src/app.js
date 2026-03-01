@@ -186,6 +186,7 @@ routeConfig.forEach((route) => {
     createProxyMiddleware({
       target,
       changeOrigin: true,
+      ws: route.ws || false,
       pathRewrite: (path) => {
         // Rewrite the public prefix to the service's internal route structure.
         // e.g., /api/v1/contacts/123 → /api/v1/contacts/123 (keep as-is so the

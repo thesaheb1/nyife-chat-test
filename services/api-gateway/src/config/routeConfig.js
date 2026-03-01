@@ -15,6 +15,7 @@
  *   rateLimit   - 'global' (default 100 req/min) or 'auth' (stricter, 10 req/min)
  *   publicPaths - Array of sub-paths under this prefix that bypass auth
  *                 even when auth=true (e.g., webhook endpoints)
+ *   ws          - true to enable WebSocket proxy (e.g., Socket.IO)
  */
 const routeConfig = [
   {
@@ -65,6 +66,7 @@ const routeConfig = [
     service: 'chat',
     auth: true,
     rateLimit: 'global',
+    ws: true,
   },
   {
     prefix: '/api/v1/whatsapp',
@@ -90,6 +92,7 @@ const routeConfig = [
     service: 'notification',
     auth: true,
     rateLimit: 'global',
+    ws: true,
   },
   {
     prefix: '/api/v1/emails',

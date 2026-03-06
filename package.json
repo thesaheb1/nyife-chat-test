@@ -14,7 +14,8 @@
     "docker:dev:build": "docker-compose -f docker-compose.dev.yml up --build",
     "docker:dev:down": "docker-compose -f docker-compose.dev.yml down",
     "docker:prod": "docker-compose up",
-    "docker:prod:build": "docker-compose up --build"
+    "docker:prod:build": "docker-compose up --build",
+    "test": "bash scripts/test-all.sh"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -12,9 +12,9 @@
   },
   "dependencies": {
     "@nyife/shared-config": "1.0.0",
+    "@nyife/shared-events": "1.0.0",
     "@nyife/shared-middleware": "1.0.0",
     "@nyife/shared-utils": "1.0.0",
-    "@nyife/shared-events": "1.0.0",
     "axios": "^1.6.5",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
@@ -32,7 +32,8 @@
   "devDependencies": {
     "jest": "^29.7.0",
     "nodemon": "^3.0.2",
-    "sequelize-cli": "^6.6.2"
+    "sequelize-cli": "^6.6.2",
+    "supertest": "^7.2.2"
   },
   "license": "UNLICENSED"
 }

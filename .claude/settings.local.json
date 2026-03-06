@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx shadcn@latest init -d)",
+      "Bash(npm run build)"
+    ]
+  }
+}

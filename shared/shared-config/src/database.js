@@ -28,12 +28,9 @@ function createDatabase(serviceName) {
     port,
     dialect: 'mysql',
     logging: isProduction ? false : (msg) => console.log(`[${serviceName}][Sequelize] ${msg}`),
-    pool: {
-      min: 2,
-      max: 10,
-      acquire: 30000,
-      idle: 10000,
-    },
+    pool: isProduction
+      ? { min: 5, max: 20, acquire: 60000, idle: 10000 }
+      : { min: 2, max: 10, acquire: 30000, idle: 10000 },
     retry: {
       max: 5,
       match: [

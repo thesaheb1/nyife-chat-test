@@ -107,6 +107,18 @@ const routeConfig = [
     rateLimit: 'global',
   },
   {
+    prefix: '/api/v1/admin/support',
+    service: 'support',
+    auth: true,
+    rateLimit: 'global',
+  },
+  {
+    prefix: '/api/v1/admin/analytics',
+    service: 'analytics',
+    auth: true,
+    rateLimit: 'global',
+  },
+  {
     prefix: '/api/v1/admin',
     service: 'admin',
     auth: true,
@@ -123,6 +135,13 @@ const routeConfig = [
     service: 'media',
     auth: true,
     rateLimit: 'global',
+  },
+  {
+    prefix: '/api/v1/settings',
+    service: 'admin',
+    auth: true,
+    rateLimit: 'global',
+    publicPaths: ['/api/v1/settings/public'],
   },
 ];
 

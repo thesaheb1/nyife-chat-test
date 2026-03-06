@@ -1,12 +1,11 @@
 version: '3.8'
 
-# Production docker-compose — to be completed in Phase 10
-# This is the skeleton structure for production deployment
-
 services:
+  # ─── Infrastructure ───────────────────────────────────────────────────────────
+
   mysql:
     image: mysql:8.0
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -25,7 +24,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    restart: always
+    restart: unless-stopped
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
@@ -39,7 +38,7 @@ services:
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
-    restart: always
+    restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -50,7 +49,7 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    restart: always
+    restart: unless-stopped
     depends_on:
       - zookeeper
     environment:
@@ -63,49 +62,514 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     volumes:
       - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
     networks:
       - nyife-network
+
+  # ─── Reverse Proxy ────────────────────────────────────────────────────────────
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Uncomment for SSL:
+      # - ./docker/nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api-gateway
+      - frontend
+    networks:
+      - nyife-network
+
+  # ─── Frontend ─────────────────────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ─── API Gateway ──────────────────────────────────────────────────────────────
 
   api-gateway:
     build:
       context: .
       dockerfile: services/api-gateway/Dockerfile
-    restart: always
-    ports:
-      - "3000:3000"
+    restart: unless-stopped
     env_file:
       - .env
+    environment:
+      NODE_ENV: production
+      API_GATEWAY_PORT: 3000
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
     depends_on:
-      - mysql
-      - redis
-      - kafka
+      redis:
+        condition: service_healthy
     networks:
       - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
-  # Additional services will be added in Phase 10
-  # auth-service:
-  # user-service:
-  # subscription-service:
-  # wallet-service:
-  # contact-service:
-  # template-service:
-  # campaign-service:
-  # chat-service:
-  # whatsapp-service:
-  # automation-service:
-  # organization-service:
-  # notification-service:
-  # email-service:
-  # support-service:
-  # admin-service:
-  # analytics-service:
-  # media-service:
+  # ─── Core Services ────────────────────────────────────────────────────────────
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      AUTH_SERVICE_PORT: 3001
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      USER_SERVICE_PORT: 3002
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  subscription-service:
+    build:
+      context: .
+      dockerfile: services/subscription-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      SUBSCRIPTION_SERVICE_PORT: 3003
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  wallet-service:
+    build:
+      context: .
+      dockerfile: services/wallet-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      WALLET_SERVICE_PORT: 3004
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  contact-service:
+    build:
+      context: .
+      dockerfile: services/contact-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      CONTACT_SERVICE_PORT: 3005
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  template-service:
+    build:
+      context: .
+      dockerfile: services/template-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      TEMPLATE_SERVICE_PORT: 3006
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  campaign-service:
+    build:
+      context: .
+      dockerfile: services/campaign-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      CAMPAIGN_SERVICE_PORT: 3007
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  chat-service:
+    build:
+      context: .
+      dockerfile: services/chat-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      CHAT_SERVICE_PORT: 3008
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  whatsapp-service:
+    build:
+      context: .
+      dockerfile: services/whatsapp-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      WHATSAPP_SERVICE_PORT: 3009
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  automation-service:
+    build:
+      context: .
+      dockerfile: services/automation-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      AUTOMATION_SERVICE_PORT: 3010
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  organization-service:
+    build:
+      context: .
+      dockerfile: services/organization-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      ORGANIZATION_SERVICE_PORT: 3011
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      NOTIFICATION_SERVICE_PORT: 3012
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  email-service:
+    build:
+      context: .
+      dockerfile: services/email-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      EMAIL_SERVICE_PORT: 3013
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  support-service:
+    build:
+      context: .
+      dockerfile: services/support-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      SUPPORT_SERVICE_PORT: 3014
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  admin-service:
+    build:
+      context: .
+      dockerfile: services/admin-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      ADMIN_SERVICE_PORT: 3015
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: services/analytics-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      ANALYTICS_SERVICE_PORT: 3016
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  media-service:
+    build:
+      context: .
+      dockerfile: services/media-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      MEDIA_SERVICE_PORT: 3017
+      MYSQL_HOST: mysql
+      REDIS_HOST: redis
+    volumes:
+      - media_uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - nyife-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
 volumes:
   mysql_data:
   redis_data:
   zookeeper_data:
   kafka_data:
+  media_uploads:
 
 networks:
   nyife-network:

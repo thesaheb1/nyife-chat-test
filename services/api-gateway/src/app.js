@@ -12,6 +12,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const config = require('./config');
 const routeConfig = require('./config/routeConfig');
 const proxyAuth = require('./middlewares/proxyAuth');
+const { setupSwagger } = require('./swagger');
 
 // ---------------------------------------------------------------------------
 // Logger setup — use Winston for structured JSON logging in production,
@@ -124,13 +125,9 @@ app.get('/health', (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// API docs placeholder — will be replaced with Swagger UI in a later phase.
+// Swagger API documentation — available at /api-docs
 // ---------------------------------------------------------------------------
-app.get('/api/docs', (_req, res) => {
-  res.status(200).json({
-    message: 'API documentation will be available here',
-  });
-});
+setupSwagger(app);
 
 // ---------------------------------------------------------------------------
 // Proxy route setup

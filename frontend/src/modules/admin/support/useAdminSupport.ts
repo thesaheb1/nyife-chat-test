@@ -69,7 +69,7 @@ export function useAssignTicket(ticketId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (assignedTo: string) => {
-      const { data } = await apiClient.put(ADMIN_ENDPOINTS.SUPPORT.TICKET_ASSIGN(ticketId), { assigned_to: assignedTo });
+      const { data } = await apiClient.put(ADMIN_ENDPOINTS.SUPPORT.TICKET_ASSIGN(ticketId), { admin_user_id: assignedTo });
       return data.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'ticket', ticketId] }),

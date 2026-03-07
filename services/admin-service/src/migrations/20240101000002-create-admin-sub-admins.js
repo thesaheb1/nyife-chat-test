@@ -15,7 +15,7 @@ module.exports = {
         allowNull: false,
       },
       role_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
           model: 'admin_roles',

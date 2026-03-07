@@ -11,7 +11,7 @@ module.exports = {
         allowNull: false,
       },
       ticket_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
           model: 'support_tickets',

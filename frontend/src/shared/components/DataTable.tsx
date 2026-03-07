@@ -30,6 +30,7 @@ interface DataTableProps<TData> {
   enableSelection?: boolean;
   onSelectionChange?: (rows: TData[]) => void;
   emptyMessage?: string;
+  onRowClick?: (row: TData) => void;
 }
 
 export function DataTable<TData>({
@@ -43,6 +44,7 @@ export function DataTable<TData>({
   enableSelection = false,
   onSelectionChange,
   emptyMessage = 'No results found',
+  onRowClick,
 }: DataTableProps<TData>) {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -132,7 +134,12 @@ export function DataTable<TData>({
           <TableBody>
             {table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && 'selected'}
+                  className={onRowClick ? 'cursor-pointer hover:bg-muted/50' : undefined}
+                  onClick={() => onRowClick?.(row.original)}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { type ColumnDef } from '@tanstack/react-table';
+import { Eye, MoreHorizontal } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -11,9 +12,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { DataTable } from '@/shared/components/DataTable';
 import { useAdminTickets } from './useAdminSupport';
+import { apiClient } from '@/core/api/client';
+import { ADMIN_ENDPOINTS } from '../api';
 import type { SupportTicket } from '@/core/types';
+import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 const PRIORITY_COLORS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   low: 'secondary',
@@ -28,6 +43,16 @@ const STATUS_COLORS: Record<string, 'default' | 'secondary' | 'destructive' | 'o
   waiting_on_user: 'secondary',
   resolved: 'secondary',
   closed: 'secondary',
+};
+
+const STATUSES = ['open', 'in_progress', 'waiting_on_user', 'resolved', 'closed'] as const;
+
+const STATUS_LABELS: Record<string, string> = {
+  open: 'Open',
+  in_progress: 'In Progress',
+  waiting_on_user: 'Waiting on User',
+  resolved: 'Resolved',
+  closed: 'Closed',
 };
 
 const columns: ColumnDef<SupportTicket>[] = [
@@ -72,6 +97,7 @@ const columns: ColumnDef<SupportTicket>[] = [
 export function AdminTicketListPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -85,6 +111,54 @@ export function AdminTicketListPage() {
 
   const tickets = data?.data?.tickets ?? [];
   const meta = data?.meta;
+
+  const handleStatusChange = async (ticketId: string, status: string) => {
+    try {
+      await apiClient.put(ADMIN_ENDPOINTS.SUPPORT.TICKET_STATUS(ticketId), { status });
+      toast.success('Ticket status updated');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'tickets'] });
+    } catch {
+      toast.error('Failed to update ticket status');
+    }
+  };
+
+  const columnsWithActions: ColumnDef<SupportTicket>[] = [
+    ...columns,
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => navigate(`/admin/support/${row.original.id}`)}>
+              <Eye className="mr-2 h-4 w-4" />
+              View Details
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Change Status</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {STATUSES.map((status) => (
+                  <DropdownMenuItem
+                    key={status}
+                    disabled={row.original.status === status}
+                    onClick={() => handleStatusChange(row.original.id, status)}
+                  >
+                    {STATUS_LABELS[status]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -119,7 +193,7 @@ export function AdminTicketListPage() {
       </div>
 
       <DataTable
-        columns={columns}
+        columns={columnsWithActions}
         data={tickets}
         isLoading={isLoading}
         page={page}

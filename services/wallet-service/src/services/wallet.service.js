@@ -174,7 +174,13 @@ async function verifyRechargePayment(userId, paymentData, kafkaProducer, redis) 
     .update(razorpay_order_id + '|' + razorpay_payment_id)
     .digest('hex');
 
-  if (expectedSignature !== razorpay_signature) {
+  if (
+    expectedSignature.length !== razorpay_signature.length ||
+    !crypto.timingSafeEqual(
+      Buffer.from(expectedSignature, 'utf8'),
+      Buffer.from(razorpay_signature, 'utf8')
+    )
+  ) {
     throw AppError.badRequest('Invalid payment signature');
   }
 

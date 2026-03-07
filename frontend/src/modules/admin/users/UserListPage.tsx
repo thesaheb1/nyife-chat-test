@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus } from 'lucide-react';
+import { Plus, Eye, Trash2, MoreHorizontal } from 'lucide-react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,10 +13,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { DataTable } from '@/shared/components/DataTable';
-import { useAdminUsers } from './useAdminUsers';
+import { useAdminUsers, useUpdateUserStatus, useDeleteUser } from './useAdminUsers';
 import type { AdminUserDetail } from '../types';
 import { formatCurrency } from '@/shared/utils/formatters';
+import { toast } from 'sonner';
 
 const STATUS_COLORS: Record<string, string> = {
   active: 'default',
@@ -73,6 +94,9 @@ export function UserListPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const updateStatus = useUpdateUserStatus();
+  const deleteUser = useDeleteUser();
 
   const { data, isLoading } = useAdminUsers({
     page,
@@ -83,6 +107,72 @@ export function UserListPage() {
 
   const users = data?.data?.users ?? [];
   const meta = data?.meta;
+
+  const handleStatusChange = async (id: string, status: string) => {
+    try {
+      await updateStatus.mutateAsync({ id, status });
+      toast.success('User status updated');
+    } catch {
+      toast.error('Failed to update user status');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await deleteUser.mutateAsync(deleteId);
+      toast.success('User deleted');
+      setDeleteId(null);
+    } catch {
+      toast.error('Failed to delete user');
+    }
+  };
+
+  const columnsWithActions: ColumnDef<AdminUserDetail>[] = [
+    ...columns,
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => navigate(`/admin/users/${row.original.id}`)}>
+              <Eye className="mr-2 h-4 w-4" />
+              View Details
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Change Status</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {['active', 'inactive', 'suspended'].map((status) => (
+                  <DropdownMenuItem
+                    key={status}
+                    disabled={row.original.status === status}
+                    onClick={() => handleStatusChange(row.original.id, status)}
+                  >
+                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={() => setDeleteId(row.original.id)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete User
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -115,7 +205,7 @@ export function UserListPage() {
       </div>
 
       <DataTable
-        columns={columns}
+        columns={columnsWithActions}
         data={users}
         isLoading={isLoading}
         page={page}
@@ -123,6 +213,22 @@ export function UserListPage() {
         onPageChange={setPage}
         onRowClick={(row) => navigate(`/admin/users/${row.id}`)}
       />
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action will soft-delete the user and revoke their access. This cannot be easily undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

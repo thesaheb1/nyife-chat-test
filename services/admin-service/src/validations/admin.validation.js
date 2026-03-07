@@ -44,6 +44,8 @@ const createUserSchema = z.object({
   email: z.string().email('Invalid email format'),
   phone: z.string().min(10).max(20).optional(),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  role: z.enum(['user', 'admin']).default('user'),
+  status: z.enum(['active', 'inactive', 'suspended']).default('active'),
 });
 
 const updateUserStatusSchema = z.object({

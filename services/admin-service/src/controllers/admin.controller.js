@@ -43,7 +43,7 @@ async function createSubAdmin(req, res) {
 async function listSubAdmins(req, res) {
   const filters = paginationSchema.parse(req.query);
   const { data, meta } = await adminService.listSubAdmins(filters);
-  return successResponse(res, data, 'Sub-admins retrieved successfully', 200, meta);
+  return successResponse(res, { sub_admins: data }, 'Sub-admins retrieved successfully', 200, meta);
 }
 
 /**
@@ -78,7 +78,7 @@ async function deleteSubAdmin(req, res) {
 async function listUsers(req, res) {
   const filters = listUsersSchema.parse(req.query);
   const { data, meta } = await adminService.listUsers(filters);
-  return successResponse(res, data, 'Users retrieved successfully', 200, meta);
+  return successResponse(res, { users: data }, 'Users retrieved successfully', 200, meta);
 }
 
 /**
@@ -152,7 +152,7 @@ async function getUserTransactions(req, res) {
   const { id } = idParamSchema.parse(req.params);
   const filters = paginationSchema.parse(req.query);
   const { data, meta } = await adminService.getUserTransactions(id, filters);
-  return successResponse(res, data, 'Transactions retrieved successfully', 200, meta);
+  return successResponse(res, { transactions: data }, 'Transactions retrieved successfully', 200, meta);
 }
 
 /**
@@ -163,7 +163,7 @@ async function getUserSubscriptions(req, res) {
   const { id } = idParamSchema.parse(req.params);
   const filters = paginationSchema.parse(req.query);
   const { data, meta } = await adminService.getUserSubscriptions(id, filters);
-  return successResponse(res, data, 'Subscriptions retrieved successfully', 200, meta);
+  return successResponse(res, { subscriptions: data }, 'Subscriptions retrieved successfully', 200, meta);
 }
 
 /**
@@ -174,7 +174,7 @@ async function getUserInvoices(req, res) {
   const { id } = idParamSchema.parse(req.params);
   const filters = paginationSchema.parse(req.query);
   const { data, meta } = await adminService.getUserInvoices(id, filters);
-  return successResponse(res, data, 'Invoices retrieved successfully', 200, meta);
+  return successResponse(res, { invoices: data }, 'Invoices retrieved successfully', 200, meta);
 }
 
 // ===========================================================================
@@ -198,7 +198,7 @@ async function createPlan(req, res) {
 async function listPlans(req, res) {
   const filters = paginationSchema.parse(req.query);
   const { data, meta } = await adminService.listPlans(filters);
-  return successResponse(res, data, 'Plans retrieved successfully', 200, meta);
+  return successResponse(res, { plans: data }, 'Plans retrieved successfully', 200, meta);
 }
 
 /**
@@ -264,7 +264,7 @@ async function createCoupon(req, res) {
 async function listCoupons(req, res) {
   const filters = paginationSchema.parse(req.query);
   const { data, meta } = await adminService.listCoupons(filters);
-  return successResponse(res, data, 'Coupons retrieved successfully', 200, meta);
+  return successResponse(res, { coupons: data }, 'Coupons retrieved successfully', 200, meta);
 }
 
 /**
@@ -320,7 +320,7 @@ async function createBroadcast(req, res) {
 async function listBroadcasts(req, res) {
   const filters = paginationSchema.parse(req.query);
   const { data, meta } = await adminService.listBroadcasts(filters);
-  return successResponse(res, data, 'Broadcasts retrieved successfully', 200, meta);
+  return successResponse(res, { notifications: data }, 'Broadcasts retrieved successfully', 200, meta);
 }
 
 // ===========================================================================
@@ -386,7 +386,7 @@ async function createRole(req, res) {
  */
 async function listRoles(_req, res) {
   const roles = await adminService.listRoles();
-  return successResponse(res, roles, 'Roles retrieved successfully');
+  return successResponse(res, { roles }, 'Roles retrieved successfully');
 }
 
 /**

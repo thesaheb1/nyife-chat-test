@@ -31,7 +31,7 @@ app.use(helmet());
 // ---------------------------------------------------------------------------
 app.use(
   cors({
-    origin: true,
+    origin: (process.env.CORS_ORIGINS || 'http://localhost:5173').split(','),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

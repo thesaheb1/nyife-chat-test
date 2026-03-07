@@ -363,7 +363,7 @@ async function getUser(userId) {
  * @returns {Promise<object>} Created user
  */
 async function createUser(data) {
-  const { first_name, last_name, email, phone, password } = data;
+  const { first_name, last_name, email, phone, password, role, status } = data;
 
   // Check for existing email
   const [existing] = await sequelize.query(
@@ -381,7 +381,7 @@ async function createUser(data) {
 
   await sequelize.query(
     `INSERT INTO auth_users (id, email, password, first_name, last_name, phone, role, status, email_verified_at, created_at, updated_at)
-     VALUES (:id, :email, :password, :first_name, :last_name, :phone, 'user', 'active', :now, :now, :now)`,
+     VALUES (:id, :email, :password, :first_name, :last_name, :phone, :role, :status, :now, :now, :now)`,
     {
       replacements: {
         id: userId,
@@ -390,6 +390,8 @@ async function createUser(data) {
         first_name,
         last_name,
         phone: phone || null,
+        role: role || 'user',
+        status: status || 'active',
         now,
       },
       type: QueryTypes.INSERT,
@@ -402,8 +404,8 @@ async function createUser(data) {
     first_name,
     last_name,
     phone: phone || null,
-    role: 'user',
-    status: 'active',
+    role: role || 'user',
+    status: status || 'active',
     email_verified_at: now,
     created_at: now,
   };

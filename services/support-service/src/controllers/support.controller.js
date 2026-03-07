@@ -123,9 +123,10 @@ async function adminListTickets(req, res) {
 async function adminGetTicket(req, res) {
   const { id } = idParamSchema.parse(req.params);
 
-  const ticket = await supportService.adminGetTicket(id);
+  const ticketData = await supportService.adminGetTicket(id);
+  const { replies, ...ticket } = ticketData;
 
-  return successResponse(res, { ticket }, 'Ticket retrieved');
+  return successResponse(res, { ticket, replies: replies || [] }, 'Ticket retrieved');
 }
 
 /**

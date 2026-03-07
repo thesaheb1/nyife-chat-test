@@ -389,7 +389,9 @@ Three critical reference documents exist in `docs/whatsapp-reference/`. These co
 **Read when building:** whatsapp-service (webhook handler), chat-service (message types), campaign-service (status tracking)
 
 ### `docs/whatsapp-reference/business-logic.md` (~300 lines)
+
 **Architecture patterns adapted from whatomate for Nyife's microservices.** Contains:
+
 - Campaign execution flow: validation → contact resolution → Kafka batching → sending → status tracking → real-time updates. Includes rate limiting strategy and retry logic with exponential backoff.
 - Real-time chat architecture: inbound/outbound message flows, Socket.IO room management, conversation state
 - Template variable resolution: mapping `{{1}}` placeholders to contact fields with nested path support

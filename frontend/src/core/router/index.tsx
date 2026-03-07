@@ -1,5 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import type { RootState } from '@/core/store';
 import { AuthGuard } from './AuthGuard';
 import { GuestGuard } from './GuestGuard';
 import { AppLayout } from '@/shared/layouts/AppLayout';
@@ -69,6 +71,12 @@ function LazyPage({ children }: { children: React.ReactNode }) {
 
 function lazyElement(Component: React.LazyExoticComponent<React.ComponentType>) {
   return <LazyPage><Component /></LazyPage>;
+}
+
+function RoleRedirect() {
+  const { user } = useSelector((state: RootState) => state.auth);
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  return <Navigate to={isAdmin ? '/admin/dashboard' : '/dashboard'} replace />;
 }
 
 export const router = createBrowserRouter([
@@ -145,8 +153,8 @@ export const router = createBrowserRouter([
       },
     ],
   },
-  // Redirect root to dashboard
-  { path: '/', element: <Navigate to="/dashboard" replace /> },
+  // Redirect root based on user role
+  { path: '/', element: <RoleRedirect /> },
   // 404
   { path: '*', element: <div className="flex h-full min-h-[60vh] items-center justify-center"><h1 className="text-2xl font-semibold text-muted-foreground">404 — Page Not Found</h1></div> },
 ]);

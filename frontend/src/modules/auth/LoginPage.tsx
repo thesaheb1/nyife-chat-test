@@ -35,9 +35,12 @@ export function LoginPage() {
   const onSubmit = async (data: LoginFormData) => {
     setIsSubmitting(true);
     try {
-      await login(data.email, data.password);
+      const result = await login(data.email, data.password);
       toast.success('Login successful');
-      navigate(from, { replace: true });
+      const role = result.data.user.role;
+      const isAdmin = role === 'admin' || role === 'super_admin';
+      const target = isAdmin ? '/admin/dashboard' : from;
+      navigate(target, { replace: true });
     } catch (error) {
       const msg =
         (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||

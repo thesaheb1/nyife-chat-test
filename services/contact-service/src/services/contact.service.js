@@ -10,17 +10,28 @@ const config = require('../config');
 // E.164 phone regex for CSV validation
 const E164_REGEX = /^\+[1-9]\d{6,14}$/;
 
+function isSubscriptionServiceUnavailable(err) {
+  return [
+    'ECONNREFUSED',
+    'ENOTFOUND',
+    'ECONNRESET',
+    'ETIMEDOUT',
+    'EHOSTUNREACH',
+  ].includes(err.code);
+}
+
 // ─── Subscription Limit Helpers ──────────────────────────────────────────────
 
 async function checkSubscriptionLimit(userId, resource) {
   try {
     const response = await axios.get(
-      `${config.subscriptionServiceUrl}/api/v1/subscriptions/check-limit/${userId}/${resource}`
+      `${config.subscriptionServiceUrl}/api/v1/subscriptions/check-limit/${userId}/${resource}`,
+      { timeout: 5000 }
     );
     return response.data.data; // { allowed, used, limit, remaining }
   } catch (err) {
     // If subscription service is unreachable, deny by default for safety
-    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+    if (isSubscriptionServiceUnavailable(err)) {
       throw AppError.internal('Subscription service is unavailable. Please try again later.');
     }
     if (err.response && err.response.status === 404) {
@@ -31,10 +42,15 @@ async function checkSubscriptionLimit(userId, resource) {
 }
 
 async function incrementSubscriptionUsage(userId, resource, count = 1) {
+  if (!count) {
+    return;
+  }
+
   try {
     await axios.post(
       `${config.subscriptionServiceUrl}/api/v1/subscriptions/increment-usage/${userId}`,
-      { resource, count }
+      { resource, count },
+      { timeout: 5000 }
     );
   } catch (err) {
     // Log but do not block if increment fails — usage is eventually consistent
@@ -42,11 +58,353 @@ async function incrementSubscriptionUsage(userId, resource, count = 1) {
   }
 }
 
+async function getActiveContactCount(userId) {
+  return Contact.count({
+    where: { user_id: userId },
+  });
+}
+
+async function getContactCapacityState(userId) {
+  const limitCheck = await checkSubscriptionLimit(userId, 'contacts');
+
+  if (!limitCheck.allowed && limitCheck.limit === 0) {
+    return {
+      allowed: false,
+      used: 0,
+      limit: 0,
+      remaining: 0,
+      isUnlimited: false,
+      message: limitCheck.message || 'No active subscription',
+    };
+  }
+
+  const activeContacts = await getActiveContactCount(userId);
+  const isUnlimited = limitCheck.limit === 'unlimited';
+
+  if (typeof limitCheck.used === 'number' && limitCheck.used !== activeContacts) {
+    await incrementSubscriptionUsage(userId, 'contacts', activeContacts - limitCheck.used);
+  }
+
+  if (isUnlimited) {
+    return {
+      allowed: true,
+      used: activeContacts,
+      limit: 'unlimited',
+      remaining: Infinity,
+      isUnlimited: true,
+    };
+  }
+
+  const limit = Number(limitCheck.limit || 0);
+
+  return {
+    allowed: activeContacts < limit,
+    used: activeContacts,
+    limit,
+    remaining: Math.max(0, limit - activeContacts),
+    isUnlimited: false,
+  };
+}
+
+async function ensureContactCapacity(userId, additionalContacts = 1) {
+  const state = await getContactCapacityState(userId);
+
+  if (state.isUnlimited) {
+    return state;
+  }
+
+  return {
+    ...state,
+    allowed: state.used + additionalContacts <= state.limit,
+    remaining: Math.max(0, state.limit - state.used),
+  };
+}
+
+async function syncContactUsage(userId) {
+  return getContactCapacityState(userId);
+}
+
+const CONTACT_SAMPLE_CSV = [
+  'phone,name,email,company,notes,tags,groups',
+  '+919876543210,John Doe,john@example.com,Acme Corp,Important prospect,"VIP,Newsletter","March Leads,North Region"',
+  '+14155552671,Jane Smith,jane@example.com,Design Studio,Prefers evening calls,"Warm Lead","Design Pipeline"',
+].join('\n');
+
+const GROUP_SAMPLE_CSV = [
+  'group_name,group_description,contact_phone,contact_name,contact_email,contact_company,contact_notes',
+  'March Leads,Imported from CSV,+919876543210,John Doe,john@example.com,Acme Corp,Interested in demo',
+  'March Leads,Imported from CSV,+14155552671,Jane Smith,jane@example.com,Design Studio,Requested brochure',
+  'VIP Customers,Priority outreach,+447700900123,Michael Lee,michael@example.com,Northwind,Repeat buyer',
+].join('\n');
+
+function normalizePhone(rawPhone) {
+  let phone = String(rawPhone || '').trim();
+
+  if (!phone.startsWith('+') && /^[1-9]\d{6,14}$/.test(phone)) {
+    phone = `+${phone}`;
+  }
+
+  return phone;
+}
+
+function splitCsvList(value) {
+  if (!value) {
+    return [];
+  }
+
+  return String(value)
+    .split(/[|,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function parseCsvRows(fileStream) {
+  const rows = [];
+
+  await new Promise((resolve, reject) => {
+    const stream = fileStream.pipe(csvParser({
+      mapHeaders: ({ header }) => header.trim().toLowerCase(),
+    }));
+
+    stream.on('data', (row) => {
+      rows.push(row);
+    });
+
+    stream.on('end', resolve);
+    stream.on('error', (err) => reject(AppError.badRequest(`CSV parsing error: ${err.message}`)));
+  });
+
+  if (rows.length === 0) {
+    throw AppError.badRequest('CSV file is empty or has no valid rows');
+  }
+
+  return rows;
+}
+
+async function ensureContactsOwnedByUser(userId, contactIds) {
+  const contacts = await Contact.findAll({
+    where: { id: { [Op.in]: contactIds }, user_id: userId },
+    attributes: ['id'],
+  });
+
+  const validContactIds = contacts.map((contact) => contact.id);
+  const invalidContactIds = contactIds.filter((id) => !validContactIds.includes(id));
+
+  if (invalidContactIds.length > 0) {
+    throw AppError.badRequest(`Contacts not found: ${invalidContactIds.join(', ')}`);
+  }
+
+  return validContactIds;
+}
+
+async function ensureGroupsOwnedByUser(userId, groupIds) {
+  const groups = await Group.findAll({
+    where: { id: { [Op.in]: groupIds }, user_id: userId },
+    attributes: ['id'],
+  });
+
+  const validGroupIds = groups.map((group) => group.id);
+  const invalidGroupIds = groupIds.filter((id) => !validGroupIds.includes(id));
+
+  if (invalidGroupIds.length > 0) {
+    throw AppError.badRequest(`Groups not found: ${invalidGroupIds.join(', ')}`);
+  }
+
+  return validGroupIds;
+}
+
+async function ensureTagsOwnedByUser(userId, tagIds) {
+  const tags = await Tag.findAll({
+    where: { id: { [Op.in]: tagIds }, user_id: userId },
+    attributes: ['id'],
+  });
+
+  const validTagIds = tags.map((tag) => tag.id);
+  const invalidTagIds = tagIds.filter((id) => !validTagIds.includes(id));
+
+  if (invalidTagIds.length > 0) {
+    throw AppError.badRequest(`Tags not found: ${invalidTagIds.join(', ')}`);
+  }
+
+  return validTagIds;
+}
+
+async function getOrCreateTagsByName(userId, tagNames, tagCache = new Map()) {
+  const uniqueNames = [...new Set(tagNames.map((name) => name.trim()).filter(Boolean))];
+  const tagIds = [];
+
+  for (const name of uniqueNames) {
+    const cacheKey = name.toLowerCase();
+    if (tagCache.has(cacheKey)) {
+      tagIds.push(tagCache.get(cacheKey));
+      continue;
+    }
+
+    let tag = await Tag.findOne({
+      where: {
+        user_id: userId,
+        [Op.and]: [
+          sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), cacheKey),
+        ],
+      },
+      order: [['created_at', 'ASC']],
+    });
+
+    if (!tag) {
+      tag = await Tag.create({
+        id: generateUUID(),
+        user_id: userId,
+        name,
+        color: '#3B82F6',
+      });
+    }
+
+    tagCache.set(cacheKey, tag.id);
+    tagIds.push(tag.id);
+  }
+
+  return tagIds;
+}
+
+async function getOrCreateGroupsByName(userId, groupsInput, groupCache = new Map()) {
+  const groupIds = [];
+
+  for (const groupEntry of groupsInput) {
+    const name = groupEntry.name.trim();
+    const cacheKey = name.toLowerCase();
+
+    if (groupCache.has(cacheKey)) {
+      groupIds.push(groupCache.get(cacheKey));
+      continue;
+    }
+
+    let group = await Group.findOne({
+      where: { user_id: userId, name },
+      paranoid: false,
+    });
+
+    if (group) {
+      if (group.deleted_at) {
+        await group.restore();
+        await group.update({
+          description: groupEntry.description || group.description,
+          type: 'static',
+        });
+      } else if (groupEntry.description && !group.description) {
+        await group.update({ description: groupEntry.description });
+      }
+    } else {
+      group = await Group.create({
+        id: generateUUID(),
+        user_id: userId,
+        name,
+        description: groupEntry.description || null,
+        type: 'static',
+        dynamic_filters: null,
+        contact_count: 0,
+      });
+    }
+
+    groupCache.set(cacheKey, group.id);
+    groupIds.push(group.id);
+  }
+
+  return groupIds;
+}
+
+async function upsertImportedContact(userId, row, remainingState, tagCache, groupCache) {
+  const phone = row.phone;
+  const existing = await Contact.findOne({
+    where: { user_id: userId, phone },
+    paranoid: false,
+  });
+
+  let createdCount = 0;
+  let restoredCount = 0;
+  let updatedCount = 0;
+  let contactId;
+
+  if (existing) {
+    if (existing.deleted_at) {
+      if (!remainingState.isUnlimited && remainingState.createdCount >= remainingState.remaining) {
+        throw AppError.forbidden('Subscription contact limit reached during import');
+      }
+
+      await existing.restore();
+      await existing.update({
+        name: row.name || existing.name,
+        email: row.email || existing.email,
+        company: row.company || existing.company,
+        notes: row.notes || existing.notes,
+        source: row.source,
+        opted_in: true,
+        opted_in_at: existing.opted_in_at || new Date(),
+      });
+      restoredCount = 1;
+      remainingState.createdCount += 1;
+      contactId = existing.id;
+    } else {
+      const updateFields = {};
+      if (row.name && row.name !== existing.name) updateFields.name = row.name;
+      if (row.email && row.email !== existing.email) updateFields.email = row.email;
+      if (row.company && row.company !== existing.company) updateFields.company = row.company;
+      if (row.notes && row.notes !== existing.notes) updateFields.notes = row.notes;
+      if (Object.keys(updateFields).length > 0) {
+        updateFields.source = row.source;
+        await existing.update(updateFields);
+      }
+      updatedCount = 1;
+      contactId = existing.id;
+    }
+  } else {
+    if (!remainingState.isUnlimited && remainingState.createdCount >= remainingState.remaining) {
+      throw AppError.forbidden('Subscription contact limit reached during import');
+    }
+
+    const contact = await Contact.create({
+      id: generateUUID(),
+      user_id: userId,
+      phone,
+      name: row.name,
+      email: row.email,
+      company: row.company,
+      notes: row.notes,
+      source: row.source,
+      opted_in: true,
+      opted_in_at: new Date(),
+    });
+    createdCount = 1;
+    remainingState.createdCount += 1;
+    contactId = contact.id;
+  }
+
+  if (row.tag_names?.length) {
+    const tagIds = await getOrCreateTagsByName(userId, row.tag_names, tagCache);
+    await assignTagsToContact(userId, contactId, tagIds);
+  }
+
+  if (row.group_names?.length) {
+    const groupIds = await getOrCreateGroupsByName(
+      userId,
+      row.group_names.map((name) => ({ name, description: null })),
+      groupCache
+    );
+    await bulkAssignContactsToGroups(userId, groupIds, [contactId]);
+  }
+
+  return {
+    contactId,
+    createdCount,
+    restoredCount,
+    updatedCount,
+  };
+}
+
 // ─── Contacts ────────────────────────────────────────────────────────────────
 
 async function createContact(userId, data) {
   // Check subscription limit for contacts
-  const limitCheck = await checkSubscriptionLimit(userId, 'contacts');
+  const limitCheck = await ensureContactCapacity(userId, 1);
   if (!limitCheck.allowed) {
     throw AppError.forbidden('Contact limit reached for your subscription plan. Please upgrade to add more contacts.');
   }
@@ -110,10 +468,20 @@ async function createContact(userId, data) {
 }
 
 async function listContacts(userId, filters) {
-  const { page, limit, search, tag_id, group_id, opted_in, source, date_from, date_to } = filters;
+  const { page, limit, search, ids, tag_id, tag_ids, group_id, opted_in, source, date_from, date_to } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
 
   const where = { user_id: userId };
+  const parsedIds = ids
+    ? ids.split(',').map((id) => id.trim()).filter(Boolean)
+    : [];
+  const parsedTagIds = tag_ids
+    ? tag_ids.split(',').map((id) => id.trim()).filter(Boolean)
+    : [];
+
+  if (parsedIds.length > 0) {
+    where.id = { [Op.in]: parsedIds };
+  }
 
   // Search by phone, name, or email
   if (search) {
@@ -149,24 +517,27 @@ async function listContacts(userId, filters) {
       attributes: ['id', 'name', 'color'],
       through: { attributes: [] },
     },
+    {
+      model: Group,
+      as: 'groups',
+      attributes: ['id', 'name', 'type'],
+      through: { attributes: [] },
+      required: false,
+    },
   ];
 
   // Filter by tag: join through contact_tags
-  if (tag_id) {
-    includeOptions[0].where = { id: tag_id };
+  if (tag_id || parsedTagIds.length > 0) {
+    includeOptions[0].where = tag_id
+      ? { id: tag_id }
+      : { id: { [Op.in]: parsedTagIds } };
     includeOptions[0].required = true;
   }
 
   // Filter by group: join through group_members
   if (group_id) {
-    includeOptions.push({
-      model: Group,
-      as: 'groups',
-      attributes: [],
-      through: { attributes: [] },
-      where: { id: group_id },
-      required: true,
-    });
+    includeOptions[1].where = { id: group_id };
+    includeOptions[1].required = true;
   }
 
   const { count, rows } = await Contact.findAndCountAll({
@@ -279,6 +650,8 @@ async function deleteContact(userId, contactId) {
     await recalculateGroupCounts(groupIds);
   }
 
+  await syncContactUsage(userId);
+
   return { id: contactId };
 }
 
@@ -316,6 +689,8 @@ async function bulkDeleteContacts(userId, ids) {
     await recalculateGroupCounts(groupIds);
   }
 
+  await syncContactUsage(userId);
+
   return {
     deleted_count: foundIds.length,
     skipped_count: missingIds.length,
@@ -326,73 +701,37 @@ async function bulkDeleteContacts(userId, ids) {
 // ─── CSV Import ──────────────────────────────────────────────────────────────
 
 async function importCsv(userId, fileStream) {
-  // Check subscription limit before import
-  const limitCheck = await checkSubscriptionLimit(userId, 'contacts');
-  if (!limitCheck.allowed) {
+  const limitCheck = await getContactCapacityState(userId);
+  if (!limitCheck.isUnlimited && limitCheck.remaining <= 0) {
     throw AppError.forbidden('Contact limit reached for your subscription plan. Please upgrade to import contacts.');
   }
 
   const results = {
     total: 0,
     created: 0,
+    restored: 0,
     updated: 0,
     skipped: 0,
     errors: [],
   };
-
-  const rows = [];
-
-  // Parse CSV using csv-parser
-  await new Promise((resolve, reject) => {
-    const stream = fileStream.pipe(csvParser({
-      mapHeaders: ({ header }) => header.trim().toLowerCase(),
-    }));
-
-    stream.on('data', (row) => {
-      rows.push(row);
-    });
-
-    stream.on('end', () => {
-      resolve();
-    });
-
-    stream.on('error', (err) => {
-      reject(AppError.badRequest(`CSV parsing error: ${err.message}`));
-    });
-  });
-
-  if (rows.length === 0) {
-    throw AppError.badRequest('CSV file is empty or has no valid rows');
-  }
-
+  const rows = await parseCsvRows(fileStream);
   results.total = rows.length;
 
-  // Check remaining subscription capacity
-  const remainingAllowance = limitCheck.limit === 'unlimited'
-    ? Infinity
-    : (limitCheck.remaining || 0);
-
-  // Validate and deduplicate rows
   const validRows = [];
   const seenPhones = new Set();
+  const tagCache = new Map();
+  const groupCache = new Map();
+  const remainingState = {
+    remaining: limitCheck.isUnlimited ? Infinity : limitCheck.remaining,
+    isUnlimited: limitCheck.isUnlimited,
+    createdCount: 0,
+  };
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const rowNumber = i + 2; // +2 because row 1 is header, data starts at row 2
+    const rowNumber = i + 2;
+    const phone = normalizePhone(row.phone || row.phone_number || row.mobile || row.number || row.whatsapp);
 
-    // Normalize phone: try to extract phone from common column names
-    let phone = row.phone || row.phone_number || row.mobile || row.number || row.whatsapp || '';
-    phone = phone.trim();
-
-    // If phone doesn't start with +, skip
-    if (!phone.startsWith('+')) {
-      // Attempt to auto-prefix with + if it looks like an international number
-      if (/^[1-9]\d{6,14}$/.test(phone)) {
-        phone = `+${phone}`;
-      }
-    }
-
-    // Validate E.164 format
     if (!E164_REGEX.test(phone)) {
       results.errors.push({
         row: rowNumber,
@@ -403,7 +742,6 @@ async function importCsv(userId, fileStream) {
       continue;
     }
 
-    // Deduplicate within CSV
     if (seenPhones.has(phone)) {
       results.errors.push({
         row: rowNumber,
@@ -418,120 +756,34 @@ async function importCsv(userId, fileStream) {
 
     validRows.push({
       phone,
-      name: (row.name || row.full_name || row.contact_name || '').trim() || null,
-      email: (row.email || row.email_address || '').trim() || null,
-      company: (row.company || row.organization || row.org || '').trim() || null,
-      notes: (row.notes || row.note || row.comment || '').trim() || null,
+      name: String(row.name || row.full_name || row.contact_name || '').trim() || null,
+      email: String(row.email || row.email_address || '').trim() || null,
+      company: String(row.company || row.organization || row.org || '').trim() || null,
+      notes: String(row.notes || row.note || row.comment || '').trim() || null,
+      tag_names: splitCsvList(row.tags || row.tag_names || row.labels),
+      group_names: splitCsvList(row.groups || row.group_names || row.segments),
+      source: 'csv_import',
     });
   }
 
-  // Check subscription limit against valid rows to be created
-  if (validRows.length === 0) {
-    return results;
-  }
-
-  // Process in batches for efficiency
-  const BATCH_SIZE = 100;
-  let createdCount = 0;
-
-  for (let batchStart = 0; batchStart < validRows.length; batchStart += BATCH_SIZE) {
-    const batch = validRows.slice(batchStart, batchStart + BATCH_SIZE);
-
-    // Get existing contacts for this batch
-    const phones = batch.map((r) => r.phone);
-    const existingContacts = await Contact.findAll({
-      where: { user_id: userId, phone: { [Op.in]: phones } },
-      paranoid: false,
-      raw: true,
-    });
-
-    const existingMap = new Map(existingContacts.map((c) => [c.phone, c]));
-
-    for (const row of batch) {
-      const existing = existingMap.get(row.phone);
-
-      if (existing) {
-        if (existing.deleted_at) {
-          // Restore soft-deleted and update
-          await Contact.restore({ where: { id: existing.id } });
-          await Contact.update(
-            {
-              name: row.name || existing.name,
-              email: row.email || existing.email,
-              company: row.company || existing.company,
-              notes: row.notes || existing.notes,
-              source: 'csv_import',
-            },
-            { where: { id: existing.id } }
-          );
-          results.updated++;
-          createdCount++; // Counts as a restored/new contact for limit purposes
-        } else {
-          // Update existing active contact
-          const updateFields = {};
-          if (row.name && !existing.name) updateFields.name = row.name;
-          if (row.email && !existing.email) updateFields.email = row.email;
-          if (row.company && !existing.company) updateFields.company = row.company;
-          if (row.notes && !existing.notes) updateFields.notes = row.notes;
-
-          if (Object.keys(updateFields).length > 0) {
-            await Contact.update(updateFields, { where: { id: existing.id } });
-          }
-          results.updated++;
-        }
-      } else {
-        // Check if we still have remaining capacity
-        if (remainingAllowance !== Infinity && createdCount >= remainingAllowance) {
-          results.errors.push({
-            row: null,
-            phone: row.phone,
-            reason: 'Subscription contact limit reached during import',
-          });
-          results.skipped++;
-          continue;
-        }
-
-        // Create new contact
-        try {
-          await Contact.create({
-            id: generateUUID(),
-            user_id: userId,
-            phone: row.phone,
-            name: row.name,
-            email: row.email,
-            company: row.company,
-            notes: row.notes,
-            source: 'csv_import',
-            opted_in: true,
-            opted_in_at: new Date(),
-          });
-          results.created++;
-          createdCount++;
-        } catch (err) {
-          // Handle unexpected duplicates (race conditions)
-          if (err.name === 'SequelizeUniqueConstraintError') {
-            results.errors.push({
-              row: null,
-              phone: row.phone,
-              reason: 'Duplicate contact (already exists)',
-            });
-            results.skipped++;
-          } else {
-            results.errors.push({
-              row: null,
-              phone: row.phone,
-              reason: `Database error: ${err.message}`,
-            });
-            results.skipped++;
-          }
-        }
-      }
+  for (const row of validRows) {
+    try {
+      const outcome = await upsertImportedContact(userId, row, remainingState, tagCache, groupCache);
+      results.created += outcome.createdCount;
+      results.restored += outcome.restoredCount;
+      results.updated += outcome.updatedCount;
+    } catch (err) {
+      results.errors.push({
+        row: null,
+        phone: row.phone,
+        reason: err.message,
+      });
+      results.skipped++;
     }
   }
 
-  // Increment subscription usage for newly created contacts
-  if (createdCount > 0) {
-    await incrementSubscriptionUsage(userId, 'contacts', createdCount);
+  if (remainingState.createdCount > 0) {
+    await incrementSubscriptionUsage(userId, 'contacts', remainingState.createdCount);
   }
 
   return results;
@@ -658,6 +910,50 @@ async function addTagsToContact(userId, contactId, tagIds) {
   return getContact(userId, contactId);
 }
 
+async function addTagByPhone(userId, phone, tagId) {
+  let contact = await Contact.findOne({
+    where: { user_id: userId, phone },
+    paranoid: false,
+  });
+
+  if (!contact) {
+    const limitCheck = await ensureContactCapacity(userId, 1);
+    if (!limitCheck.allowed) {
+      throw AppError.forbidden(
+        'Contact limit reached for your subscription plan. Please upgrade to add more contacts.'
+      );
+    }
+
+    contact = await Contact.create({
+      id: generateUUID(),
+      user_id: userId,
+      phone,
+      source: 'whatsapp_incoming',
+      opted_in: true,
+      opted_in_at: new Date(),
+    });
+
+    await incrementSubscriptionUsage(userId, 'contacts', 1);
+  } else if (contact.deleted_at) {
+    const limitCheck = await ensureContactCapacity(userId, 1);
+    if (!limitCheck.allowed) {
+      throw AppError.forbidden(
+        'Contact limit reached for your subscription plan. Please upgrade to add more contacts.'
+      );
+    }
+
+    await contact.restore();
+    await contact.update({
+      source: contact.source || 'whatsapp_incoming',
+      opted_in: true,
+      opted_in_at: contact.opted_in_at || new Date(),
+    });
+    await incrementSubscriptionUsage(userId, 'contacts', 1);
+  }
+
+  return addTagsToContact(userId, contact.id, [tagId]);
+}
+
 async function removeTagFromContact(userId, contactId, tagId) {
   // Verify contact exists and belongs to user
   const contact = await Contact.findOne({
@@ -681,27 +977,249 @@ async function removeTagFromContact(userId, contactId, tagId) {
 
 // ─── Groups ──────────────────────────────────────────────────────────────────
 
-async function createGroup(userId, data) {
-  const group = await Group.create({
-    id: generateUUID(),
-    user_id: userId,
-    name: data.name,
-    description: data.description || null,
-    type: data.type || 'static',
-    dynamic_filters: data.dynamic_filters || null,
-    contact_count: 0,
+async function bulkAssignTagsToContacts(userId, contactIds, tagIds) {
+  const validContactIds = await ensureContactsOwnedByUser(userId, contactIds);
+  const validTagIds = await ensureTagsOwnedByUser(userId, tagIds);
+
+  const existingAssignments = await ContactTag.findAll({
+    where: {
+      contact_id: { [Op.in]: validContactIds },
+      tag_id: { [Op.in]: validTagIds },
+    },
+    raw: true,
   });
 
-  return group;
+  const existingKeys = new Set(existingAssignments.map((item) => `${item.contact_id}:${item.tag_id}`));
+  const records = [];
+
+  for (const contactId of validContactIds) {
+    for (const tagId of validTagIds) {
+      const key = `${contactId}:${tagId}`;
+      if (!existingKeys.has(key)) {
+        records.push({ contact_id: contactId, tag_id: tagId });
+      }
+    }
+  }
+
+  if (records.length > 0) {
+    await ContactTag.bulkCreate(records, { ignoreDuplicates: true });
+  }
+
+  return {
+    contact_count: validContactIds.length,
+    tag_count: validTagIds.length,
+    added_count: records.length,
+  };
 }
 
-async function listGroups(userId) {
-  const groups = await Group.findAll({
-    where: { user_id: userId },
-    order: [['created_at', 'DESC']],
+async function bulkRemoveTagsFromContacts(userId, contactIds, tagIds) {
+  const validContactIds = await ensureContactsOwnedByUser(userId, contactIds);
+  const validTagIds = await ensureTagsOwnedByUser(userId, tagIds);
+
+  const removedCount = await ContactTag.destroy({
+    where: {
+      contact_id: { [Op.in]: validContactIds },
+      tag_id: { [Op.in]: validTagIds },
+    },
   });
 
-  return groups;
+  return {
+    contact_count: validContactIds.length,
+    tag_count: validTagIds.length,
+    removed_count: removedCount,
+  };
+}
+
+async function importGroupsCsv(userId, fileStream) {
+  const limitCheck = await getContactCapacityState(userId);
+  if (!limitCheck.isUnlimited && limitCheck.remaining <= 0) {
+    throw AppError.forbidden('Contact limit reached for your subscription plan. Please upgrade to import groups.');
+  }
+
+  const rows = await parseCsvRows(fileStream);
+  const results = {
+    total: rows.length,
+    groups_created: 0,
+    contacts_created: 0,
+    contacts_restored: 0,
+    contacts_updated: 0,
+    memberships_added: 0,
+    skipped: 0,
+    errors: [],
+  };
+
+  const groupCache = new Map();
+  const tagCache = new Map();
+  const createdGroupIds = new Set();
+  const remainingState = {
+    remaining: limitCheck.isUnlimited ? Infinity : limitCheck.remaining,
+    isUnlimited: limitCheck.isUnlimited,
+    createdCount: 0,
+  };
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNumber = i + 2;
+    const groupName = String(row.group_name || row.name || row.group || '').trim();
+    const groupDescription = String(row.group_description || row.description || '').trim() || null;
+    const phone = normalizePhone(row.contact_phone || row.phone || row.mobile || row.number);
+    const groupCacheKey = groupName.toLowerCase();
+
+    if (!groupName) {
+      results.errors.push({
+        row: rowNumber,
+        phone: phone || '(empty)',
+        reason: 'Group name is required',
+      });
+      results.skipped++;
+      continue;
+    }
+
+    if (!E164_REGEX.test(phone)) {
+      results.errors.push({
+        row: rowNumber,
+        phone: phone || '(empty)',
+        reason: 'Contact phone must be in E.164 format',
+      });
+      results.skipped++;
+      continue;
+    }
+
+    try {
+      const groupExisted = groupCache.has(groupCacheKey)
+        ? true
+        : Boolean(await Group.findOne({
+            where: { user_id: userId, name: groupName },
+            paranoid: false,
+            attributes: ['id'],
+          }));
+
+      const [groupId] = await getOrCreateGroupsByName(
+        userId,
+        [{ name: groupName, description: groupDescription }],
+        groupCache
+      );
+
+      if (!createdGroupIds.has(groupId) && !groupExisted) {
+        results.groups_created += 1;
+        createdGroupIds.add(groupId);
+      }
+
+      const outcome = await upsertImportedContact(
+        userId,
+        {
+          phone,
+          name: String(row.contact_name || row.name || '').trim() || null,
+          email: String(row.contact_email || row.email || '').trim() || null,
+          company: String(row.contact_company || row.company || '').trim() || null,
+          notes: String(row.contact_notes || row.notes || '').trim() || null,
+          tag_names: splitCsvList(row.tags || row.tag_names || row.labels),
+          group_names: [],
+          source: 'csv_import',
+        },
+        remainingState,
+        tagCache,
+        groupCache
+      );
+
+      const assignmentResult = await bulkAssignContactsToGroups(userId, [groupId], [outcome.contactId]);
+
+      results.contacts_created += outcome.createdCount;
+      results.contacts_restored += outcome.restoredCount;
+      results.contacts_updated += outcome.updatedCount;
+      results.memberships_added += assignmentResult.added_count;
+    } catch (err) {
+      results.errors.push({
+        row: rowNumber,
+        phone,
+        reason: err.message,
+      });
+      results.skipped++;
+    }
+  }
+
+  if (remainingState.createdCount > 0) {
+    await incrementSubscriptionUsage(userId, 'contacts', remainingState.createdCount);
+  }
+
+  return results;
+}
+
+function getContactCsvSample() {
+  return CONTACT_SAMPLE_CSV;
+}
+
+function getGroupCsvSample() {
+  return GROUP_SAMPLE_CSV;
+}
+
+async function createGroup(userId, data) {
+  const existing = await Group.findOne({
+    where: { user_id: userId, name: data.name },
+    paranoid: false,
+  });
+
+  if (existing && !existing.deleted_at) {
+    throw AppError.conflict('A group with this name already exists');
+  }
+
+  const contactIds = Array.isArray(data.contact_ids) ? data.contact_ids : [];
+  const validContactIds = contactIds.length > 0
+    ? await ensureContactsOwnedByUser(userId, contactIds)
+    : [];
+
+  let group;
+  if (existing && existing.deleted_at) {
+    await existing.restore();
+    await existing.update({
+      description: data.description || null,
+      type: data.type || 'static',
+      dynamic_filters: data.dynamic_filters || null,
+      contact_count: 0,
+    });
+    group = existing;
+  } else {
+    group = await Group.create({
+      id: generateUUID(),
+      user_id: userId,
+      name: data.name,
+      description: data.description || null,
+      type: data.type || 'static',
+      dynamic_filters: data.dynamic_filters || null,
+      contact_count: 0,
+    });
+  }
+
+  if (validContactIds.length > 0) {
+    await addGroupMembers(userId, group.id, validContactIds);
+  }
+
+  return Group.findByPk(group.id);
+}
+
+async function listGroups(userId, filters = {}) {
+  const { page = 1, limit = 20, search } = filters;
+  const { offset, limit: sanitizedLimit } = getPagination(page, limit);
+  const where = { user_id: userId };
+
+  if (search) {
+    where[Op.or] = [
+      { name: { [Op.like]: `%${search}%` } },
+      { description: { [Op.like]: `%${search}%` } },
+    ];
+  }
+
+  const { count, rows } = await Group.findAndCountAll({
+    where,
+    order: [['created_at', 'DESC']],
+    offset,
+    limit: sanitizedLimit,
+  });
+
+  return {
+    groups: rows,
+    meta: getPaginationMeta(count, page, limit),
+  };
 }
 
 async function getGroup(userId, groupId, page = 1, limit = 20) {
@@ -756,6 +1274,16 @@ async function updateGroup(userId, groupId, data) {
     throw AppError.notFound('Group not found');
   }
 
+  if (data.name && data.name !== group.name) {
+    const existing = await Group.findOne({
+      where: { user_id: userId, name: data.name, id: { [Op.ne]: groupId } },
+    });
+
+    if (existing) {
+      throw AppError.conflict('A group with this name already exists');
+    }
+  }
+
   const updateFields = {};
   if (data.name !== undefined) updateFields.name = data.name;
   if (data.description !== undefined) updateFields.description = data.description;
@@ -794,18 +1322,7 @@ async function addGroupMembers(userId, groupId, contactIds) {
     throw AppError.notFound('Group not found');
   }
 
-  // Verify all contacts belong to the user
-  const contacts = await Contact.findAll({
-    where: { id: { [Op.in]: contactIds }, user_id: userId },
-    attributes: ['id'],
-  });
-
-  const validContactIds = contacts.map((c) => c.id);
-  const invalidContactIds = contactIds.filter((id) => !validContactIds.includes(id));
-
-  if (invalidContactIds.length > 0) {
-    throw AppError.badRequest(`Contacts not found: ${invalidContactIds.join(', ')}`);
-  }
+  const validContactIds = await ensureContactsOwnedByUser(userId, contactIds);
 
   // Use bulkCreate with ignoreDuplicates to handle existing memberships
   const records = validContactIds.map((contactId) => ({
@@ -855,6 +1372,68 @@ async function removeGroupMembers(userId, groupId, contactIds) {
   };
 }
 
+async function bulkAssignContactsToGroups(userId, groupIds, contactIds) {
+  const validGroupIds = await ensureGroupsOwnedByUser(userId, groupIds);
+  const validContactIds = await ensureContactsOwnedByUser(userId, contactIds);
+
+  const existingMemberships = await GroupMember.findAll({
+    where: {
+      group_id: { [Op.in]: validGroupIds },
+      contact_id: { [Op.in]: validContactIds },
+    },
+    raw: true,
+  });
+
+  const existingKeys = new Set(existingMemberships.map((item) => `${item.group_id}:${item.contact_id}`));
+  const records = [];
+
+  for (const groupId of validGroupIds) {
+    for (const contactId of validContactIds) {
+      const key = `${groupId}:${contactId}`;
+      if (!existingKeys.has(key)) {
+        records.push({
+          group_id: groupId,
+          contact_id: contactId,
+          added_at: new Date(),
+        });
+      }
+    }
+  }
+
+  if (records.length > 0) {
+    await GroupMember.bulkCreate(records, { ignoreDuplicates: true });
+    await recalculateGroupCounts(validGroupIds);
+  }
+
+  return {
+    group_count: validGroupIds.length,
+    contact_count: validContactIds.length,
+    added_count: records.length,
+  };
+}
+
+async function bulkRemoveContactsFromGroups(userId, groupIds, contactIds) {
+  const validGroupIds = await ensureGroupsOwnedByUser(userId, groupIds);
+  const validContactIds = await ensureContactsOwnedByUser(userId, contactIds);
+
+  const removedCount = await GroupMember.destroy({
+    where: {
+      group_id: { [Op.in]: validGroupIds },
+      contact_id: { [Op.in]: validContactIds },
+    },
+  });
+
+  if (removedCount > 0) {
+    await recalculateGroupCounts(validGroupIds);
+  }
+
+  return {
+    group_count: validGroupIds.length,
+    contact_count: validContactIds.length,
+    removed_count: removedCount,
+  };
+}
+
 // ─── Internal Helpers ────────────────────────────────────────────────────────
 
 async function assignTagsToContact(userId, contactId, tagIds) {
@@ -891,12 +1470,18 @@ module.exports = {
   deleteContact,
   bulkDeleteContacts,
   importCsv,
+  importGroupsCsv,
+  getContactCsvSample,
+  getGroupCsvSample,
   createTag,
   listTags,
   updateTag,
   deleteTag,
   addTagsToContact,
+  addTagByPhone,
   removeTagFromContact,
+  bulkAssignTagsToContacts,
+  bulkRemoveTagsFromContacts,
   createGroup,
   listGroups,
   getGroup,
@@ -904,4 +1489,6 @@ module.exports = {
   deleteGroup,
   addGroupMembers,
   removeGroupMembers,
+  bulkAssignContactsToGroups,
+  bulkRemoveContactsFromGroups,
 };

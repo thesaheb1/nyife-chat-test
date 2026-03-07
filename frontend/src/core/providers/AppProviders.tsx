@@ -7,9 +7,7 @@ import { QueryProvider } from './QueryProvider';
 import { SocketProvider } from './SocketProvider';
 import { ThemeProvider } from './ThemeProvider';
 import { router } from '@/core/router';
-import { apiClient } from '@/core/api/client';
-import { ENDPOINTS } from '@/core/api/endpoints';
-import { setCredentials, logout } from '@/core/store/authSlice';
+import { refreshSession } from '@/core/api/client';
 import '@/core/i18n';
 
 /**
@@ -19,21 +17,35 @@ import '@/core/i18n';
  */
 function AuthInitializer() {
   useEffect(() => {
-    apiClient
-      .post(ENDPOINTS.AUTH.REFRESH)
-      .then(({ data }) => {
-        store.dispatch(
-          setCredentials({
-            accessToken: data.data.accessToken,
-            user: data.data.user,
-          })
-        );
-      })
-      .catch(() => {
-        store.dispatch(logout());
-      });
+    void initializeAuthSession();
   }, []);
   return null;
+}
+
+let authInitializationPromise: Promise<void> | null = null;
+let hasAttemptedAuthInitialization = false;
+
+function initializeAuthSession() {
+  if (hasAttemptedAuthInitialization) {
+    return authInitializationPromise ?? Promise.resolve();
+  }
+
+  if (authInitializationPromise) {
+    return authInitializationPromise;
+  }
+
+  authInitializationPromise = (async () => {
+    try {
+      await refreshSession();
+    } catch {
+      // refreshSession already clears auth state on failure
+    } finally {
+      hasAttemptedAuthInitialization = true;
+      authInitializationPromise = null;
+    }
+  })();
+
+  return authInitializationPromise;
 }
 
 export function AppProviders({ children }: { children?: ReactNode }) {

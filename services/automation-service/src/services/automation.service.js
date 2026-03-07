@@ -4,7 +4,7 @@ const { Op, QueryTypes } = require('sequelize');
 const axios = require('axios');
 const { Automation, AutomationLog, Webhook, sequelize } = require('../models');
 const { AppError, getPagination, getPaginationMeta, generateUUID } = require('@nyife/shared-utils');
-const { findMatchingAutomation } = require('../helpers/matcher');
+const { findMatchingAutomation, evaluateConditions } = require('../helpers/matcher');
 const {
   getFlowState,
   setFlowState,
@@ -12,7 +12,84 @@ const {
   findStep,
   processFlowStep,
 } = require('../helpers/flowEngine');
+const { getPrimaryMessageText } = require('../helpers/messageContent');
 const config = require('../config');
+
+function normalizeInboundMessage(event) {
+  if (!event || typeof event !== 'object') {
+    return null;
+  }
+
+  if (event.message && typeof event.message === 'object') {
+    return event.message;
+  }
+
+  return event;
+}
+
+function buildWebhookSignature(secret, payload) {
+  const crypto = require('crypto');
+  return crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
+}
+
+async function deliverWebhook(webhook, eventName, payload) {
+  const webhookPayload = {
+    event: eventName,
+    webhook_id: webhook.id,
+    webhook_name: webhook.name,
+    triggered_at: new Date().toISOString(),
+    data: payload,
+  };
+
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(webhook.headers || {}),
+  };
+
+  if (webhook.secret) {
+    headers['x-webhook-signature'] = buildWebhookSignature(webhook.secret, webhookPayload);
+  }
+
+  try {
+    const response = await axios.post(webhook.url, webhookPayload, {
+      headers,
+      timeout: 10000,
+    });
+
+    await webhook.update({
+      last_triggered_at: new Date(),
+      failure_count: 0,
+    });
+
+    return response.status;
+  } catch (err) {
+    await webhook.update({
+      failure_count: (webhook.failure_count || 0) + 1,
+    });
+    throw err;
+  }
+}
+
+async function dispatchWebhookEvents(userId, eventName, payload) {
+  const webhooks = (await Webhook.findAll({
+    where: {
+      user_id: userId,
+      is_active: true,
+    },
+  })) || [];
+
+  const matchingWebhooks = webhooks.filter(
+    (webhook) => Array.isArray(webhook.events) && webhook.events.includes(eventName)
+  );
+
+  if (matchingWebhooks.length === 0) {
+    return;
+  }
+
+  await Promise.allSettled(
+    matchingWebhooks.map((webhook) => deliverWebhook(webhook, eventName, payload))
+  );
+}
 
 // ────────────────────────────────────────────────
 // Automation CRUD
@@ -195,9 +272,10 @@ async function getAutomationLogs(userId, automationId, filters) {
  */
 async function processInboundMessage(payload, redis) {
   const { phoneNumberId, event } = payload;
+  const message = normalizeInboundMessage(event);
 
-  if (!phoneNumberId || !event) {
-    console.warn('[automation-service] Missing phoneNumberId or event in payload');
+  if (!phoneNumberId || !message) {
+    console.warn('[automation-service] Missing phoneNumberId or message event in payload');
     return null;
   }
 
@@ -227,14 +305,21 @@ async function processInboundMessage(payload, redis) {
   const userId = waAccount.user_id;
   const waAccountId = waAccount.id;
 
-  // Extract contact phone and message from the event
-  const message = event;
+  // Extract contact phone and message from the normalized inbound event
   const contactPhone = message.from || message.wa_id || '';
 
   if (!contactPhone) {
     console.warn('[automation-service] No contact phone in inbound message');
     return null;
   }
+
+  await dispatchWebhookEvents(userId, 'message.received', {
+    wa_account_id: waAccountId,
+    waba_id: waAccount.waba_id,
+    phone_number_id: phoneNumberId,
+    contact_phone: contactPhone,
+    message,
+  });
 
   // 2. Check for active flow state in Redis
   const flowState = await getFlowState(redis, userId, contactPhone);
@@ -270,6 +355,80 @@ async function processInboundMessage(payload, redis) {
 
   // 6. Execute the matched automation
   return await executeAutomation(redis, userId, waAccountId, contactPhone, message, matched);
+}
+
+function matchesFlowSubmissionTrigger(automation, submission) {
+  const trigger = automation.trigger_config || {};
+  if (trigger.trigger_type !== 'flow_submission') {
+    return false;
+  }
+
+  if (trigger.flow_id && trigger.flow_id !== submission.flowId && trigger.flow_id !== submission.flow_id) {
+    return false;
+  }
+
+  if (trigger.screen_id && trigger.screen_id !== submission.screenId && trigger.screen_id !== submission.screen_id) {
+    return false;
+  }
+
+  if (trigger.category) {
+    const categories = Array.isArray(submission.categories) ? submission.categories : [];
+    if (!categories.includes(trigger.category)) {
+      return false;
+    }
+  }
+
+  return evaluateConditions(automation.conditions || {}, {
+    type: 'flow_submission',
+    flow_submission: submission,
+  });
+}
+
+async function processFlowSubmission(payload, redis) {
+  const userId = payload.userId || payload.user_id;
+  const waAccountId = payload.waAccountId || payload.wa_account_id;
+  const contactPhone = payload.contactPhone || payload.contact_phone;
+
+  if (!userId || !waAccountId || !contactPhone) {
+    console.warn('[automation-service] Flow submission payload is missing required identifiers');
+    return null;
+  }
+
+  await dispatchWebhookEvents(userId, 'flow.submitted', {
+    wa_account_id: waAccountId,
+    contact_phone: contactPhone,
+    flow_id: payload.flowId || payload.flow_id || null,
+    meta_flow_id: payload.metaFlowId || payload.meta_flow_id || null,
+    screen_id: payload.screenId || payload.screen_id || null,
+    submission: payload.payload || {},
+  });
+
+  const automations = await Automation.findAll({
+    where: {
+      user_id: userId,
+      wa_account_id: waAccountId,
+      status: 'active',
+    },
+    order: [['priority', 'DESC']],
+  });
+
+  const matched = automations
+    .map((automation) => automation.toJSON())
+    .find((automation) => matchesFlowSubmissionTrigger(automation, payload));
+
+  if (!matched) {
+    return null;
+  }
+
+  const syntheticMessage = {
+    type: 'flow_submission',
+    flow_submission: payload,
+    text: {
+      body: JSON.stringify(payload.payload || {}),
+    },
+  };
+
+  return executeAutomation(redis, userId, waAccountId, contactPhone, syntheticMessage, matched);
 }
 
 /**
@@ -337,7 +496,7 @@ async function executeAutomation(redis, userId, waAccountId, contactPhone, messa
       user_id: userId,
       trigger_data: {
         message_type: message.type,
-        message_text: message.text?.body || message.text || '',
+        message_text: getPrimaryMessageText(message),
         contact_phone: contactPhone,
       },
       action_result: actionResult,
@@ -364,6 +523,24 @@ async function executeAutomation(redis, userId, waAccountId, contactPhone, messa
   } catch (statsErr) {
     console.error('[automation-service] Failed to update automation stats:', statsErr.message);
   }
+
+  await dispatchWebhookEvents(
+    userId,
+    logStatus === 'success' ? 'automation.triggered' : 'automation.failed',
+    {
+      automation_id: automation.id,
+      automation_name: automation.name,
+      automation_type: automation.type,
+      wa_account_id: waAccountId,
+      contact_phone: contactPhone,
+      trigger_data: {
+        message_type: message.type,
+        message_text: getPrimaryMessageText(message),
+      },
+      action_result: actionResult,
+      error_message: errorMessage,
+    }
+  );
 
   return { automationId: automation.id, status: logStatus, actionResult };
 }
@@ -637,9 +814,38 @@ async function executeFlowAction(userId, waAccountId, contactPhone, action) {
           wa_account_id: waAccountId,
           to: contactPhone,
           type: 'template',
-          template_name: tmplConfig.template_name,
-          template_language: tmplConfig.template_language || 'en',
-          components: tmplConfig.components || [],
+          message: {
+            name: tmplConfig.template_name,
+            language: {
+              code: tmplConfig.template_language || 'en',
+            },
+            components: tmplConfig.components || [],
+          },
+        },
+        {
+          headers: { 'x-user-id': userId },
+          timeout: 10000,
+        }
+      );
+      break;
+    }
+
+    case 'send_flow': {
+      const flowConfig = action.config || {};
+      await axios.post(
+        `${config.whatsappServiceUrl}/api/v1/whatsapp/send/flow`,
+        {
+          wa_account_id: waAccountId,
+          to: contactPhone,
+          flow_id: flowConfig.flow_id,
+          flow_cta: flowConfig.flow_cta || 'Continue',
+          flow_token: flowConfig.flow_token,
+          flow_message_version: flowConfig.flow_message_version,
+          flow_action: flowConfig.flow_action,
+          flow_action_payload: flowConfig.flow_action_payload,
+          body_text: flowConfig.body_text,
+          header_text: flowConfig.header_text,
+          footer_text: flowConfig.footer_text,
         },
         {
           headers: { 'x-user-id': userId },
@@ -729,7 +935,7 @@ async function executeWebhookTrigger(userId, contactPhone, message, automation) 
     contact_phone: contactPhone,
     message: {
       type: message.type,
-      text: message.text?.body || message.text || '',
+      text: getPrimaryMessageText(message),
       timestamp: message.timestamp,
     },
     triggered_at: new Date().toISOString(),
@@ -794,7 +1000,7 @@ async function executeApiTrigger(userId, waAccountId, contactPhone, message, aut
       contact_phone: contactPhone,
       message: {
         type: message.type,
-        text: message.text?.body || message.text || '',
+        text: getPrimaryMessageText(message),
       },
       ...(actionConfig.api_payload || {}),
     };
@@ -832,7 +1038,7 @@ async function createFlowLog(automationId, userId, contactPhone, message, status
       user_id: userId,
       trigger_data: {
         message_type: message.type,
-        message_text: message.text?.body || message.text || '',
+        message_text: getPrimaryMessageText(message),
         contact_phone: contactPhone,
       },
       action_result: actionResult,
@@ -983,12 +1189,7 @@ async function testWebhook(userId, webhookId) {
   };
 
   if (webhook.secret) {
-    const crypto = require('crypto');
-    const signature = crypto
-      .createHmac('sha256', webhook.secret)
-      .update(JSON.stringify(testPayload))
-      .digest('hex');
-    webhookHeaders['x-webhook-signature'] = signature;
+    webhookHeaders['x-webhook-signature'] = buildWebhookSignature(webhook.secret, testPayload);
   }
 
   try {
@@ -1032,6 +1233,7 @@ module.exports = {
 
   // Core processing
   processInboundMessage,
+  processFlowSubmission,
 
   // Webhook CRUD
   createWebhook,

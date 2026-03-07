@@ -3,7 +3,7 @@
 jest.mock('../src/models', () => ({
   Automation: { findOne: jest.fn(), findAll: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn(), update: jest.fn() },
   AutomationLog: { findAndCountAll: jest.fn(), create: jest.fn() },
-  Webhook: { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
+  Webhook: { findOne: jest.fn(), findAll: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() },
   sequelize: { query: jest.fn(), QueryTypes: { SELECT: 'SELECT' } },
 }));
 

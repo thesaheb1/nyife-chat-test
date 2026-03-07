@@ -6,6 +6,36 @@ const { Conversation, ChatMessage, sequelize } = require('../models');
 const { AppError, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
 const config = require('../config');
 
+function normalizeInboundPayload(event) {
+  if (!event || typeof event !== 'object') {
+    return { message: null, contacts: [] };
+  }
+
+  if (event.message && typeof event.message === 'object') {
+    return {
+      message: event.message,
+      contacts: Array.isArray(event.contacts) ? event.contacts : [],
+    };
+  }
+
+  return {
+    message: event,
+    contacts: Array.isArray(event.contacts) ? event.contacts : [],
+  };
+}
+
+function normalizeStatusPayload(event) {
+  if (!event || typeof event !== 'object') {
+    return null;
+  }
+
+  if (event.status && typeof event.status === 'object') {
+    return event.status;
+  }
+
+  return event;
+}
+
 // ────────────────────────────────────────────────
 // Conversation List & Detail
 // ────────────────────────────────────────────────
@@ -332,6 +362,12 @@ async function markAsRead(userId, conversationId) {
  */
 async function handleInboundMessage(eventData, io) {
   const { phoneNumberId, event } = eventData;
+  const { message: inboundMessage, contacts } = normalizeInboundPayload(event);
+
+  if (!inboundMessage) {
+    console.warn('[chat-service] Inbound payload is missing a message body');
+    return null;
+  }
 
   // Find the WhatsApp account by phone_number_id via raw SQL query
   // (wa_accounts table belongs to whatsapp-service but shares the same database)
@@ -351,13 +387,19 @@ async function handleInboundMessage(eventData, io) {
   }
 
   // Parse the inbound message from the webhook event
-  const contactPhone = event.from;
-  const contactName = event.profile_name || event.contacts?.[0]?.profile?.name || null;
-  const messageType = event.type || 'text';
-  const metaMessageId = event.id || null;
+  const contactPhone = inboundMessage.from;
+  const contactInfo = contacts.find((contact) => contact.wa_id === contactPhone) || null;
+  const contactName = inboundMessage.profile_name || contactInfo?.profile?.name || null;
+  const messageType = inboundMessage.type || 'text';
+  const metaMessageId = inboundMessage.id || null;
+
+  if (!contactPhone) {
+    console.warn('[chat-service] Inbound message is missing contact phone');
+    return null;
+  }
 
   // Build message content based on type
-  const content = buildInboundContent(messageType, event);
+  const content = buildInboundContent(messageType, inboundMessage);
 
   // Find or create the conversation for this user + WA account + contact
   const [conversation, created] = await Conversation.findOrCreate({
@@ -455,9 +497,15 @@ async function handleInboundMessage(eventData, io) {
  */
 async function handleStatusUpdate(eventData, io) {
   const { event } = eventData;
+  const statusUpdate = normalizeStatusPayload(event);
 
-  const metaMessageId = event.id;
-  const newStatus = event.status; // sent, delivered, read, failed
+  if (!statusUpdate) {
+    console.warn('[chat-service] Status update payload is missing a status body');
+    return;
+  }
+
+  const metaMessageId = statusUpdate.id;
+  const newStatus = statusUpdate.status; // sent, delivered, read, failed
 
   if (!metaMessageId || !newStatus) {
     console.warn('[chat-service] Status update missing message ID or status');
@@ -538,6 +586,9 @@ function generateMessagePreview(type, content) {
     case 'contacts':
       return '[Contact]';
     case 'interactive':
+      if (content.type === 'nfm_reply') {
+        return '[Flow Reply]';
+      }
       return content.body?.text ? content.body.text.substring(0, 200) : '[Interactive]';
     case 'template':
       return content.name ? `[Template] ${content.name}`.substring(0, 200) : '[Template]';
@@ -614,6 +665,7 @@ function buildInboundContent(type, event) {
         type: event.interactive?.type || null,
         button_reply: event.interactive?.button_reply || null,
         list_reply: event.interactive?.list_reply || null,
+        nfm_reply: event.interactive?.nfm_reply || null,
       };
     case 'button':
       return {

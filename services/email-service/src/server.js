@@ -13,6 +13,14 @@ const server = http.createServer(app);
 let redis = null;
 let kafkaConsumer = null;
 
+function normalizeTemplateName(name) {
+  if (!name) {
+    return undefined;
+  }
+
+  return String(name).trim().replace(/-/g, '_');
+}
+
 /**
  * Starts the email-service: database, Redis, Kafka consumer, HTTP server.
  */
@@ -46,21 +54,34 @@ async function startServer() {
       eachMessage: async ({ message }) => {
         try {
           const payload = JSON.parse(message.value.toString());
+          const toEmails = Array.isArray(payload.to_emails) && payload.to_emails.length > 0
+            ? payload.to_emails
+            : Array.isArray(payload.recipients) && payload.recipients.length > 0
+              ? payload.recipients
+              : payload.to_email
+                ? [payload.to_email]
+                : payload.to
+                  ? [payload.to]
+                  : [];
+          const templateName = normalizeTemplateName(payload.template_name || payload.template);
 
           console.log(
-            `[email-service] Received email.send: to=${payload.to_email || payload.to_emails?.[0]} template=${payload.template_name || 'none'}`
+            `[email-service] Received email.send: to=${toEmails?.[0] || 'none'} template=${templateName || 'none'}`
           );
 
           // Map Kafka payload to sendEmail format
           const emailData = {
-            to_emails: payload.to_emails || (payload.to_email ? [payload.to_email] : []),
-            to_names: payload.to_names || (payload.to_name ? [payload.to_name] : undefined),
+            to_emails: toEmails,
+            to_names:
+              payload.to_names
+              || payload.recipient_names
+              || (payload.to_name ? [payload.to_name] : undefined),
             type: payload.type || 'transactional',
             subject: payload.subject,
-            template_name: payload.template_name,
-            variables: payload.variables,
-            html_body: payload.html_body,
-            text_body: payload.text_body,
+            template_name: templateName,
+            variables: payload.variables || payload.templateData,
+            html_body: payload.html_body || payload.html,
+            text_body: payload.text_body || payload.text,
             meta: payload.meta,
           };
 

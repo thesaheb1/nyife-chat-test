@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { ArrowLeft, Plus, Trash2, Loader2 } from 'lucide-react';
@@ -20,6 +20,8 @@ import { Separator } from '@/components/ui/separator';
 import { useTemplate, useCreateTemplate, useUpdateTemplate } from './useTemplates';
 import { createTemplateSchema } from './validations';
 import type { CreateTemplateFormData } from './validations';
+import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
+import { useFlows } from '@/modules/flows/useFlows';
 
 interface ComponentField {
   type: 'HEADER' | 'BODY' | 'FOOTER' | 'BUTTONS';
@@ -29,10 +31,20 @@ interface ComponentField {
 }
 
 interface ButtonField {
-  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER';
-  text: string;
+  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'OTP' | 'FLOW' | 'CATALOG' | 'MPM' | 'COPY_CODE';
+  text?: string;
   url?: string;
   phone_number?: string;
+  example?: string;
+  flow_id?: string;
+  flow_name?: string;
+  flow_action?: string;
+  flow_json?: string;
+  navigate_screen?: string;
+  otp_type?: 'COPY_CODE' | 'ONE_TAP' | 'ZERO_TAP';
+  autofill_text?: string;
+  package_name?: string;
+  signature_hash?: string;
 }
 
 export function CreateTemplatePage() {
@@ -41,6 +53,7 @@ export function CreateTemplatePage() {
   const isEdit = !!id;
 
   const { data: existing } = useTemplate(id);
+  const { data: waAccounts } = useWhatsAppAccounts();
   const createTemplate = useCreateTemplate();
   const updateTemplate = useUpdateTemplate();
 
@@ -55,7 +68,8 @@ export function CreateTemplatePage() {
     register,
     handleSubmit,
     setValue,
-    watch,
+    reset,
+    control,
     formState: { errors },
   } = useForm<CreateTemplateFormData>({
     resolver: zodResolver(createTemplateSchema),
@@ -76,6 +90,25 @@ export function CreateTemplatePage() {
           components: [{ type: 'BODY', text: '' }],
         },
   });
+
+  useEffect(() => {
+    if (!existing) {
+      return;
+    }
+
+    const existingComponents = (existing.components as ComponentField[]) || [{ type: 'BODY', text: '' }];
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setComponents(existingComponents);
+    reset({
+      name: existing.name,
+      display_name: existing.display_name || '',
+      language: existing.language,
+      category: existing.category,
+      type: existing.type,
+      components: existing.components as CreateTemplateFormData['components'],
+      waba_id: existing.waba_id || '',
+    });
+  }, [existing, reset]);
 
   // Sync components state to form
   const syncComponents = (updated: ComponentField[]) => {
@@ -132,13 +165,71 @@ export function CreateTemplatePage() {
     syncComponents(updated);
   };
 
+  const sanitizeButton = (button: ButtonField): ButtonField => {
+    const cleaned: ButtonField = { type: button.type };
+
+    const assign = <T extends keyof ButtonField>(key: T, value: ButtonField[T]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        cleaned[key] = value;
+      }
+    };
+
+    assign('text', button.text?.trim());
+    assign('url', button.url?.trim());
+    assign('phone_number', button.phone_number?.trim());
+    assign('example', button.example?.trim());
+    assign('flow_id', button.flow_id?.trim());
+    assign('flow_name', button.flow_name?.trim());
+    assign('flow_action', button.flow_action?.trim());
+    assign('flow_json', button.flow_json?.trim());
+    assign('navigate_screen', button.navigate_screen?.trim());
+    assign('otp_type', button.otp_type);
+    assign('autofill_text', button.autofill_text?.trim());
+    assign('package_name', button.package_name?.trim());
+    assign('signature_hash', button.signature_hash?.trim());
+
+    return cleaned;
+  };
+
+  const sanitizedComponents = components.map((component) => ({
+    ...component,
+    text: component.text?.trim() || undefined,
+    buttons: component.buttons?.map(sanitizeButton),
+  }));
+  const categoryValue = useWatch({ control, name: 'category' });
+  const typeValue = useWatch({ control, name: 'type' });
+  const wabaValue = useWatch({ control, name: 'waba_id' });
+  const { data: flowsData } = useFlows({
+    limit: 100,
+    waba_id: wabaValue || undefined,
+  });
+  const flows = flowsData?.flows || [];
+
+  const wabaOptions = Array.from(
+    new Map(
+      (waAccounts || []).map((account) => [
+        account.waba_id,
+        {
+          value: account.waba_id,
+          label: `${account.verified_name || account.display_phone || account.waba_id} (${account.waba_id})`,
+        },
+      ])
+    ).values()
+  );
+
   const onSubmit = async (data: CreateTemplateFormData) => {
     try {
+      const payload = {
+        ...data,
+        display_name: data.display_name || undefined,
+        waba_id: data.waba_id || undefined,
+        components: sanitizedComponents as CreateTemplateFormData['components'],
+      };
       if (isEdit) {
-        await updateTemplate.mutateAsync({ id, ...data });
+        await updateTemplate.mutateAsync({ id, ...payload });
         toast.success('Template updated');
       } else {
-        await createTemplate.mutateAsync(data);
+        await createTemplate.mutateAsync(payload);
         toast.success('Template created');
       }
       navigate('/templates');
@@ -192,7 +283,7 @@ export function CreateTemplatePage() {
               <div className="space-y-2">
                 <Label>Category *</Label>
                 <Select
-                  value={watch('category')}
+                  value={categoryValue}
                   onValueChange={(v) => setValue('category', v as CreateTemplateFormData['category'])}
                 >
                   <SelectTrigger>
@@ -208,7 +299,7 @@ export function CreateTemplatePage() {
               <div className="space-y-2">
                 <Label>Type *</Label>
                 <Select
-                  value={watch('type')}
+                  value={typeValue}
                   onValueChange={(v) => setValue('type', v as CreateTemplateFormData['type'])}
                 >
                   <SelectTrigger>
@@ -230,10 +321,33 @@ export function CreateTemplatePage() {
             </div>
             <div className="space-y-2">
               <Label>WABA ID</Label>
+              {wabaOptions.length > 0 && (
+                <Select
+                  value={wabaValue || 'manual'}
+                  onValueChange={(value) => setValue('waba_id', value === 'manual' ? '' : value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual">Manual entry</SelectItem>
+                    {wabaOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Input
                 {...register('waba_id')}
                 placeholder="WhatsApp Business Account ID (optional)"
               />
+              {wabaOptions.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Pick a connected WABA or keep a manual override for a different business account.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -384,19 +498,35 @@ export function CreateTemplatePage() {
                                 <SelectItem value="QUICK_REPLY">Quick Reply</SelectItem>
                                 <SelectItem value="URL">URL</SelectItem>
                                 <SelectItem value="PHONE_NUMBER">Phone Number</SelectItem>
+                                <SelectItem value="COPY_CODE">Copy Code</SelectItem>
+                                <SelectItem value="OTP">OTP</SelectItem>
+                                <SelectItem value="FLOW">Flow</SelectItem>
+                                <SelectItem value="CATALOG">Catalog</SelectItem>
+                                <SelectItem value="MPM">Multi Product</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                           <div className="space-y-1">
                             <Label className="text-xs">Text</Label>
                             <Input
-                              value={btn.text}
+                              value={btn.text || ''}
                               onChange={(e) => updateButton(idx, btnIdx, { text: e.target.value })}
                               placeholder="Button text"
                               className="h-8"
                             />
                           </div>
                         </div>
+                        {(btn.type === 'COPY_CODE' || btn.type === 'CATALOG' || btn.type === 'MPM') && (
+                          <div className="space-y-1">
+                            <Label className="text-xs">Example / Code</Label>
+                            <Input
+                              value={btn.example || ''}
+                              onChange={(e) => updateButton(idx, btnIdx, { example: e.target.value })}
+                              placeholder={btn.type === 'COPY_CODE' ? 'SAVE20' : 'Optional example'}
+                              className="h-8"
+                            />
+                          </div>
+                        )}
                         {btn.type === 'URL' && (
                           <div className="space-y-1">
                             <Label className="text-xs">URL</Label>
@@ -419,9 +549,157 @@ export function CreateTemplatePage() {
                             />
                           </div>
                         )}
+                        {btn.type === 'FLOW' && (
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Flow</Label>
+                              <Select
+                                value={btn.flow_id || 'manual'}
+                                onValueChange={(value) => {
+                                  if (value === 'manual') {
+                                    updateButton(idx, btnIdx, { flow_id: '', flow_name: '' });
+                                    return;
+                                  }
+
+                                  const selectedFlow = flows.find((flow) => flow.id === value);
+                                  updateButton(idx, btnIdx, {
+                                    flow_id: value,
+                                    flow_name: selectedFlow?.name || btn.flow_name || '',
+                                    flow_action: btn.flow_action || 'navigate',
+                                    navigate_screen: btn.navigate_screen || selectedFlow?.json_definition?.screens?.[0]?.id || '',
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-8">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="manual">Manual entry</SelectItem>
+                                  {flows.map((flow) => (
+                                    <SelectItem key={flow.id} value={flow.id}>
+                                      {flow.name} ({flow.status})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Flow ID / override</Label>
+                              <Input
+                                value={btn.flow_id || ''}
+                                onChange={(e) => updateButton(idx, btnIdx, { flow_id: e.target.value })}
+                                placeholder="Local flow ID or Meta flow ID"
+                                className="h-8"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Flow Name</Label>
+                              <Input
+                                value={btn.flow_name || ''}
+                                onChange={(e) => updateButton(idx, btnIdx, { flow_name: e.target.value })}
+                                placeholder="Lead intake"
+                                className="h-8"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Flow Action</Label>
+                              <Input
+                                value={btn.flow_action || ''}
+                                onChange={(e) => updateButton(idx, btnIdx, { flow_action: e.target.value })}
+                                placeholder="navigate"
+                                className="h-8"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Navigate Screen</Label>
+                              {btn.flow_id && flows.find((flow) => flow.id === btn.flow_id) ? (
+                                <Select
+                                  value={btn.navigate_screen || 'first'}
+                                  onValueChange={(value) => updateButton(idx, btnIdx, { navigate_screen: value === 'first' ? '' : value })}
+                                >
+                                  <SelectTrigger className="h-8">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="first">First screen</SelectItem>
+                                    {(flows.find((flow) => flow.id === btn.flow_id)?.json_definition.screens || []).map((screen) => (
+                                      <SelectItem key={screen.id} value={screen.id}>
+                                        {screen.title} ({screen.id})
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Input
+                                  value={btn.navigate_screen || ''}
+                                  onChange={(e) => updateButton(idx, btnIdx, { navigate_screen: e.target.value })}
+                                  placeholder="APPOINTMENT_FORM"
+                                  className="h-8"
+                                />
+                              )}
+                            </div>
+                            <div className="space-y-1 sm:col-span-2">
+                              <Label className="text-xs">Flow JSON</Label>
+                              <Textarea
+                                value={btn.flow_json || ''}
+                                onChange={(e) => updateButton(idx, btnIdx, { flow_json: e.target.value })}
+                                placeholder='{"prefill":{"source":"campaign"}}'
+                                rows={4}
+                                className="font-mono text-xs"
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {btn.type === 'OTP' && (
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">OTP Type</Label>
+                              <Select
+                                value={btn.otp_type || 'COPY_CODE'}
+                                onValueChange={(value) => updateButton(idx, btnIdx, { otp_type: value as ButtonField['otp_type'] })}
+                              >
+                                <SelectTrigger className="h-8">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="COPY_CODE">Copy Code</SelectItem>
+                                  <SelectItem value="ONE_TAP">One Tap</SelectItem>
+                                  <SelectItem value="ZERO_TAP">Zero Tap</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Autofill Text</Label>
+                              <Input
+                                value={btn.autofill_text || ''}
+                                onChange={(e) => updateButton(idx, btnIdx, { autofill_text: e.target.value })}
+                                placeholder="Tap to verify"
+                                className="h-8"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Package Name</Label>
+                              <Input
+                                value={btn.package_name || ''}
+                                onChange={(e) => updateButton(idx, btnIdx, { package_name: e.target.value })}
+                                placeholder="com.example.app"
+                                className="h-8"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Signature Hash</Label>
+                              <Input
+                                value={btn.signature_hash || ''}
+                                onChange={(e) => updateButton(idx, btnIdx, { signature_hash: e.target.value })}
+                                placeholder="App hash"
+                                className="h-8"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
-                    {(comp.buttons || []).length < 3 && (
+                    {(comp.buttons || []).length < 10 && (
                       <Button
                         type="button"
                         variant="outline"
@@ -470,7 +748,7 @@ export function CreateTemplatePage() {
                           key={btnIdx}
                           className="rounded bg-white dark:bg-gray-800 py-1.5 text-center text-sm font-medium text-blue-600 dark:text-blue-400"
                         >
-                          {btn.text || `Button ${btnIdx + 1}`}
+                          {(btn.text || btn.flow_name || btn.example || `Button ${btnIdx + 1}`)} <span className="text-[10px] uppercase text-muted-foreground">({btn.type})</span>
                         </div>
                       ))}
                     </div>

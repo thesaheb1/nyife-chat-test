@@ -84,6 +84,7 @@ export interface Tag {
   user_id: string;
   name: string;
   color: string;
+  contact_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -98,6 +99,32 @@ export interface Group {
   dynamic_filters: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface GroupDetailResult {
+  group: Group;
+  members: Contact[];
+  meta: PaginationMeta;
+}
+
+export interface ContactImportResult {
+  total: number;
+  created: number;
+  restored?: number;
+  updated: number;
+  skipped: number;
+  errors: Array<{ row: number | null; phone: string; reason: string }>;
+}
+
+export interface GroupImportResult {
+  total: number;
+  groups_created: number;
+  contacts_created: number;
+  contacts_restored: number;
+  contacts_updated: number;
+  memberships_added: number;
+  skipped: number;
+  errors: Array<{ row: number | null; phone: string; reason: string }>;
 }
 
 // Templates
@@ -118,6 +145,132 @@ export interface Template {
   last_synced_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type FlowCategory =
+  | 'LEAD_GENERATION'
+  | 'LEAD_QUALIFICATION'
+  | 'APPOINTMENT_BOOKING'
+  | 'SLOT_BOOKING'
+  | 'ORDER_PLACEMENT'
+  | 'RE_ORDERING'
+  | 'CUSTOMER_SUPPORT'
+  | 'TICKET_CREATION'
+  | 'PAYMENTS'
+  | 'COLLECTIONS'
+  | 'REGISTRATIONS'
+  | 'APPLICATIONS'
+  | 'DELIVERY_UPDATES'
+  | 'ADDRESS_CAPTURE'
+  | 'FEEDBACK'
+  | 'SURVEYS'
+  | 'OTHER';
+
+export type FlowStatus = 'DRAFT' | 'PUBLISHED' | 'DEPRECATED';
+
+export type FlowComponentType =
+  | 'TextHeading'
+  | 'TextSubheading'
+  | 'TextBody'
+  | 'TextInput'
+  | 'TextArea'
+  | 'Dropdown'
+  | 'RadioButtonsGroup'
+  | 'CheckboxGroup'
+  | 'DatePicker'
+  | 'Image'
+  | 'Footer';
+
+export interface FlowOption {
+  id: string;
+  title: string;
+  description?: string;
+  value?: string | number | boolean;
+}
+
+export interface FlowFooterAction {
+  type: 'complete' | 'navigate';
+  target_screen_id?: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface FlowComponent {
+  type: FlowComponentType;
+  name?: string;
+  text?: string;
+  label?: string;
+  helper_text?: string;
+  placeholder?: string;
+  required?: boolean;
+  min_length?: number;
+  max_length?: number;
+  default_value?: unknown;
+  options?: FlowOption[];
+  min_selections?: number;
+  max_selections?: number;
+  image_url?: string;
+  caption?: string;
+  action?: FlowFooterAction;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FlowScreen {
+  id: string;
+  title: string;
+  terminal?: boolean;
+  refresh_on_back?: boolean;
+  success_message?: string;
+  data_source?: Record<string, unknown>;
+  layout: {
+    type: string;
+    children: FlowComponent[];
+  };
+}
+
+export interface FlowDefinition {
+  version: string;
+  data_api_version?: string;
+  routing_model?: Record<string, string[]>;
+  screens: FlowScreen[];
+}
+
+export interface WhatsAppFlow {
+  id: string;
+  user_id: string;
+  waba_id: string | null;
+  wa_account_id: string | null;
+  meta_flow_id: string | null;
+  name: string;
+  categories: FlowCategory[];
+  status: FlowStatus;
+  json_version: string;
+  json_definition: FlowDefinition;
+  editor_state: Record<string, unknown> | null;
+  data_exchange_config: Record<string, unknown> | null;
+  preview_url: string | null;
+  validation_errors: string[];
+  has_local_changes: boolean;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FlowSubmission {
+  id: string;
+  user_id: string;
+  flow_id: string;
+  meta_flow_id: string;
+  contact_phone: string;
+  contact_id: string | null;
+  wa_account_id: string;
+  flow_token: string | null;
+  screen_id: string | null;
+  submission_data: Record<string, unknown>;
+  raw_payload: Record<string, unknown> | null;
+  automation_status: string;
+  created_at: string;
+  updated_at: string;
+  flow?: WhatsAppFlow;
 }
 
 // Campaigns
@@ -250,9 +403,12 @@ export interface Subscription {
   starts_at: string;
   expires_at: string | null;
   cancelled_at: string | null;
+  cancellation_reason?: string | null;
+  payment_id?: string | null;
   amount_paid: number;
   discount_amount: number;
   tax_amount: number;
+  coupon_id?: string | null;
   auto_renew: boolean;
   usage: SubscriptionUsage;
   plan?: Plan;
@@ -268,6 +424,40 @@ export interface SubscriptionUsage {
   team_members_used: number;
   organizations_used: number;
   whatsapp_numbers_used: number;
+}
+
+export interface RazorpayOrder {
+  id: string;
+  amount: number;
+  currency: string;
+  key_id: string;
+}
+
+export interface CouponValidationResult {
+  coupon_id: string;
+  code: string;
+  discount_type: 'percentage' | 'fixed';
+  discount_value: number;
+  discount_amount: number;
+  plan_price: number;
+  price_after_discount: number;
+}
+
+export interface SubscriptionCheckoutResult {
+  subscription: Subscription;
+  plan: Plan;
+  payment_required: boolean;
+  razorpay_order?: RazorpayOrder;
+  previous_subscription_id?: string;
+}
+
+export interface SubscriptionHistoryResult {
+  subscriptions: Subscription[];
+  meta: PaginationMeta;
+}
+
+export interface PlanDetailsResult {
+  plan: Plan;
 }
 
 // Wallet
@@ -378,6 +568,8 @@ export interface Webhook {
   name: string;
   url: string;
   events: string[];
+  secret?: string | null;
+  headers?: Record<string, string> | null;
   is_active: boolean;
   last_triggered_at: string | null;
   failure_count: number;

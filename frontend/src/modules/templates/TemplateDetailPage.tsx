@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTemplate, useDeleteTemplate, usePublishTemplate } from './useTemplates';
+import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-800',
@@ -43,10 +45,22 @@ export function TemplateDetailPage() {
   const { data: template, isLoading } = useTemplate(id);
   const deleteTemplate = useDeleteTemplate();
   const publishTemplate = usePublishTemplate();
+  const { data: waAccounts } = useWhatsAppAccounts();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [wabaId, setWabaId] = useState('');
+  const wabaOptions = Array.from(
+    new Map(
+      (waAccounts || []).map((account) => [
+        account.waba_id,
+        {
+          value: account.waba_id,
+          label: `${account.verified_name || account.display_phone || account.waba_id} (${account.waba_id})`,
+        },
+      ])
+    ).values()
+  );
 
   const handleDelete = async () => {
     if (!id) return;
@@ -258,6 +272,21 @@ export function TemplateDetailPage() {
           </p>
           <div className="space-y-2">
             <Label>WABA ID</Label>
+            {wabaOptions.length > 0 && (
+              <Select value={wabaId || template.waba_id || 'manual'} onValueChange={(value) => setWabaId(value === 'manual' ? '' : value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Manual entry</SelectItem>
+                  {wabaOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Input
               value={wabaId}
               onChange={(e) => setWabaId(e.target.value)}

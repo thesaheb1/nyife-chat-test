@@ -1,13 +1,18 @@
 'use strict';
 
+const {
+  getComparableMessageCandidates,
+} = require('./messageContent');
+
 /**
  * Matches an incoming message against a list of automations.
  * Automations should already be sorted by priority DESC.
  * Returns the first matching automation or null.
  */
 function findMatchingAutomation(automations, message) {
-  const messageText = (message.text?.body || message.text || '').toString();
+  const messageCandidates = getComparableMessageCandidates(message);
   const messageType = message.type || 'text';
+  let fallbackAutomation = null;
 
   for (const automation of automations) {
     const trigger = automation.trigger_config || {};
@@ -15,35 +20,44 @@ function findMatchingAutomation(automations, message) {
     const triggerValue = trigger.trigger_value || '';
     const matchCase = trigger.match_case !== undefined ? trigger.match_case : false;
 
+    if (triggerType === 'fallback' && !fallbackAutomation) {
+      fallbackAutomation = automation;
+      continue;
+    }
+
     let matched = false;
 
     switch (triggerType) {
       case 'exact': {
-        const text = matchCase ? messageText : messageText.toLowerCase();
         const value = matchCase ? triggerValue : triggerValue.toLowerCase();
-        matched = text === value;
+        matched = messageCandidates.some((candidate) => {
+          const text = matchCase ? candidate : candidate.toLowerCase();
+          return text === value;
+        });
         break;
       }
       case 'contains': {
-        const text = matchCase ? messageText : messageText.toLowerCase();
         const value = matchCase ? triggerValue : triggerValue.toLowerCase();
-        matched = text.includes(value);
+        matched = messageCandidates.some((candidate) => {
+          const text = matchCase ? candidate : candidate.toLowerCase();
+          return text.includes(value);
+        });
         break;
       }
       case 'keyword': {
-        // Same as contains for backward compat
-        const text = matchCase ? messageText : messageText.toLowerCase();
         const value = matchCase ? triggerValue : triggerValue.toLowerCase();
-        matched = text.includes(value);
+        matched = messageCandidates.some((candidate) => {
+          const text = matchCase ? candidate : candidate.toLowerCase();
+          return text.includes(value);
+        });
         break;
       }
       case 'regex': {
         try {
           const flags = matchCase ? '' : 'i';
           const regex = new RegExp(triggerValue, flags);
-          matched = regex.test(messageText);
+          matched = messageCandidates.some((candidate) => regex.test(candidate));
         } catch (e) {
-          // Invalid regex — skip
           matched = false;
         }
         break;
@@ -56,7 +70,6 @@ function findMatchingAutomation(automations, message) {
         matched = false;
     }
 
-    // Check additional conditions if present
     if (matched && automation.conditions) {
       matched = evaluateConditions(automation.conditions, message);
     }
@@ -66,6 +79,10 @@ function findMatchingAutomation(automations, message) {
     }
   }
 
+  if (fallbackAutomation && evaluateConditions(fallbackAutomation.conditions || {}, message)) {
+    return fallbackAutomation;
+  }
+
   return null;
 }
 
@@ -73,7 +90,6 @@ function findMatchingAutomation(automations, message) {
  * Evaluates additional conditions for an automation.
  */
 function evaluateConditions(conditions, message) {
-  // Time-of-day condition
   if (conditions.time_of_day) {
     const now = new Date();
     const currentHour = now.getHours();

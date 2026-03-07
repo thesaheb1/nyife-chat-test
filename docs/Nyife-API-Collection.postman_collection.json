@@ -745,6 +745,46 @@
           "response": []
         },
         {
+          "name": "Change Subscription Plan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/subscriptions/change-plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "change-plan"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_id\": \"{{planId}}\",\n  \"coupon_code\": \"SAVE20\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Verify Subscription Payment",
           "request": {
             "method": "POST",
@@ -774,7 +814,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"razorpay_order_id\": \"order_123\",\n  \"razorpay_payment_id\": \"pay_123\",\n  \"razorpay_signature\": \"sig_123\"\n}",
+              "raw": "{\n  \"subscription_id\": \"{{subscriptionId}}\",\n  \"razorpay_order_id\": \"order_123\",\n  \"razorpay_payment_id\": \"pay_123\",\n  \"razorpay_signature\": \"sig_123\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -6321,6 +6361,11 @@
     },
     {
       "key": "planId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "subscriptionId",
       "value": "",
       "type": "string"
     },

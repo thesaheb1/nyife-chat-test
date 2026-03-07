@@ -2,6 +2,7 @@
 
 const {
   subscribeSchema,
+  changePlanSchema,
   verifyPaymentSchema,
   cancelSchema,
   validateCouponSchema,
@@ -46,6 +47,16 @@ describe('verifyPaymentSchema', () => {
 
   it('should reject non-uuid subscription_id', () => {
     expect(verifyPaymentSchema.safeParse({ ...valid, subscription_id: 'bad' }).success).toBe(false);
+  });
+});
+
+describe('changePlanSchema', () => {
+  it('should validate with valid plan_id', () => {
+    expect(changePlanSchema.safeParse({ plan_id: VALID_UUID }).success).toBe(true);
+  });
+
+  it('should accept optional coupon_code', () => {
+    expect(changePlanSchema.safeParse({ plan_id: VALID_UUID, coupon_code: 'SAVE20' }).success).toBe(true);
   });
 });
 

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Plus, ArrowLeft, Pencil, Trash2 } from 'lucide-react';
+import { Plus, ArrowLeft, Trash2 } from 'lucide-react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -208,7 +208,7 @@ export function CouponsPage() {
                 <Input type="number" {...register('max_uses', { valueAsNumber: true })} />
               </div>
               <div className="flex items-center gap-2 pt-6">
-                <Switch checked={watch('is_active')} onCheckedChange={(v) => setValue('is_active', v)} />
+                <Switch checked={Boolean(watch('is_active'))} onCheckedChange={(v) => setValue('is_active', v)} />
                 <Label>Active</Label>
               </div>
             </div>

@@ -31,6 +31,8 @@ const upload = multer({
 
 router.post('/tags', authenticate, asyncHandler(controller.createTag));
 router.get('/tags', authenticate, asyncHandler(controller.listTags));
+router.post('/tags/bulk-assign', authenticate, asyncHandler(controller.bulkAssignTagsToContacts));
+router.delete('/tags/bulk-assign', authenticate, asyncHandler(controller.bulkRemoveTagsFromContacts));
 router.put('/tags/:id', authenticate, asyncHandler(controller.updateTag));
 router.delete('/tags/:id', authenticate, asyncHandler(controller.deleteTag));
 
@@ -38,6 +40,9 @@ router.delete('/tags/:id', authenticate, asyncHandler(controller.deleteTag));
 
 router.post('/groups', authenticate, asyncHandler(controller.createGroup));
 router.get('/groups', authenticate, asyncHandler(controller.listGroups));
+router.post('/groups/import/csv', authenticate, upload.single('file'), asyncHandler(controller.importGroupsCsv));
+router.post('/groups/bulk-memberships', authenticate, asyncHandler(controller.bulkAssignContactsToGroups));
+router.delete('/groups/bulk-memberships', authenticate, asyncHandler(controller.bulkRemoveContactsFromGroups));
 router.get('/groups/:id', authenticate, asyncHandler(controller.getGroup));
 router.put('/groups/:id', authenticate, asyncHandler(controller.updateGroup));
 router.delete('/groups/:id', authenticate, asyncHandler(controller.deleteGroup));
@@ -47,7 +52,10 @@ router.delete('/groups/:id/members', authenticate, asyncHandler(controller.remov
 // ─── Bulk/Import Routes (MUST come before /:id) ──────────────────────────────
 
 router.post('/bulk-delete', authenticate, asyncHandler(controller.bulkDeleteContacts));
+router.get('/import/csv/sample/contacts', authenticate, asyncHandler(controller.downloadContactCsvSample));
+router.get('/import/csv/sample/groups', authenticate, asyncHandler(controller.downloadGroupCsvSample));
 router.post('/import/csv', authenticate, upload.single('file'), asyncHandler(controller.importCsv));
+router.post('/add-tag', authenticate, asyncHandler(controller.addTagByPhone));
 
 // ─── Contact CRUD Routes ─────────────────────────────────────────────────────
 

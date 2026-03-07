@@ -6,19 +6,19 @@ export const createPlanSchema = z.object({
   description: z.string().max(500).optional(),
   type: z.enum(['monthly', 'yearly', 'lifetime']),
   price: z.number().min(0, 'Price must be 0 or more'),
-  currency: z.string().default('INR'),
+  currency: z.string().optional(),
   max_contacts: z.number().int().min(1),
   max_templates: z.number().int().min(1),
   max_campaigns_per_month: z.number().int().min(1),
   max_messages_per_month: z.number().int().min(1),
   max_team_members: z.number().int().min(1),
   max_whatsapp_numbers: z.number().int().min(1),
-  has_priority_support: z.boolean().default(false),
+  has_priority_support: z.boolean().optional(),
   marketing_message_price: z.number().min(0),
   utility_message_price: z.number().min(0),
   auth_message_price: z.number().min(0),
-  sort_order: z.number().int().default(0),
-  is_active: z.boolean().default(true),
+  sort_order: z.number().int().optional(),
+  is_active: z.boolean().optional(),
 });
 
 export type CreatePlanFormData = z.infer<typeof createPlanSchema>;
@@ -31,7 +31,7 @@ export const createCouponSchema = z.object({
   max_uses: z.number().int().min(1).optional(),
   valid_from: z.string().min(1, 'Valid from is required'),
   valid_until: z.string().optional(),
-  is_active: z.boolean().default(true),
+  is_active: z.boolean().optional(),
 });
 
 export type CreateCouponFormData = z.infer<typeof createCouponSchema>;

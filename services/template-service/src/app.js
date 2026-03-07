@@ -10,6 +10,7 @@ const winston = require('winston');
 
 const config = require('./config');
 const templateRoutes = require('./routes/template.routes');
+const flowRoutes = require('./routes/flow.routes');
 const { errorHandler } = require('@nyife/shared-middleware');
 
 // Logger
@@ -43,6 +44,7 @@ app.use(
       'Authorization',
       'X-Requested-With',
       'x-user-id',
+      'x-tenant-user-id',
       'x-user-role',
       'x-wa-access-token',
     ],
@@ -73,6 +75,7 @@ app.get('/health', (_req, res) => {
 
 // Template routes
 app.use('/api/v1/templates', templateRoutes);
+app.use('/api/v1/flows', flowRoutes);
 
 // 404
 app.use((_req, res) => {

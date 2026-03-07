@@ -36,7 +36,9 @@ const listContactsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().max(200).optional(),
+  ids: z.string().max(5000).optional(),
   tag_id: z.string().uuid('Invalid tag ID').optional(),
+  tag_ids: z.string().max(5000).optional(),
   group_id: z.string().uuid('Invalid group ID').optional(),
   opted_in: z
     .enum(['true', 'false'])
@@ -79,6 +81,14 @@ const addTagsSchema = z.object({
     .min(1, 'At least one tag ID is required'),
 });
 
+const addTagByPhoneSchema = z.object({
+  phone: z
+    .string()
+    .min(1, 'Phone number is required')
+    .regex(e164Regex, 'Phone must be in E.164 format (e.g., +919876543210)'),
+  tag_id: z.string().uuid('Invalid tag ID'),
+});
+
 const createGroupSchema = z.object({
   name: z
     .string()
@@ -87,6 +97,10 @@ const createGroupSchema = z.object({
   description: z.string().max(2000).optional(),
   type: z.enum(['static', 'dynamic']).default('static').optional(),
   dynamic_filters: z.record(z.any()).optional(),
+  contact_ids: z
+    .array(z.string().uuid('Invalid contact ID'))
+    .max(500, 'Cannot assign more than 500 contacts while creating a group')
+    .optional(),
 });
 
 const updateGroupSchema = z.object({
@@ -105,6 +119,34 @@ const removeGroupMembersSchema = z.object({
   contact_ids: z
     .array(z.string().uuid('Invalid contact ID'))
     .min(1, 'At least one contact ID is required'),
+});
+
+const listGroupsSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().max(200).optional(),
+});
+
+const bulkGroupMembershipSchema = z.object({
+  group_ids: z
+    .array(z.string().uuid('Invalid group ID'))
+    .min(1, 'At least one group ID is required')
+    .max(100, 'Cannot update more than 100 groups at once'),
+  contact_ids: z
+    .array(z.string().uuid('Invalid contact ID'))
+    .min(1, 'At least one contact ID is required')
+    .max(500, 'Cannot update more than 500 contacts at once'),
+});
+
+const bulkTagAssignmentSchema = z.object({
+  tag_ids: z
+    .array(z.string().uuid('Invalid tag ID'))
+    .min(1, 'At least one tag ID is required')
+    .max(100, 'Cannot update more than 100 tags at once'),
+  contact_ids: z
+    .array(z.string().uuid('Invalid contact ID'))
+    .min(1, 'At least one contact ID is required')
+    .max(500, 'Cannot update more than 500 contacts at once'),
 });
 
 const idParamSchema = z.object({
@@ -133,10 +175,14 @@ module.exports = {
   createTagSchema,
   updateTagSchema,
   addTagsSchema,
+  addTagByPhoneSchema,
   createGroupSchema,
   updateGroupSchema,
   addGroupMembersSchema,
   removeGroupMembersSchema,
+  listGroupsSchema,
+  bulkGroupMembershipSchema,
+  bulkTagAssignmentSchema,
   idParamSchema,
   tagIdParamSchema,
   groupIdParamSchema,

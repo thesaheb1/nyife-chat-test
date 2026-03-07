@@ -7,10 +7,23 @@ const { QueryTypes } = require('sequelize');
 
 const { sequelize, AdminRole, SubAdmin, AdminSetting } = require('../models');
 const { AppError } = require('@nyife/shared-middleware');
-const { getPagination, getPaginationMeta } = require('@nyife/shared-utils');
+const { getPagination, getPaginationMeta, slugify } = require('@nyife/shared-utils');
 const config = require('../config');
 
 const BCRYPT_ROUNDS = 12;
+
+function normalizePlanRecord(plan) {
+  if (!plan) {
+    return plan;
+  }
+
+  return {
+    ...plan,
+    has_priority_support: Boolean(plan.has_priority_support),
+    is_active: Boolean(plan.is_active),
+    features: typeof plan.features === 'string' ? JSON.parse(plan.features) : plan.features,
+  };
+}
 
 // ===========================================================================
 // SUB-ADMIN MANAGEMENT
@@ -756,9 +769,22 @@ async function getUserInvoices(userId, filters) {
 async function createPlan(data) {
   const id = uuidv4();
   const now = new Date();
+  const slug = slugify(data.slug || data.name);
+
+  const [existingBySlug] = await sequelize.query(
+    'SELECT id FROM sub_plans WHERE slug = :slug LIMIT 1',
+    {
+      replacements: { slug },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  if (existingBySlug) {
+    throw new AppError('A plan with this slug already exists', 409);
+  }
 
   const columns = [
-    'id', 'name', 'description', 'type', 'price', 'currency',
+    'id', 'name', 'slug', 'description', 'type', 'price', 'currency',
     'max_contacts', 'max_templates', 'max_campaigns_per_month', 'max_messages_per_month',
     'max_team_members', 'max_organizations', 'max_whatsapp_numbers',
     'has_priority_support', 'marketing_message_price', 'utility_message_price',
@@ -769,6 +795,7 @@ async function createPlan(data) {
   const values = {
     id,
     name: data.name,
+    slug,
     description: data.description || null,
     type: data.type,
     price: data.price,
@@ -786,7 +813,7 @@ async function createPlan(data) {
     auth_message_price: data.auth_message_price || 0,
     features: data.features ? JSON.stringify(data.features) : null,
     sort_order: data.sort_order || 0,
-    is_active: true,
+    is_active: data.is_active ?? true,
     created_at: now,
     updated_at: now,
   };
@@ -799,7 +826,7 @@ async function createPlan(data) {
     { replacements: values, type: QueryTypes.INSERT }
   );
 
-  return { id, ...data, is_active: true, created_at: now, updated_at: now };
+  return getPlan(id);
 }
 
 /**
@@ -820,7 +847,7 @@ async function listPlans(filters) {
     const total = parseInt(countResult.total, 10);
 
     const plans = await sequelize.query(
-      `SELECT id, name, description, type, price, currency,
+      `SELECT id, name, slug, description, type, price, currency,
               max_contacts, max_templates, max_campaigns_per_month, max_messages_per_month,
               max_team_members, max_organizations, max_whatsapp_numbers,
               has_priority_support, marketing_message_price, utility_message_price,
@@ -836,10 +863,7 @@ async function listPlans(filters) {
     );
 
     // Parse features JSON if it's a string
-    const parsedPlans = plans.map((p) => ({
-      ...p,
-      features: typeof p.features === 'string' ? JSON.parse(p.features) : p.features,
-    }));
+    const parsedPlans = plans.map(normalizePlanRecord);
 
     const meta = getPaginationMeta(total, page, limit);
     return { data: parsedPlans, meta };
@@ -859,7 +883,7 @@ async function listPlans(filters) {
  */
 async function getPlan(planId) {
   const [plan] = await sequelize.query(
-    `SELECT id, name, description, type, price, currency,
+    `SELECT id, name, slug, description, type, price, currency,
             max_contacts, max_templates, max_campaigns_per_month, max_messages_per_month,
             max_team_members, max_organizations, max_whatsapp_numbers,
             has_priority_support, marketing_message_price, utility_message_price,
@@ -873,9 +897,7 @@ async function getPlan(planId) {
     throw new AppError('Plan not found', 404);
   }
 
-  plan.features = typeof plan.features === 'string' ? JSON.parse(plan.features) : plan.features;
-
-  return plan;
+  return normalizePlanRecord(plan);
 }
 
 /**
@@ -904,8 +926,26 @@ async function updatePlan(planId, data) {
     'max_contacts', 'max_templates', 'max_campaigns_per_month', 'max_messages_per_month',
     'max_team_members', 'max_organizations', 'max_whatsapp_numbers',
     'has_priority_support', 'marketing_message_price', 'utility_message_price',
-    'auth_message_price', 'sort_order',
+    'auth_message_price', 'sort_order', 'is_active',
   ];
+
+  if (data.slug !== undefined) {
+    const slug = slugify(data.slug);
+    const [existingBySlug] = await sequelize.query(
+      'SELECT id FROM sub_plans WHERE slug = :slug AND id <> :planId LIMIT 1',
+      {
+        replacements: { slug, planId },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    if (existingBySlug) {
+      throw new AppError('A plan with this slug already exists', 409);
+    }
+
+    updateFields.push('slug = :slug');
+    replacements.slug = slug;
+  }
 
   for (const field of allowedFields) {
     if (data[field] !== undefined) {
@@ -941,7 +981,7 @@ async function updatePlan(planId, data) {
  */
 async function deletePlan(planId) {
   const [existing] = await sequelize.query(
-    'SELECT id FROM sub_plans WHERE id = :planId AND deleted_at IS NULL',
+    'SELECT id, slug FROM sub_plans WHERE id = :planId AND deleted_at IS NULL',
     { replacements: { planId }, type: QueryTypes.SELECT }
   );
 
@@ -964,9 +1004,10 @@ async function deletePlan(planId) {
   }
 
   const now = new Date();
+  const deletedSlug = `${existing.slug}--deleted--${Date.now()}`;
   await sequelize.query(
-    'UPDATE sub_plans SET deleted_at = :now, updated_at = :now WHERE id = :planId',
-    { replacements: { now, planId }, type: QueryTypes.UPDATE }
+    'UPDATE sub_plans SET slug = :deletedSlug, deleted_at = :now, updated_at = :now WHERE id = :planId',
+    { replacements: { deletedSlug, now, planId }, type: QueryTypes.UPDATE }
   );
 }
 
@@ -1222,6 +1263,50 @@ async function deleteCoupon(couponId) {
 // ===========================================================================
 // NOTIFICATIONS / BROADCASTS
 // ===========================================================================
+
+/**
+ * Sends a direct email from the admin panel through email-service.
+ *
+ * @param {object} data - { type, recipients, subject, body }
+ * @param {string} adminUserId - Admin user UUID
+ * @returns {Promise<object>} Email-service response payload
+ */
+async function sendAdminEmail(data, adminUserId) {
+  try {
+    const response = await axios.post(
+      `${config.emailServiceUrl}/api/v1/emails/send`,
+      {
+        to_emails: data.recipients,
+        type: data.type || 'transactional',
+        subject: data.subject,
+        html_body: data.body,
+        meta: {
+          source: 'admin_panel',
+          admin_user_id: adminUserId,
+        },
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': adminUserId,
+          'x-user-role': 'super_admin',
+        },
+        timeout: 15000,
+      }
+    );
+
+    return response.data.data || response.data;
+  } catch (err) {
+    if (err.response) {
+      throw new AppError(
+        err.response.data?.message || 'Failed to send email',
+        err.response.status
+      );
+    }
+
+    throw new AppError('Email service is unavailable', 503);
+  }
+}
 
 /**
  * Creates a broadcast notification to all users or specific users.
@@ -1604,6 +1689,7 @@ module.exports = {
   deleteCoupon,
 
   // Notifications
+  sendAdminEmail,
   createBroadcast,
   listBroadcasts,
 

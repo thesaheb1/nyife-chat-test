@@ -7,6 +7,8 @@ const subscribeSchema = z.object({
   coupon_code: z.string().max(50).optional(),
 });
 
+const changePlanSchema = subscribeSchema;
+
 const verifyPaymentSchema = z.object({
   razorpay_order_id: z.string().min(1, 'Order ID is required'),
   razorpay_payment_id: z.string().min(1, 'Payment ID is required'),
@@ -29,7 +31,9 @@ const checkLimitParamsSchema = z.object({
     'contacts',
     'templates',
     'campaigns',
+    'campaigns_per_month',
     'messages',
+    'messages_per_month',
     'team_members',
     'organizations',
     'whatsapp_numbers',
@@ -41,12 +45,16 @@ const incrementUsageSchema = z.object({
     'contacts',
     'templates',
     'campaigns',
+    'campaigns_per_month',
     'messages',
+    'messages_per_month',
     'team_members',
     'organizations',
     'whatsapp_numbers',
   ]),
-  count: z.number().int().positive().default(1),
+  count: z.number().int().refine((value) => value !== 0, {
+    message: 'Count must not be zero',
+  }).default(1),
 });
 
 const paginationSchema = z.object({
@@ -56,6 +64,7 @@ const paginationSchema = z.object({
 
 module.exports = {
   subscribeSchema,
+  changePlanSchema,
   verifyPaymentSchema,
   cancelSchema,
   validateCouponSchema,

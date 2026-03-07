@@ -176,14 +176,14 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
             <div className="flex items-center gap-4 pt-2">
               <div className="flex items-center gap-2">
                 <Switch
-                  checked={watch('has_priority_support')}
+                  checked={Boolean(watch('has_priority_support'))}
                   onCheckedChange={(v) => setValue('has_priority_support', v)}
                 />
                 <Label className="text-sm">{t('admin.plans.prioritySupport')}</Label>
               </div>
               <div className="flex items-center gap-2">
                 <Switch
-                  checked={watch('is_active')}
+                  checked={Boolean(watch('is_active'))}
                   onCheckedChange={(v) => setValue('is_active', v)}
                 />
                 <Label className="text-sm">Active</Label>

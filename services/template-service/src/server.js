@@ -5,11 +5,14 @@ const app = require('./app');
 const config = require('./config');
 const { sequelize } = require('./models');
 const { testConnection, createRedisClient } = require('@nyife/shared-config');
+const { TOPICS } = require('@nyife/shared-events');
+const flowService = require('./services/flow.service');
 
 const server = http.createServer(app);
 
 let redis = null;
 let kafkaProducer = null;
+let kafkaConsumer = null;
 
 async function startServer() {
   // Test database connection
@@ -37,6 +40,30 @@ async function startServer() {
   } catch (err) {
     console.warn('[template-service] Could not connect to Kafka:', err.message);
     app.locals.kafkaProducer = null;
+  }
+
+  try {
+    const { createKafkaConsumer } = require('@nyife/shared-config');
+    kafkaConsumer = await createKafkaConsumer('template-service', 'template-service-flow-group');
+    await kafkaConsumer.subscribe({
+      topic: TOPICS.WHATSAPP_FLOW_COMPLETED,
+      fromBeginning: false,
+    });
+
+    await kafkaConsumer.run({
+      eachMessage: async ({ message }) => {
+        try {
+          const payload = JSON.parse(message.value.toString());
+          await flowService.storeFlowSubmission(payload);
+        } catch (err) {
+          console.error('[template-service] Failed to process whatsapp.flow.completed:', err.message);
+        }
+      },
+    });
+
+    console.log('[template-service] Kafka consumer subscribed to whatsapp.flow.completed');
+  } catch (err) {
+    console.warn('[template-service] Could not start Kafka consumer:', err.message);
   }
 
   server.listen(config.port, () => {
@@ -76,6 +103,15 @@ const gracefulShutdown = (signal) => {
         console.log('[template-service] Kafka producer disconnected');
       } catch (err) {
         console.error('[template-service] Error disconnecting Kafka:', err.message);
+      }
+    }
+
+    if (kafkaConsumer) {
+      try {
+        await kafkaConsumer.disconnect();
+        console.log('[template-service] Kafka consumer disconnected');
+      } catch (err) {
+        console.error('[template-service] Error disconnecting Kafka consumer:', err.message);
       }
     }
 

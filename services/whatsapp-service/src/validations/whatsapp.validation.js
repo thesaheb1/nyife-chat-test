@@ -53,6 +53,25 @@ const sendTemplateSchema = z.object({
 });
 
 /**
+ * Schema for sending a WhatsApp Flow message.
+ */
+const sendFlowSchema = z.object({
+  wa_account_id: z.string().uuid('Invalid WhatsApp account ID'),
+  to: z
+    .string()
+    .regex(/^\+?[1-9]\d{6,14}$/, 'Invalid phone number (E.164 format expected)'),
+  flow_id: z.string().min(1, 'Flow ID is required'),
+  flow_cta: z.string().min(1).max(30),
+  flow_token: z.string().max(255).optional(),
+  flow_message_version: z.string().max(10).optional(),
+  flow_action: z.enum(['navigate', 'data_exchange']).optional(),
+  flow_action_payload: z.record(z.any()).optional(),
+  body_text: z.string().max(1024).optional(),
+  header_text: z.string().max(60).optional(),
+  footer_text: z.string().max(60).optional(),
+});
+
+/**
  * Schema for listing messages with filters and pagination.
  */
 const listMessagesSchema = z.object({
@@ -93,12 +112,16 @@ const webhookVerifySchema = z.object({
   'hub.challenge': z.string().min(1, 'hub.challenge is required'),
 });
 
+const flowDataExchangeSchema = z.object({}).passthrough();
+
 module.exports = {
   embeddedSignupSchema,
   sendMessageSchema,
   sendTemplateSchema,
+  sendFlowSchema,
   listMessagesSchema,
   contactPhoneParamSchema,
   accountIdParamSchema,
   webhookVerifySchema,
+  flowDataExchangeSchema,
 };

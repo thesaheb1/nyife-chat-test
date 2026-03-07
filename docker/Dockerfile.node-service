@@ -1,0 +1,39 @@
+FROM node:20-alpine AS build
+
+ARG SERVICE_NAME
+
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++
+
+COPY package.json package-lock.json ./
+COPY shared ./shared
+COPY services ./services
+
+RUN npm ci --omit=dev --workspace "services/${SERVICE_NAME}"
+
+FROM node:20-alpine
+
+ARG SERVICE_NAME
+ARG SERVICE_PORT
+
+RUN addgroup -S nyife && adduser -S nyife -G nyife
+
+WORKDIR /app/services/${SERVICE_NAME}
+
+COPY --from=build /app/node_modules /app/node_modules
+COPY --from=build /app/shared /app/shared
+COPY --from=build /app/services/${SERVICE_NAME} /app/services/${SERVICE_NAME}
+
+RUN mkdir -p /app/uploads && chown -R nyife:nyife /app
+
+USER nyife
+
+ENV NODE_ENV=production
+
+EXPOSE ${SERVICE_PORT}
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -qO- "http://localhost:${SERVICE_PORT}/health" || exit 1
+
+CMD ["node", "src/server.js"]

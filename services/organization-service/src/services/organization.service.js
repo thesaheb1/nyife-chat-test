@@ -313,7 +313,7 @@ async function sendInviteEmail(organization, memberData, memberUser) {
     await publishEvent(producer, TOPICS.EMAIL_SEND, memberUser.id, {
       to: memberData.email,
       subject: `You've been invited to join ${organization.name}`,
-      template: 'team-invite',
+      template: 'team_invite',
       templateData: {
         organizationName: organization.name,
         firstName: memberData.first_name,

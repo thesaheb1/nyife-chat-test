@@ -11,6 +11,7 @@ router.get('/plans/:slug', asyncHandler(controller.getPlanBySlug));
 
 // Authenticated routes
 router.post('/subscribe', authenticate, asyncHandler(controller.subscribe));
+router.post('/change-plan', authenticate, asyncHandler(controller.changePlan));
 router.post('/verify-payment', authenticate, asyncHandler(controller.verifyPayment));
 router.get('/current', authenticate, asyncHandler(controller.getCurrentSubscription));
 router.post('/cancel', authenticate, asyncHandler(controller.cancelSubscription));

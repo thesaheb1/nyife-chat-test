@@ -2,6 +2,37 @@
 
 const jwt = require('jsonwebtoken');
 
+function parsePermissionsHeader(rawPermissions) {
+  if (!rawPermissions) {
+    return {};
+  }
+
+  if (typeof rawPermissions === 'object') {
+    return rawPermissions;
+  }
+
+  try {
+    return JSON.parse(rawPermissions);
+  } catch (_err) {
+    return {};
+  }
+}
+
+function buildInternalUser(req) {
+  const userId = req.headers['x-user-id'];
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    id: userId,
+    userId,
+    email: req.headers['x-user-email'] || '',
+    role: req.headers['x-user-role'] || 'user',
+    permissions: parsePermissionsHeader(req.headers['x-user-permissions']),
+  };
+}
+
 /**
  * Express middleware that authenticates requests via Bearer token.
  * Extracts the JWT from the Authorization header, verifies it,
@@ -12,6 +43,16 @@ const jwt = require('jsonwebtoken');
 const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
+
+    // Internal service-to-service requests rely on the API gateway's trusted headers.
+    // Those calls do not carry end-user JWTs again once the gateway has already verified them.
+    if (!authHeader) {
+      const internalUser = buildInternalUser(req);
+      if (internalUser) {
+        req.user = internalUser;
+        return next();
+      }
+    }
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
@@ -69,9 +110,10 @@ const authenticate = (req, res, next) => {
 const authenticateOptional = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
+    const internalUser = buildInternalUser(req);
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      req.user = null;
+      req.user = internalUser;
       return next();
     }
 
@@ -96,7 +138,7 @@ const authenticateOptional = (req, res, next) => {
     next();
   } catch (error) {
     // For optional auth, any token error just means no authenticated user
-    req.user = null;
+    req.user = buildInternalUser(req);
     next();
   }
 };

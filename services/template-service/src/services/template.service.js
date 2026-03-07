@@ -1,9 +1,9 @@
 'use strict';
 
-const { Op } = require('sequelize');
+const { Op, QueryTypes } = require('sequelize');
 const axios = require('axios');
-const { Template } = require('../models');
-const { AppError, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
+const { Template, Flow, sequelize } = require('../models');
+const { AppError, decrypt, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
 const config = require('../config');
 
 // ─── Helper: check subscription limit ──────────────────────────────────────
@@ -18,22 +18,21 @@ const config = require('../config');
 async function checkSubscriptionLimit(userId) {
   try {
     const response = await axios.get(
-      `${config.subscriptionServiceUrl}/api/v1/subscriptions/limits`,
+      `${config.subscriptionServiceUrl}/api/v1/subscriptions/check-limit/${userId}/templates`,
       {
-        headers: { 'x-user-id': userId },
         timeout: 5000,
       }
     );
 
     if (response.data && response.data.success) {
       const limits = response.data.data;
-      if (limits && typeof limits.templates_max === 'number') {
+      if (limits && typeof limits.limit === 'number') {
         const currentCount = await Template.count({
           where: { user_id: userId },
         });
-        if (currentCount >= limits.templates_max) {
+        if (currentCount >= limits.limit) {
           throw AppError.forbidden(
-            `Template limit reached. Your plan allows a maximum of ${limits.templates_max} templates. Please upgrade your plan.`
+            `Template limit reached. Your plan allows a maximum of ${limits.limit} templates. Please upgrade your plan.`
           );
         }
       }
@@ -61,19 +60,129 @@ async function checkSubscriptionLimit(userId) {
 async function notifySubscriptionUsage(userId, action) {
   try {
     await axios.post(
-      `${config.subscriptionServiceUrl}/api/v1/subscriptions/usage`,
+      `${config.subscriptionServiceUrl}/api/v1/subscriptions/increment-usage/${userId}`,
       {
         resource: 'templates',
-        action,
+        count: action === 'increment' ? 1 : -1,
       },
       {
-        headers: { 'x-user-id': userId },
         timeout: 5000,
       }
     );
   } catch (err) {
     console.warn('[template-service] Could not update subscription usage:', err.message);
   }
+}
+
+async function resolveAccessToken(userId, wabaId, providedAccessToken) {
+  if (providedAccessToken) {
+    return Array.isArray(providedAccessToken) ? providedAccessToken[0] : providedAccessToken;
+  }
+
+  if (config.meta.systemUserAccessToken) {
+    return config.meta.systemUserAccessToken;
+  }
+
+  if (!wabaId) {
+    return null;
+  }
+
+  let accounts = [];
+  try {
+    accounts = await sequelize.query(
+      `SELECT access_token
+       FROM wa_accounts
+       WHERE user_id = :userId
+         AND waba_id = :wabaId
+         AND status = :status
+         AND deleted_at IS NULL
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      {
+        replacements: {
+          userId,
+          wabaId: String(wabaId),
+          status: 'active',
+        },
+        type: QueryTypes.SELECT,
+      }
+    );
+  } catch (err) {
+    console.warn('[template-service] Failed to load stored WhatsApp account token:', err.message);
+    return null;
+  }
+
+  if (!accounts || accounts.length === 0 || !accounts[0].access_token) {
+    return null;
+  }
+
+  try {
+    return decrypt(accounts[0].access_token);
+  } catch (err) {
+    console.warn('[template-service] Failed to decrypt stored WhatsApp access token:', err.message);
+    return null;
+  }
+}
+
+async function resolveTemplateFlowButtons(userId, components) {
+  if (!Array.isArray(components)) {
+    return components;
+  }
+
+  const resolvedComponents = [];
+
+  for (const component of components) {
+    if (component.type !== 'BUTTONS' || !Array.isArray(component.buttons)) {
+      resolvedComponents.push(component);
+      continue;
+    }
+
+    const resolvedButtons = [];
+    for (const button of component.buttons) {
+      if (button.type !== 'FLOW' || !button.flow_id || !isUuid(button.flow_id)) {
+        resolvedButtons.push(button);
+        continue;
+      }
+
+      const linkedFlow = await Flow.findOne({
+        where: {
+          id: button.flow_id,
+          user_id: userId,
+        },
+      });
+
+      if (!linkedFlow) {
+        throw AppError.badRequest(`Linked flow ${button.flow_id} was not found for this template.`);
+      }
+
+      if (!linkedFlow.meta_flow_id) {
+        throw AppError.badRequest(
+          `Linked flow "${linkedFlow.name}" must be saved to Meta before this template can be published.`
+        );
+      }
+
+      const firstScreenId = linkedFlow.json_definition?.screens?.[0]?.id || undefined;
+
+      resolvedButtons.push({
+        ...button,
+        flow_id: linkedFlow.meta_flow_id,
+        flow_name: button.flow_name || linkedFlow.name,
+        flow_action: button.flow_action || 'navigate',
+        navigate_screen: button.navigate_screen || firstScreenId,
+      });
+    }
+
+    resolvedComponents.push({
+      ...component,
+      buttons: resolvedButtons,
+    });
+  }
+
+  return resolvedComponents;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
 }
 
 // ─── Create Template ───────────────────────────────────────────────────────
@@ -287,9 +396,11 @@ async function deleteTemplate(userId, templateId, accessToken) {
 
   // If the template has been published to Meta, delete from Meta first
   if (template.meta_template_id && template.waba_id) {
-    if (!accessToken) {
+    const resolvedAccessToken = await resolveAccessToken(userId, template.waba_id, accessToken);
+
+    if (!resolvedAccessToken) {
       throw AppError.badRequest(
-        'Access token (x-wa-access-token header) is required to delete a published template from Meta'
+        'WhatsApp access token is required to delete a published template. Configure META_SYSTEM_USER_ACCESS_TOKEN, connect an active WhatsApp account for this WABA, or provide x-wa-access-token.'
       );
     }
 
@@ -299,7 +410,7 @@ async function deleteTemplate(userId, templateId, accessToken) {
         {
           params: { name: template.name },
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${resolvedAccessToken}`,
           },
           timeout: 10000,
         }
@@ -363,18 +474,21 @@ async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) 
     );
   }
 
-  if (!accessToken) {
+  const resolvedAccessToken = await resolveAccessToken(userId, wabaId, accessToken);
+
+  if (!resolvedAccessToken) {
     throw AppError.badRequest(
-      'WhatsApp access token is required for publishing. Provide it via the x-wa-access-token header.'
+      'WhatsApp access token is required for publishing. Configure META_SYSTEM_USER_ACCESS_TOKEN, connect an active WhatsApp account for this WABA, or provide x-wa-access-token.'
     );
   }
 
   // Build Meta API payload
+  const resolvedComponents = await resolveTemplateFlowButtons(userId, template.components);
   const payload = {
     name: template.name,
     language: template.language,
     category: template.category,
-    components: template.components,
+    components: resolvedComponents,
   };
 
   // Include example values if present (needed for templates with media headers or variables)
@@ -388,7 +502,7 @@ async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) 
       payload,
       {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${resolvedAccessToken}`,
           'Content-Type': 'application/json',
         },
         timeout: 15000,
@@ -443,9 +557,11 @@ async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) 
  * @returns {Promise<{ synced: number, created: number, updated: number }>}
  */
 async function syncTemplates(userId, wabaId, accessToken) {
-  if (!accessToken) {
+  const resolvedAccessToken = await resolveAccessToken(userId, wabaId, accessToken);
+
+  if (!resolvedAccessToken) {
     throw AppError.badRequest(
-      'WhatsApp access token is required for syncing. Provide it via the x-wa-access-token header.'
+      'WhatsApp access token is required for syncing. Configure META_SYSTEM_USER_ACCESS_TOKEN, connect an active WhatsApp account for this WABA, or provide x-wa-access-token.'
     );
   }
 
@@ -461,7 +577,7 @@ async function syncTemplates(userId, wabaId, accessToken) {
     while (nextUrl) {
       const response = await axios.get(nextUrl, {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${resolvedAccessToken}`,
         },
         timeout: 15000,
       });
@@ -618,4 +734,5 @@ module.exports = {
   deleteTemplate,
   publishTemplate,
   syncTemplates,
+  resolveAccessToken,
 };

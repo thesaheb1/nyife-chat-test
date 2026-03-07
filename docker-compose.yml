@@ -1,4 +1,6 @@
-version: '3.8'
+x-node-service-build: &node-service-build
+  context: .
+  dockerfile: docker/Dockerfile.node-service
 
 services:
   # ─── Infrastructure ───────────────────────────────────────────────────────────
@@ -63,7 +65,7 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29092"]
+      test: ["CMD-SHELL", "cub kafka-ready -b localhost:29092 1 20 >/dev/null 2>&1"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -106,8 +108,10 @@ services:
 
   api-gateway:
     build:
-      context: .
-      dockerfile: services/api-gateway/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: api-gateway
+        SERVICE_PORT: 3000
     restart: unless-stopped
     env_file:
       - .env
@@ -130,8 +134,10 @@ services:
 
   auth-service:
     build:
-      context: .
-      dockerfile: services/auth-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: auth-service
+        SERVICE_PORT: 3001
     restart: unless-stopped
     env_file:
       - .env
@@ -155,8 +161,10 @@ services:
 
   user-service:
     build:
-      context: .
-      dockerfile: services/user-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: user-service
+        SERVICE_PORT: 3002
     restart: unless-stopped
     env_file:
       - .env
@@ -180,8 +188,10 @@ services:
 
   subscription-service:
     build:
-      context: .
-      dockerfile: services/subscription-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: subscription-service
+        SERVICE_PORT: 3003
     restart: unless-stopped
     env_file:
       - .env
@@ -205,8 +215,10 @@ services:
 
   wallet-service:
     build:
-      context: .
-      dockerfile: services/wallet-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: wallet-service
+        SERVICE_PORT: 3004
     restart: unless-stopped
     env_file:
       - .env
@@ -230,14 +242,17 @@ services:
 
   contact-service:
     build:
-      context: .
-      dockerfile: services/contact-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: contact-service
+        SERVICE_PORT: 3005
     restart: unless-stopped
     env_file:
       - .env
     environment:
       NODE_ENV: production
       CONTACT_SERVICE_PORT: 3005
+      SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
@@ -255,14 +270,17 @@ services:
 
   template-service:
     build:
-      context: .
-      dockerfile: services/template-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: template-service
+        SERVICE_PORT: 3006
     restart: unless-stopped
     env_file:
       - .env
     environment:
       NODE_ENV: production
       TEMPLATE_SERVICE_PORT: 3006
+      SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
@@ -280,14 +298,17 @@ services:
 
   campaign-service:
     build:
-      context: .
-      dockerfile: services/campaign-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: campaign-service
+        SERVICE_PORT: 3007
     restart: unless-stopped
     env_file:
       - .env
     environment:
       NODE_ENV: production
       CAMPAIGN_SERVICE_PORT: 3007
+      SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
@@ -307,8 +328,10 @@ services:
 
   chat-service:
     build:
-      context: .
-      dockerfile: services/chat-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: chat-service
+        SERVICE_PORT: 3008
     restart: unless-stopped
     env_file:
       - .env
@@ -332,14 +355,17 @@ services:
 
   whatsapp-service:
     build:
-      context: .
-      dockerfile: services/whatsapp-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: whatsapp-service
+        SERVICE_PORT: 3009
     restart: unless-stopped
     env_file:
       - .env
     environment:
       NODE_ENV: production
       WHATSAPP_SERVICE_PORT: 3009
+      SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
@@ -359,8 +385,10 @@ services:
 
   automation-service:
     build:
-      context: .
-      dockerfile: services/automation-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: automation-service
+        SERVICE_PORT: 3010
     restart: unless-stopped
     env_file:
       - .env
@@ -386,8 +414,10 @@ services:
 
   organization-service:
     build:
-      context: .
-      dockerfile: services/organization-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: organization-service
+        SERVICE_PORT: 3011
     restart: unless-stopped
     env_file:
       - .env
@@ -411,8 +441,10 @@ services:
 
   notification-service:
     build:
-      context: .
-      dockerfile: services/notification-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: notification-service
+        SERVICE_PORT: 3012
     restart: unless-stopped
     env_file:
       - .env
@@ -438,8 +470,10 @@ services:
 
   email-service:
     build:
-      context: .
-      dockerfile: services/email-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: email-service
+        SERVICE_PORT: 3013
     restart: unless-stopped
     env_file:
       - .env
@@ -465,8 +499,10 @@ services:
 
   support-service:
     build:
-      context: .
-      dockerfile: services/support-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: support-service
+        SERVICE_PORT: 3014
     restart: unless-stopped
     env_file:
       - .env
@@ -490,14 +526,18 @@ services:
 
   admin-service:
     build:
-      context: .
-      dockerfile: services/admin-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: admin-service
+        SERVICE_PORT: 3015
     restart: unless-stopped
     env_file:
       - .env
     environment:
       NODE_ENV: production
       ADMIN_SERVICE_PORT: 3015
+      EMAIL_SERVICE_URL: http://email-service:3013
+      SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
@@ -515,8 +555,10 @@ services:
 
   analytics-service:
     build:
-      context: .
-      dockerfile: services/analytics-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: analytics-service
+        SERVICE_PORT: 3016
     restart: unless-stopped
     env_file:
       - .env
@@ -542,8 +584,10 @@ services:
 
   media-service:
     build:
-      context: .
-      dockerfile: services/media-service/Dockerfile
+      <<: *node-service-build
+      args:
+        SERVICE_NAME: media-service
+        SERVICE_PORT: 3017
     restart: unless-stopped
     env_file:
       - .env

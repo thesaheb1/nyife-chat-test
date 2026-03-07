@@ -46,6 +46,8 @@ export function DataTable<TData>({
   emptyMessage = 'No results found',
   onRowClick,
 }: DataTableProps<TData>) {
+  'use no memo';
+
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -58,6 +60,7 @@ export function DataTable<TData>({
               checked={table.getIsAllPageRowsSelected()}
               onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
               aria-label="Select all"
+              onClick={(event) => event.stopPropagation()}
             />
           ),
           cell: ({ row }) => (
@@ -65,6 +68,7 @@ export function DataTable<TData>({
               checked={row.getIsSelected()}
               onCheckedChange={(value) => row.toggleSelected(!!value)}
               aria-label="Select row"
+              onClick={(event) => event.stopPropagation()}
             />
           ),
           size: 40,
@@ -74,6 +78,9 @@ export function DataTable<TData>({
       ]
     : columns;
 
+  // TanStack Table is intentionally isolated inside this shared adapter.
+  // Its table instance exposes unstable functions that React Compiler should not memoize.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns: allColumns,
@@ -108,7 +115,7 @@ export function DataTable<TData>({
 
   return (
     <div>
-      <div className="rounded-md border">
+      <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (

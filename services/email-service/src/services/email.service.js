@@ -24,6 +24,35 @@ const transporter = nodemailer.createTransport({
 // Maximum retry attempts for failed emails
 const MAX_RETRIES = 3;
 
+function getTemplateNameCandidates(templateName) {
+  const trimmed = String(templateName || '').trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const alternate = trimmed.includes('-')
+    ? trimmed.replace(/-/g, '_')
+    : trimmed.includes('_')
+      ? trimmed.replace(/_/g, '-')
+      : null;
+
+  return alternate && alternate !== trimmed ? [trimmed, alternate] : [trimmed];
+}
+
+function normalizeTemplateVariables(variables) {
+  if (!variables || typeof variables !== 'object' || Array.isArray(variables)) {
+    return {};
+  }
+
+  const normalized = { ...variables };
+
+  if (!normalized.name && typeof normalized.firstName === 'string' && normalized.firstName.trim()) {
+    normalized.name = normalized.firstName.trim();
+  }
+
+  return normalized;
+}
+
 // ────────────────────────────────────────────────
 // Email Sending
 // ────────────────────────────────────────────────
@@ -63,18 +92,27 @@ async function sendEmail(emailData) {
   let resolvedTemplateName = null;
   let storedVariables = null;
 
+  if (!Array.isArray(to_emails) || to_emails.length === 0) {
+    throw AppError.badRequest('At least one recipient email is required');
+  }
+
   // If a template name is provided, look up the template and render it
   if (template_name) {
+    const templateCandidates = getTemplateNameCandidates(template_name);
     const emailTemplate = await EmailTemplate.findOne({
-      where: { name: template_name, is_active: true },
+      where: {
+        name: { [Op.in]: templateCandidates },
+        is_active: true,
+      },
+      order: [['name', 'ASC']],
     });
 
     if (!emailTemplate) {
       throw AppError.notFound(`Email template '${template_name}' not found or is inactive`);
     }
 
-    resolvedTemplateName = template_name;
-    storedVariables = variables || {};
+    resolvedTemplateName = emailTemplate.name;
+    storedVariables = normalizeTemplateVariables(variables);
 
     const rendered = renderEmailFromTemplate(emailTemplate, storedVariables);
     finalSubject = subject || rendered.subject;

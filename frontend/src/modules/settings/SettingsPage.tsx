@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Loader2, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -23,14 +24,20 @@ import type { RootState } from '@/core/store';
 import type { User, UserSettings, ApiResponse } from '@/core/types';
 import { profileSchema, preferencesSchema, changePasswordSchema } from './validations';
 import type { ProfileFormData, PreferencesFormData, ChangePasswordFormData } from './validations';
-
-interface WaAccount { id: string; display_phone: string; verified_name: string; status: string; quality_rating: string | null }
+import { useWhatsAppAccounts, useDisconnectWhatsAppAccount } from '@/modules/whatsapp/useWhatsAppAccounts';
 
 export function SettingsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">{t('settings.title')}</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">{t('settings.title')}</h1>
+        <Button variant="outline" onClick={() => navigate('/subscription')}>
+          Manage Subscription
+          <ArrowUpRight className="ml-2 h-4 w-4" />
+        </Button>
+      </div>
       <Tabs defaultValue="profile">
         <TabsList className="flex-wrap">
           <TabsTrigger value="profile">{t('settings.profile')}</TabsTrigger>
@@ -245,19 +252,9 @@ function PasswordTab() {
 
 // --- WhatsApp Tab ---
 function WhatsAppTab() {
-  const { data: accounts, isLoading } = useQuery<WaAccount[]>({
-    queryKey: ['wa-accounts'],
-    queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<{ accounts: WaAccount[] }>>(ENDPOINTS.WHATSAPP.ACCOUNTS);
-      return data.data.accounts;
-    },
-  });
-  const qc = useQueryClient();
-
-  const disconnect = useMutation({
-    mutationFn: async (id: string) => { await apiClient.delete(`${ENDPOINTS.WHATSAPP.ACCOUNTS}/${id}`); },
-    onSuccess: () => { toast.success('Account disconnected'); qc.invalidateQueries({ queryKey: ['wa-accounts'] }); },
-  });
+  const navigate = useNavigate();
+  const { data: accounts, isLoading } = useWhatsAppAccounts();
+  const disconnect = useDisconnectWhatsAppAccount();
 
   return (
     <Card className="max-w-lg">
@@ -281,7 +278,11 @@ function WhatsAppTab() {
           </div>
         ))}
         <Separator />
-        <p className="text-xs text-muted-foreground">To connect a new account, use Meta's Embedded Signup flow from the dashboard.</p>
+        <Button type="button" variant="outline" className="w-full" onClick={() => navigate('/whatsapp/connect')}>
+          Open Embedded Signup
+          <ArrowUpRight className="ml-2 h-4 w-4" />
+        </Button>
+        <p className="text-xs text-muted-foreground">Connected numbers remain isolated to the authenticated tenant and can be reused for template publishing, campaigns, chat, and automations.</p>
       </CardContent>
     </Card>
   );

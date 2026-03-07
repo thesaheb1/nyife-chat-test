@@ -133,6 +133,33 @@ describe('POST /api/v1/subscriptions/subscribe', () => {
   });
 });
 
+describe('POST /api/v1/subscriptions/change-plan', () => {
+  it('should return 201 on success', async () => {
+    subscriptionService.changePlan.mockResolvedValue({
+      payment_required: true,
+      previous_subscription_id: 'sub-old',
+      razorpay_order: { id: 'order_change' },
+    });
+
+    const res = await request(app)
+      .post('/api/v1/subscriptions/change-plan')
+      .set('Authorization', 'Bearer mock')
+      .send({ plan_id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.previous_subscription_id).toBe('sub-old');
+  });
+
+  it('should return 400 on invalid plan_id', async () => {
+    const res = await request(app)
+      .post('/api/v1/subscriptions/change-plan')
+      .set('Authorization', 'Bearer mock')
+      .send({ plan_id: 'not-a-uuid' });
+
+    expect(res.status).toBe(400);
+  });
+});
+
 // ─── POST /api/v1/subscriptions/verify-payment ──────────────────────────────
 
 describe('POST /api/v1/subscriptions/verify-payment', () => {

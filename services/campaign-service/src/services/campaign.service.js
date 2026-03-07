@@ -15,7 +15,7 @@ const config = require('../config');
 /**
  * Checks subscription limit for a given resource.
  * @param {string} userId
- * @param {string} resource - e.g., 'campaigns_per_month'
+ * @param {string} resource - e.g., 'campaigns'
  * @returns {Promise<{allowed: boolean, remaining: number}>}
  */
 async function checkSubscriptionLimit(userId, resource) {
@@ -215,8 +215,8 @@ async function resolveContacts(userId, targetType, targetConfig) {
  * Validates subscription limit, template existence, and calculates estimated cost.
  */
 async function createCampaign(userId, data) {
-  // 1. Check subscription limit for campaigns_per_month
-  const limitCheck = await checkSubscriptionLimit(userId, 'campaigns_per_month');
+  // 1. Check subscription limit for campaigns
+  const limitCheck = await checkSubscriptionLimit(userId, 'campaigns');
   if (!limitCheck.allowed) {
     throw AppError.forbidden(
       `Campaign limit reached. You have ${limitCheck.remaining} campaigns remaining this month.`
@@ -261,7 +261,7 @@ async function createCampaign(userId, data) {
   });
 
   // 6. Increment subscription usage
-  await incrementSubscriptionUsage(userId, 'campaigns_per_month', 1);
+  await incrementSubscriptionUsage(userId, 'campaigns', 1);
 
   return campaign;
 }
@@ -408,7 +408,7 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
   }
 
   // 1. Check subscription message limit
-  const msgLimitCheck = await checkSubscriptionLimit(userId, 'messages_per_month');
+  const msgLimitCheck = await checkSubscriptionLimit(userId, 'messages');
   if (!msgLimitCheck.allowed) {
     throw AppError.forbidden('Monthly message limit reached. Please upgrade your plan.');
   }

@@ -30,7 +30,7 @@ async function startServer() {
     console.warn('[automation-service] Could not connect to Redis:', err.message);
   }
 
-  // Connect to Kafka consumer for webhook.inbound topic
+  // Connect to Kafka consumer for inbound automation topics
   try {
     kafkaConsumer = await createKafkaConsumer('automation-service', 'automation-service-inbound-group');
 
@@ -38,21 +38,27 @@ async function startServer() {
       topic: TOPICS.WEBHOOK_INBOUND,
       fromBeginning: false,
     });
+    await kafkaConsumer.subscribe({
+      topic: TOPICS.WHATSAPP_FLOW_COMPLETED,
+      fromBeginning: false,
+    });
 
     await kafkaConsumer.run({
-      eachMessage: async ({ message }) => {
+      eachMessage: async ({ topic, message }) => {
         try {
           const payload = JSON.parse(message.value.toString());
-          if (payload.eventType === 'message') {
+          if (topic === TOPICS.WEBHOOK_INBOUND && payload.eventType === 'message') {
             await automationService.processInboundMessage(payload, redis);
+          } else if (topic === TOPICS.WHATSAPP_FLOW_COMPLETED) {
+            await automationService.processFlowSubmission(payload, redis);
           }
         } catch (err) {
-          console.error('[automation-service] Failed to process webhook.inbound:', err.message);
+          console.error('[automation-service] Failed to process automation topic:', err.message);
         }
       },
     });
 
-    console.log('[automation-service] Kafka consumer subscribed to webhook.inbound');
+    console.log('[automation-service] Kafka consumer subscribed to webhook.inbound and whatsapp.flow.completed');
   } catch (err) {
     console.warn('[automation-service] Could not start Kafka consumer:', err.message);
   }

@@ -10,6 +10,7 @@ const TOPICS = {
   NOTIFICATION_SEND: 'notification.send',
   EMAIL_SEND: 'email.send',
   WEBHOOK_INBOUND: 'webhook.inbound',
+  WHATSAPP_FLOW_COMPLETED: 'whatsapp.flow.completed',
   WALLET_TRANSACTION: 'wallet.transaction',
   USER_EVENTS: 'user.events',
 };

@@ -63,6 +63,11 @@ const walletActionSchema = z.object({
 
 const createPlanSchema = z.object({
   name: z.string().min(1, 'Plan name is required').max(100),
+  slug: z
+    .string()
+    .min(1, 'Plan slug is required')
+    .max(100)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Plan slug must contain only lowercase letters, numbers, and hyphens'),
   description: z.string().optional(),
   type: z.enum(['monthly', 'yearly', 'lifetime']),
   price: z.number().int().min(0),
@@ -80,6 +85,7 @@ const createPlanSchema = z.object({
   auth_message_price: z.number().int().min(0).default(0),
   features: z.record(z.any()).optional(),
   sort_order: z.number().int().min(0).default(0),
+  is_active: z.boolean().default(true),
 });
 
 const updatePlanSchema = createPlanSchema
@@ -130,6 +136,15 @@ const createNotificationSchema = z.object({
   target_type: z.enum(['all', 'specific_users']),
   target_user_ids: z.array(z.string().uuid()).optional(),
   send_email: z.boolean().default(false),
+});
+
+const sendAdminEmailSchema = z.object({
+  type: z.enum(['transactional', 'marketing', 'admin_broadcast']).default('transactional'),
+  recipients: z
+    .array(z.string().email('Invalid email address'))
+    .min(1, 'At least one recipient is required'),
+  subject: z.string().min(1, 'Subject is required').max(500),
+  body: z.string().min(1, 'Body is required'),
 });
 
 // ---------------------------------------------------------------------------
@@ -202,6 +217,7 @@ module.exports = {
   createCouponSchema,
   updateCouponSchema,
   createNotificationSchema,
+  sendAdminEmailSchema,
   updateSettingsSchema,
   createRoleSchema,
   updateRoleSchema,

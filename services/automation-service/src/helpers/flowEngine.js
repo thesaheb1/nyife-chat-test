@@ -2,6 +2,10 @@
 
 const FLOW_STATE_PREFIX = 'automation:flow:';
 const FLOW_TTL = 30 * 60; // 30 minutes
+const {
+  getComparableMessageCandidates,
+  getPrimaryMessageText,
+} = require('./messageContent');
 
 /**
  * Gets active flow state from Redis for a user+contact pair.
@@ -58,39 +62,46 @@ function processFlowStep(step, message, collectedData) {
       result.nextStepId = step.next || null;
       break;
 
+    case 'send_flow':
+      result.actions.push({ type: 'send_flow', config: step.config });
+      result.nextStepId = step.next || null;
+      break;
+
     case 'wait_for_reply':
       // This step was already waiting. The message IS the reply.
       // Store the reply text in collected data.
-      collectedData[step.id] = message.text?.body || message.text || '';
+      collectedData[step.id] = getPrimaryMessageText(message);
       result.nextStepId = step.branches?.received || step.next || null;
       break;
 
     case 'condition': {
       const operator = step.config?.operator || 'contains';
       const value = step.config?.value || '';
-      const messageText = (message.text?.body || message.text || '').toLowerCase();
+      const candidates = getComparableMessageCandidates(message);
+      const normalizedValue = String(value).toLowerCase();
 
       let conditionMet = false;
       switch (operator) {
         case 'equals':
-          conditionMet = messageText === value.toLowerCase();
+          conditionMet = candidates.some((candidate) => candidate.toLowerCase() === normalizedValue);
           break;
         case 'contains':
-          conditionMet = messageText.includes(value.toLowerCase());
+          conditionMet = candidates.some((candidate) => candidate.toLowerCase().includes(normalizedValue));
           break;
         case 'starts_with':
-          conditionMet = messageText.startsWith(value.toLowerCase());
+          conditionMet = candidates.some((candidate) => candidate.toLowerCase().startsWith(normalizedValue));
           break;
         case 'regex': {
           try {
-            conditionMet = new RegExp(value, 'i').test(messageText);
+            const regex = new RegExp(value, 'i');
+            conditionMet = candidates.some((candidate) => regex.test(candidate));
           } catch (e) {
             conditionMet = false;
           }
           break;
         }
         default:
-          conditionMet = messageText.includes(value.toLowerCase());
+          conditionMet = candidates.some((candidate) => candidate.toLowerCase().includes(normalizedValue));
       }
 
       result.nextStepId = conditionMet

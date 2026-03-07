@@ -3,7 +3,7 @@
 jest.mock('../src/models', () => ({
   Plan: { findAll: jest.fn(), findOne: jest.fn(), findByPk: jest.fn() },
   Coupon: { findOne: jest.fn(), increment: jest.fn() },
-  Subscription: { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn(), update: jest.fn() },
+  Subscription: { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn(), update: jest.fn(), destroy: jest.fn() },
   sequelize: { query: jest.fn(), QueryTypes: { UPDATE: 'UPDATE', SELECT: 'SELECT' } },
 }));
 

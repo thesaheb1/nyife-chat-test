@@ -1,7 +1,7 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bell, Moon, Sun, Monitor, LogOut, User, Settings } from 'lucide-react';
+import { Bell, Moon, Sun, Monitor, LogOut, User, Settings, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -107,6 +107,10 @@ export function Topbar() {
             <DropdownMenuItem onClick={() => navigate('/settings')}>
               <User className="mr-2 h-4 w-4" />
               {t('settings.profile')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate('/subscription')}>
+              <CreditCard className="mr-2 h-4 w-4" />
+              {t('nav.subscription')}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate('/settings')}>
               <Settings className="mr-2 h-4 w-4" />

@@ -2,44 +2,105 @@ import axios from 'axios';
 import type { AxiosRequestConfig } from 'axios';
 import { store } from '@/core/store';
 import { setCredentials, logout } from '@/core/store/authSlice';
+import { resolveApiBaseUrl } from '@/core/api/baseUrl';
+import { ENDPOINTS } from '@/core/api/endpoints';
+import { ensureCsrfToken, getCsrfTokenFromCookie } from '@/core/security/csrf';
+import type { ApiResponse, User } from '@/core/types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = resolveApiBaseUrl();
+const PUBLIC_AUTH_PATHS = [
+  '/api/v1/auth/csrf-token',
+  '/api/v1/auth/login',
+  '/api/v1/auth/register',
+  '/api/v1/auth/refresh',
+  '/api/v1/auth/forgot-password',
+  '/api/v1/auth/reset-password',
+  '/api/v1/auth/verify-email',
+  '/api/v1/auth/google',
+  '/api/v1/auth/facebook',
+];
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
-  headers: {
-    'Content-Type': 'application/json',
-  },
 });
 
+const SAFE_METHODS = new Set(['get', 'head', 'options']);
+type RefreshPayload = { accessToken: string; user: User };
+let refreshSessionPromise: Promise<RefreshPayload> | null = null;
+
+function isAuthRequest(url?: string) {
+  return !!url && url.includes('/api/v1/auth/');
+}
+
+export async function refreshSession() {
+  if (refreshSessionPromise) {
+    return refreshSessionPromise;
+  }
+
+  refreshSessionPromise = (async () => {
+    const csrfToken = await ensureCsrfToken();
+    const { data } = await axios.post<ApiResponse<RefreshPayload>>(
+      `${API_BASE_URL}${ENDPOINTS.AUTH.REFRESH}`,
+      {},
+      {
+        withCredentials: true,
+        headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined,
+      }
+    );
+
+    store.dispatch(
+      setCredentials({
+        accessToken: data.data.accessToken,
+        user: data.data.user,
+      })
+    );
+
+    return data.data;
+  })()
+    .catch((error) => {
+      store.dispatch(logout());
+      throw error;
+    })
+    .finally(() => {
+      refreshSessionPromise = null;
+    });
+
+  return refreshSessionPromise;
+}
+
 // Request interceptor: attach access token
-apiClient.interceptors.request.use((config) => {
+apiClient.interceptors.request.use(async (config) => {
   const { accessToken } = store.getState().auth;
-  if (accessToken) {
+  const isPublicAuthRequest = PUBLIC_AUTH_PATHS.some((path) => config.url?.includes(path));
+  const method = (config.method || 'get').toLowerCase();
+  const isFormDataPayload = typeof FormData !== 'undefined' && config.data instanceof FormData;
+
+  if (isFormDataPayload && config.headers) {
+    delete (config.headers as Record<string, unknown>)['Content-Type'];
+    delete (config.headers as Record<string, unknown>)['content-type'];
+  }
+
+  if (accessToken && !isPublicAuthRequest) {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
+
+  if (!SAFE_METHODS.has(method) && !config.url?.includes(ENDPOINTS.AUTH.CSRF_TOKEN)) {
+    let csrfToken = getCsrfTokenFromCookie();
+
+    if (!csrfToken && isAuthRequest(config.url)) {
+      csrfToken = await ensureCsrfToken();
+    }
+
+    if (csrfToken) {
+      config.headers['X-CSRF-Token'] = csrfToken;
+    }
+  }
+
   return config;
 });
 
 // Response interceptor: handle 401 with token refresh
-let isRefreshing = false;
-let failedQueue: Array<{
-  resolve: (token: string) => void;
-  reject: (error: unknown) => void;
-}> = [];
-
-const processQueue = (error: unknown, token: string | null = null) => {
-  failedQueue.forEach((prom) => {
-    if (token) {
-      prom.resolve(token);
-    } else {
-      prom.reject(error);
-    }
-  });
-  failedQueue = [];
-};
-
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -54,44 +115,18 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    if (isRefreshing) {
-      return new Promise<string>((resolve, reject) => {
-        failedQueue.push({ resolve, reject });
-      }).then((token) => {
-        if (originalRequest.headers) {
-          originalRequest.headers.Authorization = `Bearer ${token}`;
-        }
-        return apiClient(originalRequest);
-      });
-    }
-
     originalRequest._retry = true;
-    isRefreshing = true;
 
     try {
-      const { data } = await axios.post(
-        `${API_BASE_URL}/api/v1/auth/refresh`,
-        {},
-        { withCredentials: true }
-      );
-
-      const newToken = data.data.accessToken;
-      const user = data.data.user;
-
-      store.dispatch(setCredentials({ accessToken: newToken, user }));
-      processQueue(null, newToken);
+      const { accessToken } = await refreshSession();
 
       if (originalRequest.headers) {
-        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
       }
       return apiClient(originalRequest);
     } catch (refreshError) {
-      processQueue(refreshError, null);
-      store.dispatch(logout());
       window.location.href = '/login';
       return Promise.reject(refreshError);
-    } finally {
-      isRefreshing = false;
     }
   }
 );

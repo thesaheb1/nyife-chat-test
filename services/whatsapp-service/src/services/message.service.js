@@ -1,10 +1,74 @@
 'use strict';
 
 const axios = require('axios');
+const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { WaAccount, WaMessage } = require('../models');
 const { AppError, decrypt, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
 const config = require('../config');
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
+}
+
+async function fetchFlowRecord(userId, flowId) {
+  if (!isUuid(flowId)) {
+    return {
+      id: null,
+      name: null,
+      meta_flow_id: flowId,
+      json_definition: null,
+    };
+  }
+
+  try {
+    const response = await axios.get(
+      `${config.templateServiceUrl}/api/v1/flows/${flowId}`,
+      {
+        headers: { 'x-user-id': userId },
+        timeout: 10000,
+      }
+    );
+
+    return response.data?.data?.flow || response.data?.data || null;
+  } catch (err) {
+    throw AppError.badRequest(
+      `Failed to resolve flow: ${err.response?.data?.message || err.message}`
+    );
+  }
+}
+
+async function extractTemplateLinkedFlows(userId, template) {
+  const buttonsComponent = Array.isArray(template?.components)
+    ? template.components.find((component) => component.type === 'BUTTONS')
+    : null;
+
+  if (!buttonsComponent || !Array.isArray(buttonsComponent.buttons)) {
+    return [];
+  }
+
+  const linkedFlows = [];
+  for (let index = 0; index < buttonsComponent.buttons.length; index += 1) {
+    const button = buttonsComponent.buttons[index];
+    if (button.type !== 'FLOW' || !button.flow_id) {
+      continue;
+    }
+
+    try {
+      const flow = await fetchFlowRecord(userId, button.flow_id);
+      linkedFlows.push({
+        button_index: index,
+        local_flow_id: flow?.id || (isUuid(button.flow_id) ? button.flow_id : null),
+        meta_flow_id: flow?.meta_flow_id || (!isUuid(button.flow_id) ? button.flow_id : null),
+        flow_name: flow?.name || button.flow_name || null,
+      });
+    } catch (err) {
+      console.warn('[whatsapp-service] Failed to resolve linked template flow:', err.message);
+    }
+  }
+
+  return linkedFlows;
+}
 
 /**
  * Builds the Meta API message payload for all supported message types.
@@ -316,6 +380,8 @@ async function sendTemplateMessage(userId, data) {
     throw AppError.notFound('Template not found or missing name');
   }
 
+  const linkedFlows = await extractTemplateLinkedFlows(userId, template);
+
   // Build template components with variables
   const components = buildTemplateComponents(template, variables || {});
 
@@ -346,7 +412,10 @@ async function sendTemplateMessage(userId, data) {
     contact_phone: to,
     direction: 'outbound',
     type: 'template',
-    content: templatePayload,
+    content: {
+      ...templatePayload,
+      linked_flows: linkedFlows,
+    },
     template_id,
     status: 'pending',
   });
@@ -420,6 +489,86 @@ async function sendTemplateMessage(userId, data) {
     status: messageRecord.status,
     template_id: messageRecord.template_id,
     created_at: messageRecord.created_at,
+  };
+}
+
+/**
+ * Sends a standalone WhatsApp Flow message.
+ */
+async function sendFlowMessage(userId, data) {
+  const {
+    wa_account_id,
+    to,
+    flow_id,
+    flow_cta,
+    flow_token,
+    flow_message_version,
+    flow_action,
+    flow_action_payload,
+    body_text,
+    header_text,
+    footer_text,
+  } = data;
+
+  const flow = await fetchFlowRecord(userId, flow_id);
+  const metaFlowId = flow?.meta_flow_id || (!isUuid(flow_id) ? flow_id : null);
+  if (!metaFlowId) {
+    throw AppError.badRequest('Save and publish this flow before sending it on WhatsApp.');
+  }
+
+  const firstScreenId = flow?.json_definition?.screens?.[0]?.id || null;
+  const resolvedToken = flow_token || `nyife_flow_${crypto.randomUUID()}`;
+
+  const interactive = {
+    type: 'flow',
+    ...(header_text ? { header: { type: 'text', text: header_text } } : {}),
+    body: {
+      text: body_text || `Continue with ${flow?.name || 'this flow'}.`,
+    },
+    ...(footer_text ? { footer: { text: footer_text } } : {}),
+    action: {
+      name: 'flow',
+      parameters: {
+        flow_message_version: flow_message_version || '3',
+        flow_id: metaFlowId,
+        flow_token: resolvedToken,
+        flow_cta,
+        flow_action: flow_action || 'navigate',
+        ...(flow_action_payload
+          ? { flow_action_payload }
+          : (firstScreenId && (flow_action || 'navigate') === 'navigate')
+            ? { flow_action_payload: { screen: firstScreenId } }
+            : {}),
+      },
+    },
+  };
+
+  const sent = await sendMessage(userId, {
+    wa_account_id,
+    to,
+    type: 'interactive',
+    message: interactive,
+  });
+
+  const enrichedContent = {
+    ...interactive,
+    local_flow_id: flow?.id || null,
+    meta_flow_id: metaFlowId,
+    flow_token: resolvedToken,
+  };
+
+  await WaMessage.update(
+    {
+      content: enrichedContent,
+    },
+    {
+      where: { id: sent.id },
+    }
+  );
+
+  return {
+    ...sent,
+    content: enrichedContent,
   };
 }
 
@@ -827,12 +976,35 @@ async function sendCampaignMessage(params) {
   };
 }
 
+async function handleFlowDataExchange(payload, tenantUserId) {
+  try {
+    const response = await axios.post(
+      `${config.templateServiceUrl}/api/v1/flows/data-exchange`,
+      payload,
+      {
+        headers: {
+          ...(tenantUserId ? { 'x-tenant-user-id': tenantUserId } : {}),
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000,
+      }
+    );
+
+    return response.data?.data || response.data;
+  } catch (err) {
+    const message = err.response?.data?.message || err.message || 'Flow data exchange failed';
+    throw AppError.badRequest(message);
+  }
+}
+
 module.exports = {
   buildMessagePayload,
   sendMessage,
   sendTemplateMessage,
+  sendFlowMessage,
   listMessages,
   getConversation,
   updateMessageStatus,
   sendCampaignMessage,
+  handleFlowDataExchange,
 };

@@ -15,7 +15,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useAdminTicket, useReplyToTicket, useUpdateTicketStatus, useAssignTicket } from './useAdminSupport';
 import { toast } from 'sonner';
 

@@ -11,13 +11,26 @@ const {
   oauthTokenSchema,
 } = require('../validations/auth.validation');
 const config = require('../config');
+const {
+  setCsrfCookie,
+  clearCsrfCookie,
+} = require('../middlewares/csrf.middleware');
+
+const REFRESH_COOKIE_PATH = '/api/v1/auth';
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'strict',
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-  path: '/',
+  path: REFRESH_COOKIE_PATH,
+};
+
+const REFRESH_COOKIE_CLEAR_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: REFRESH_COOKIE_PATH,
 };
 
 /**
@@ -35,9 +48,9 @@ async function register(req, res) {
       await publishEvent(req.app.locals.kafkaProducer, TOPICS.EMAIL_SEND, result.user.id, {
         to: result.user.email,
         subject: 'Verify your email - Nyife',
-        template: 'email-verification',
+        template: 'email_verification',
         templateData: {
-          firstName: result.user.first_name,
+          name: result.user.first_name,
           verificationUrl: `${config.frontendUrl}/verify-email?token=${result.emailVerificationToken}`,
         },
       });
@@ -47,6 +60,12 @@ async function register(req, res) {
   }
 
   return successResponse(res, { user: result.user }, 'Registration successful. Please check your email to verify your account.', 201);
+}
+
+async function getCsrfToken(_req, res) {
+  const csrfToken = setCsrfCookie(res);
+  res.set('Cache-Control', 'no-store');
+  return successResponse(res, { csrfToken }, 'CSRF token issued');
 }
 
 /**
@@ -75,6 +94,7 @@ async function login(req, res) {
 
   // Set refresh token as httpOnly cookie
   res.cookie('refreshToken', result.refreshToken, REFRESH_COOKIE_OPTIONS);
+  setCsrfCookie(res);
 
   // Cache user in Redis
   try {
@@ -105,6 +125,7 @@ async function refresh(req, res) {
 
   // Set new refresh token cookie
   res.cookie('refreshToken', result.refreshToken, REFRESH_COOKIE_OPTIONS);
+  setCsrfCookie(res);
 
   return successResponse(res, {
     accessToken: result.accessToken,
@@ -120,7 +141,8 @@ async function logout(req, res) {
   await authService.logout(refreshToken);
 
   // Clear cookie
-  res.clearCookie('refreshToken', { path: '/' });
+  res.clearCookie('refreshToken', REFRESH_COOKIE_CLEAR_OPTIONS);
+  clearCsrfCookie(res);
 
   // Clear user cache
   try {
@@ -148,9 +170,9 @@ async function forgotPassword(req, res) {
       await publishEvent(req.app.locals.kafkaProducer, TOPICS.EMAIL_SEND, result.userId, {
         to: result.email,
         subject: 'Reset your password - Nyife',
-        template: 'password-reset',
+        template: 'password_reset',
         templateData: {
-          firstName: result.firstName,
+          name: result.firstName,
           resetUrl: `${config.frontendUrl}/reset-password?token=${result.resetToken}`,
         },
       });
@@ -200,6 +222,7 @@ async function googleAuth(req, res) {
   });
 
   res.cookie('refreshToken', result.refreshToken, REFRESH_COOKIE_OPTIONS);
+  setCsrfCookie(res);
 
   return successResponse(res, {
     accessToken: result.accessToken,
@@ -241,6 +264,7 @@ async function facebookAuth(req, res) {
   });
 
   res.cookie('refreshToken', result.refreshToken, REFRESH_COOKIE_OPTIONS);
+  setCsrfCookie(res);
 
   return successResponse(res, {
     accessToken: result.accessToken,
@@ -285,6 +309,7 @@ async function getMe(req, res) {
 }
 
 module.exports = {
+  getCsrfToken,
   register,
   verifyEmail,
   login,

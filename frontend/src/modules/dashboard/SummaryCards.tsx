@@ -77,7 +77,7 @@ export function SummaryCards({ data, unreadChats, isLoading }: SummaryCardsProps
       subtitle: data?.subscription
         ? `${data.subscription.status}`
         : 'Subscribe to a plan',
-      onClick: () => navigate('/settings'),
+      onClick: () => navigate('/subscription'),
     },
   ];
 

@@ -4,6 +4,7 @@ const subscriptionService = require('../services/subscription.service');
 const { successResponse } = require('@nyife/shared-utils');
 const {
   subscribeSchema,
+  changePlanSchema,
   verifyPaymentSchema,
   cancelSchema,
   validateCouponSchema,
@@ -26,6 +27,12 @@ async function subscribe(req, res) {
   const data = subscribeSchema.parse(req.body);
   const result = await subscriptionService.subscribe(req.user.id, data);
   return successResponse(res, result, result.payment_required ? 'Payment order created' : 'Subscription activated', 201);
+}
+
+async function changePlan(req, res) {
+  const data = changePlanSchema.parse(req.body);
+  const result = await subscriptionService.changePlan(req.user.id, data);
+  return successResponse(res, result, result.payment_required ? 'Payment order created for plan change' : 'Plan changed successfully', 201);
 }
 
 async function verifyPayment(req, res) {
@@ -75,6 +82,7 @@ module.exports = {
   listPlans,
   getPlanBySlug,
   subscribe,
+  changePlan,
   verifyPayment,
   getCurrentSubscription,
   cancelSubscription,

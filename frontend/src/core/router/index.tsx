@@ -24,6 +24,9 @@ const GroupDetailPage = lazy(() => import('@/modules/contacts/GroupDetailPage').
 const TemplateListPage = lazy(() => import('@/modules/templates/TemplateListPage').then(m => ({ default: m.TemplateListPage })));
 const CreateTemplatePage = lazy(() => import('@/modules/templates/CreateTemplatePage').then(m => ({ default: m.CreateTemplatePage })));
 const TemplateDetailPage = lazy(() => import('@/modules/templates/TemplateDetailPage').then(m => ({ default: m.TemplateDetailPage })));
+const FlowListPage = lazy(() => import('@/modules/flows/FlowListPage').then(m => ({ default: m.FlowListPage })));
+const FlowBuilderPage = lazy(() => import('@/modules/flows/FlowBuilderPage').then(m => ({ default: m.FlowBuilderPage })));
+const FlowDetailPage = lazy(() => import('@/modules/flows/FlowDetailPage').then(m => ({ default: m.FlowDetailPage })));
 const CampaignListPage = lazy(() => import('@/modules/campaigns/CampaignListPage').then(m => ({ default: m.CampaignListPage })));
 const CreateCampaignPage = lazy(() => import('@/modules/campaigns/CreateCampaignPage').then(m => ({ default: m.CreateCampaignPage })));
 const CampaignDetailPage = lazy(() => import('@/modules/campaigns/CampaignDetailPage').then(m => ({ default: m.CampaignDetailPage })));
@@ -31,6 +34,7 @@ const ChatPage = lazy(() => import('@/modules/chat/ChatPage').then(m => ({ defau
 const AutomationsPage = lazy(() => import('@/modules/automations/AutomationsPage').then(m => ({ default: m.AutomationsPage })));
 const CreateAutomationPage = lazy(() => import('@/modules/automations/CreateAutomationPage').then(m => ({ default: m.CreateAutomationPage })));
 const AutomationDetailPage = lazy(() => import('@/modules/automations/AutomationDetailPage').then(m => ({ default: m.AutomationDetailPage })));
+const WebhookManagementPage = lazy(() => import('@/modules/automations/WebhookManagementPage').then(m => ({ default: m.WebhookManagementPage })));
 const OrganizationsPage = lazy(() => import('@/modules/organizations/OrganizationsPage').then(m => ({ default: m.OrganizationsPage })));
 const OrgDetailPage = lazy(() => import('@/modules/organizations/OrgDetailPage').then(m => ({ default: m.OrgDetailPage })));
 const SupportPage = lazy(() => import('@/modules/support/SupportPage').then(m => ({ default: m.SupportPage })));
@@ -39,6 +43,7 @@ const WalletPage = lazy(() => import('@/modules/wallet/WalletPage').then(m => ({
 const SettingsPage = lazy(() => import('@/modules/settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const DeveloperPage = lazy(() => import('@/modules/developer/DeveloperPage').then(m => ({ default: m.DeveloperPage })));
 const SubscriptionPage = lazy(() => import('@/modules/subscription/SubscriptionPage').then(m => ({ default: m.SubscriptionPage })));
+const WhatsAppOnboardingPage = lazy(() => import('@/modules/whatsapp/WhatsAppOnboardingPage').then(m => ({ default: m.WhatsAppOnboardingPage })));
 
 // Admin pages — lazy loaded
 const AdminGuard = lazy(() => import('@/modules/admin/layout/AdminGuard').then(m => ({ default: m.AdminGuard })));
@@ -109,12 +114,18 @@ export const router = createBrowserRouter([
           { path: '/templates/create', element: lazyElement(CreateTemplatePage) },
           { path: '/templates/:id/edit', element: lazyElement(CreateTemplatePage) },
           { path: '/templates/:id', element: lazyElement(TemplateDetailPage) },
+          { path: '/flows', element: lazyElement(FlowListPage) },
+          { path: '/flows/create', element: lazyElement(FlowBuilderPage) },
+          { path: '/flows/:id/edit', element: lazyElement(FlowBuilderPage) },
+          { path: '/flows/:id', element: lazyElement(FlowDetailPage) },
           { path: '/campaigns', element: lazyElement(CampaignListPage) },
           { path: '/campaigns/create', element: lazyElement(CreateCampaignPage) },
           { path: '/campaigns/:id', element: lazyElement(CampaignDetailPage) },
           { path: '/chat', element: lazyElement(ChatPage) },
           { path: '/automations', element: lazyElement(AutomationsPage) },
           { path: '/automations/create', element: lazyElement(CreateAutomationPage) },
+          { path: '/automations/webhooks', element: lazyElement(WebhookManagementPage) },
+          { path: '/automations/:id/edit', element: lazyElement(CreateAutomationPage) },
           { path: '/automations/:id', element: lazyElement(AutomationDetailPage) },
           { path: '/organizations', element: lazyElement(OrganizationsPage) },
           { path: '/organizations/:id', element: lazyElement(OrgDetailPage) },
@@ -122,6 +133,7 @@ export const router = createBrowserRouter([
           { path: '/support/:id', element: lazyElement(TicketDetailPage) },
           { path: '/subscription', element: lazyElement(SubscriptionPage) },
           { path: '/wallet', element: lazyElement(WalletPage) },
+          { path: '/whatsapp/connect', element: lazyElement(WhatsAppOnboardingPage) },
           { path: '/settings', element: lazyElement(SettingsPage) },
           { path: '/developer', element: lazyElement(DeveloperPage) },
         ],

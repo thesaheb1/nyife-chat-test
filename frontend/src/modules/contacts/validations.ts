@@ -32,5 +32,6 @@ export const createGroupSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200),
   description: z.string().max(2000).optional(),
   type: z.enum(['static', 'dynamic']).optional(),
+  contact_ids: z.array(z.string().uuid()).optional(),
 });
 export type CreateGroupFormData = z.infer<typeof createGroupSchema>;

@@ -6,6 +6,76 @@ const { WaAccount } = require('../models');
 const { AppError, encrypt, decrypt } = require('@nyife/shared-utils');
 const config = require('../config');
 
+async function checkWhatsAppNumberLimit(userId, additionalCount) {
+  if (!additionalCount || additionalCount <= 0) {
+    return;
+  }
+
+  try {
+    const response = await axios.get(
+      `${config.subscriptionServiceUrl}/api/v1/subscriptions/check-limit/${userId}/whatsapp_numbers`,
+      {
+        timeout: 5000,
+      }
+    );
+
+    const limitData = response.data?.data;
+    if (!limitData) {
+      return;
+    }
+
+    if (limitData.limit === 'unlimited') {
+      return;
+    }
+
+    if (!limitData.allowed || (limitData.remaining || 0) < additionalCount) {
+      throw AppError.forbidden(
+        'WhatsApp number limit reached for your subscription plan. Please upgrade.'
+      );
+    }
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+
+    if (err.response && err.response.status === 403) {
+      throw AppError.forbidden(
+        err.response.data?.message ||
+          'WhatsApp number limit reached for your subscription plan. Please upgrade.'
+      );
+    }
+
+    console.warn(
+      '[whatsapp-service] Could not check subscription limit:',
+      err.message
+    );
+  }
+}
+
+async function adjustWhatsAppNumberUsage(userId, count) {
+  if (!count) {
+    return;
+  }
+
+  try {
+    await axios.post(
+      `${config.subscriptionServiceUrl}/api/v1/subscriptions/increment-usage/${userId}`,
+      {
+        resource: 'whatsapp_numbers',
+        count,
+      },
+      {
+        timeout: 5000,
+      }
+    );
+  } catch (err) {
+    console.warn(
+      '[whatsapp-service] Could not update WhatsApp number usage:',
+      err.message
+    );
+  }
+}
+
 /**
  * Handles the embedded signup flow.
  * 1. Exchange code for access token via Meta OAuth
@@ -140,6 +210,20 @@ async function handleEmbeddedSignup(userId, code) {
     );
   }
 
+  const existingAccounts = await Promise.all(
+    phoneNumbers.map((phone) => WaAccount.unscoped().findOne({
+      where: {
+        user_id: userId,
+        phone_number_id: String(phone.id),
+      },
+      paranoid: false,
+    }))
+  );
+
+  const additionalNumbersNeeded = existingAccounts.filter(
+    (account) => !account || account.deleted_at || account.status !== 'active'
+  ).length;
+
   // Step 5: Subscribe app to WABA
   try {
     await axios.post(
@@ -157,49 +241,28 @@ async function handleEmbeddedSignup(userId, code) {
     );
   }
 
-  // Step 6: Check subscription limit for whatsapp_numbers (best-effort)
-  try {
-    await axios.post(
-      `${config.subscriptionServiceUrl}/api/v1/subscriptions/limits/check`,
-      {
-        user_id: userId,
-        resource: 'whatsapp_numbers',
-        increment: phoneNumbers.length,
-      },
-      {
-        headers: { 'x-user-id': userId, 'Content-Type': 'application/json' },
-      }
-    );
-  } catch (err) {
-    if (err.response && err.response.status === 403) {
-      throw AppError.forbidden(
-        err.response.data?.message ||
-          'WhatsApp number limit reached for your subscription plan. Please upgrade.'
-      );
-    }
-    // Log and continue for other errors (subscription service may be down)
-    console.warn(
-      '[whatsapp-service] Could not check subscription limit:',
-      err.message
-    );
-  }
+  // Step 6: Check subscription limit for any additional active numbers.
+  await checkWhatsAppNumberLimit(userId, additionalNumbersNeeded);
 
   // Step 7: Encrypt access token and create wa_accounts records
   const encryptedToken = encrypt(accessToken);
   const webhookSecret = crypto.randomBytes(32).toString('hex');
 
   const createdAccounts = [];
+  let usageDelta = 0;
 
-  for (const phone of phoneNumbers) {
+  for (let index = 0; index < phoneNumbers.length; index++) {
+    const phone = phoneNumbers[index];
+    const existing = existingAccounts[index];
+
     // Check if account already exists for this user + phone_number_id
-    const existing = await WaAccount.unscoped().findOne({
-      where: {
-        user_id: userId,
-        phone_number_id: String(phone.id),
-      },
-    });
-
     if (existing) {
+      const needsUsageIncrement = existing.deleted_at || existing.status !== 'active';
+
+      if (existing.deleted_at) {
+        await existing.restore();
+      }
+
       // Update existing account with new token and info
       await existing.update({
         access_token: encryptedToken,
@@ -212,8 +275,10 @@ async function handleEmbeddedSignup(userId, code) {
         platform_type: phone.platform_type || 'CLOUD_API',
         status: 'active',
         webhook_secret: existing.webhook_secret || webhookSecret,
-        deleted_at: null, // Restore if soft-deleted
       });
+      if (needsUsageIncrement) {
+        usageDelta += 1;
+      }
       createdAccounts.push(existing.toSafeJSON());
     } else {
       const account = await WaAccount.create({
@@ -230,9 +295,12 @@ async function handleEmbeddedSignup(userId, code) {
         status: 'active',
         webhook_secret: webhookSecret,
       });
+      usageDelta += 1;
       createdAccounts.push(account.toSafeJSON());
     }
   }
+
+  await adjustWhatsAppNumberUsage(userId, usageDelta);
 
   // Return the first account (primary) — most signups have a single phone
   return createdAccounts.length === 1 ? createdAccounts[0] : createdAccounts;
@@ -283,7 +351,11 @@ async function deactivateAccount(userId, accountId) {
   if (!account) {
     throw AppError.notFound('WhatsApp account not found');
   }
+  const wasActive = account.status === 'active';
   await account.update({ status: 'inactive' });
+  if (wasActive) {
+    await adjustWhatsAppNumberUsage(userId, -1);
+  }
   return account.toSafeJSON();
 }
 

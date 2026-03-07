@@ -57,6 +57,7 @@
     "dashboard": "Dashboard",
     "contacts": "Contacts",
     "templates": "Templates",
+    "flows": "Flows",
     "campaigns": "Campaigns",
     "chat": "Chat",
     "automations": "Automations",
@@ -179,7 +180,7 @@
     "authentication": "Authentication"
   },
   "subscription": {
-    "title": "Choose a Plan",
+    "title": "Subscription Center",
     "currentPlan": "Current Plan",
     "subscribe": "Subscribe",
     "changePlan": "Change Plan",

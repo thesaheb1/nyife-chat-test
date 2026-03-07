@@ -81,7 +81,20 @@ const request = require('supertest');
 const app = require('../../src/app');
 const authService = require('../../src/services/auth.service');
 
+const CSRF_COOKIE = 'csrfToken=test-csrf-token';
+const CSRF_HEADER = { 'X-CSRF-Token': 'test-csrf-token' };
+
 beforeEach(() => { jest.clearAllMocks(); });
+
+describe('GET /api/v1/auth/csrf-token', () => {
+  it('should issue a csrf token cookie', async () => {
+    const res = await request(app).get('/api/v1/auth/csrf-token');
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.headers['set-cookie']).toBeDefined();
+  });
+});
 
 // ─── POST /api/v1/auth/register ──────────────────────────────────────────────
 
@@ -100,7 +113,7 @@ describe('POST /api/v1/auth/register', () => {
       emailVerificationToken: 'token-abc',
     });
 
-    const res = await request(app).post('/api/v1/auth/register').send(validBody);
+    const res = await request(app).post('/api/v1/auth/register').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send(validBody);
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -108,7 +121,7 @@ describe('POST /api/v1/auth/register', () => {
   });
 
   it('should return 400 on invalid body (missing email)', async () => {
-    const res = await request(app).post('/api/v1/auth/register').send({ password: 'Secret1!', first_name: 'A', last_name: 'B' });
+    const res = await request(app).post('/api/v1/auth/register').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({ password: 'Secret1!', first_name: 'A', last_name: 'B' });
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
@@ -120,7 +133,7 @@ describe('POST /api/v1/auth/register', () => {
     err.isOperational = true;
     authService.register.mockRejectedValue(err);
 
-    const res = await request(app).post('/api/v1/auth/register').send(validBody);
+    const res = await request(app).post('/api/v1/auth/register').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send(validBody);
 
     expect(res.status).toBe(409);
     expect(res.body.success).toBe(false);
@@ -133,14 +146,14 @@ describe('POST /api/v1/auth/verify-email', () => {
   it('should return 200 on valid token', async () => {
     authService.verifyEmail.mockResolvedValue({ id: 'u1', email: 'user@example.com', status: 'active' });
 
-    const res = await request(app).post('/api/v1/auth/verify-email').send({ token: 'valid-token' });
+    const res = await request(app).post('/api/v1/auth/verify-email').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({ token: 'valid-token' });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
 
   it('should return 400 on missing token', async () => {
-    const res = await request(app).post('/api/v1/auth/verify-email').send({});
+    const res = await request(app).post('/api/v1/auth/verify-email').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({});
 
     expect(res.status).toBe(400);
   });
@@ -156,7 +169,7 @@ describe('POST /api/v1/auth/login', () => {
       user: { id: 'u1', email: 'user@example.com' },
     });
 
-    const res = await request(app).post('/api/v1/auth/login').send({ email: 'user@example.com', password: 'Secret1!' });
+    const res = await request(app).post('/api/v1/auth/login').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({ email: 'user@example.com', password: 'Secret1!' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.accessToken).toBe('at-123');
@@ -164,7 +177,7 @@ describe('POST /api/v1/auth/login', () => {
   });
 
   it('should return 400 on invalid email format', async () => {
-    const res = await request(app).post('/api/v1/auth/login').send({ email: 'bad', password: 'Secret1!' });
+    const res = await request(app).post('/api/v1/auth/login').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({ email: 'bad', password: 'Secret1!' });
 
     expect(res.status).toBe(400);
   });
@@ -182,10 +195,19 @@ describe('POST /api/v1/auth/refresh', () => {
 
     const res = await request(app)
       .post('/api/v1/auth/refresh')
-      .set('Cookie', 'refreshToken=old-rt');
+      .set('Cookie', [CSRF_COOKIE, 'refreshToken=old-rt'])
+      .set(CSRF_HEADER);
 
     expect(res.status).toBe(200);
     expect(res.body.data.accessToken).toBe('new-at');
+  });
+
+  it('should return 403 without a valid csrf token', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/refresh')
+      .set('Cookie', 'refreshToken=old-rt');
+
+    expect(res.status).toBe(403);
   });
 });
 
@@ -197,7 +219,9 @@ describe('POST /api/v1/auth/logout', () => {
 
     const res = await request(app)
       .post('/api/v1/auth/logout')
-      .set('Authorization', 'Bearer mock-token');
+      .set('Authorization', 'Bearer mock-token')
+      .set('Cookie', CSRF_COOKIE)
+      .set(CSRF_HEADER);
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -210,14 +234,14 @@ describe('POST /api/v1/auth/forgot-password', () => {
   it('should return 200 regardless of email existence', async () => {
     authService.forgotPassword.mockResolvedValue({ resetToken: null });
 
-    const res = await request(app).post('/api/v1/auth/forgot-password').send({ email: 'nobody@example.com' });
+    const res = await request(app).post('/api/v1/auth/forgot-password').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({ email: 'nobody@example.com' });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
 
   it('should return 400 on invalid email', async () => {
-    const res = await request(app).post('/api/v1/auth/forgot-password').send({ email: 'bad' });
+    const res = await request(app).post('/api/v1/auth/forgot-password').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({ email: 'bad' });
 
     expect(res.status).toBe(400);
   });
@@ -229,14 +253,14 @@ describe('POST /api/v1/auth/reset-password', () => {
   it('should return 200 on success', async () => {
     authService.resetPassword.mockResolvedValue({ id: 'u1' });
 
-    const res = await request(app).post('/api/v1/auth/reset-password').send({ token: 'valid', new_password: 'NewPass1!' });
+    const res = await request(app).post('/api/v1/auth/reset-password').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({ token: 'valid', new_password: 'NewPass1!' });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
 
   it('should return 400 on weak password', async () => {
-    const res = await request(app).post('/api/v1/auth/reset-password').send({ token: 'valid', new_password: '123' });
+    const res = await request(app).post('/api/v1/auth/reset-password').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({ token: 'valid', new_password: '123' });
 
     expect(res.status).toBe(400);
   });

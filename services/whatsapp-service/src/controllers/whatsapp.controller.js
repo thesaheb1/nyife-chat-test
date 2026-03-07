@@ -8,10 +8,12 @@ const {
   embeddedSignupSchema,
   sendMessageSchema,
   sendTemplateSchema,
+  sendFlowSchema,
   listMessagesSchema,
   contactPhoneParamSchema,
   accountIdParamSchema,
   webhookVerifySchema,
+  flowDataExchangeSchema,
 } = require('../validations/whatsapp.validation');
 
 // ────────────────────────────────────────────────
@@ -113,6 +115,19 @@ async function sendTemplateMessage(req, res) {
 }
 
 /**
+ * POST /api/v1/whatsapp/send/flow
+ * Sends a standalone WhatsApp Flow message.
+ */
+async function sendFlowMessage(req, res) {
+  const userId = req.headers['x-user-id'];
+  const data = sendFlowSchema.parse(req.body);
+
+  const message = await messageService.sendFlowMessage(userId, data);
+
+  return successResponse(res, { message }, 'Flow message sent successfully', 201);
+}
+
+/**
  * GET /api/v1/whatsapp/messages
  * Lists messages with filters and pagination.
  */
@@ -183,6 +198,16 @@ async function processWebhook(req, res) {
   }
 }
 
+/**
+ * POST /api/v1/whatsapp/flows/data-exchange
+ * Public Meta callback for WhatsApp Flow data exchange.
+ */
+async function handleFlowDataExchange(req, res) {
+  const payload = flowDataExchangeSchema.parse(req.body || {});
+  const result = await messageService.handleFlowDataExchange(payload, req.headers['x-tenant-user-id'] || null);
+  return res.status(200).json(result);
+}
+
 // ────────────────────────────────────────────────
 // Developer API Endpoint
 // ────────────────────────────────────────────────
@@ -209,9 +234,11 @@ module.exports = {
   getPhoneNumbers,
   sendMessage,
   sendTemplateMessage,
+  sendFlowMessage,
   listMessages,
   getConversation,
   verifyWebhook,
   processWebhook,
+  handleFlowDataExchange,
   developerSend,
 };

@@ -10,10 +10,14 @@ const {
   createTagSchema,
   updateTagSchema,
   addTagsSchema,
+  addTagByPhoneSchema,
   createGroupSchema,
   updateGroupSchema,
   addGroupMembersSchema,
   removeGroupMembersSchema,
+  listGroupsSchema,
+  bulkGroupMembershipSchema,
+  bulkTagAssignmentSchema,
   idParamSchema,
   tagIdParamSchema,
   groupIdParamSchema,
@@ -83,6 +87,37 @@ async function importCsv(req, res) {
   return successResponse(res, result, 'CSV import completed', 200);
 }
 
+async function importGroupsCsv(req, res) {
+  const userId = req.headers['x-user-id'] || req.user.id;
+
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      message: 'CSV file is required. Upload a file with field name "file".',
+    });
+  }
+
+  const { Readable } = require('stream');
+  const fileStream = Readable.from(req.file.buffer);
+
+  const result = await contactService.importGroupsCsv(userId, fileStream);
+  return successResponse(res, result, 'Group CSV import completed', 200);
+}
+
+async function downloadContactCsvSample(_req, res) {
+  const sample = contactService.getContactCsvSample();
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="contacts-sample.csv"');
+  return res.status(200).send(sample);
+}
+
+async function downloadGroupCsvSample(_req, res) {
+  const sample = contactService.getGroupCsvSample();
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="groups-sample.csv"');
+  return res.status(200).send(sample);
+}
+
 // ─── Tags ────────────────────────────────────────────────────────────────────
 
 async function createTag(req, res) {
@@ -121,11 +156,32 @@ async function addTagsToContact(req, res) {
   return successResponse(res, { contact }, 'Tags added to contact successfully');
 }
 
+async function addTagByPhone(req, res) {
+  const userId = req.headers['x-user-id'] || req.user.id;
+  const { phone, tag_id } = addTagByPhoneSchema.parse(req.body);
+  const contact = await contactService.addTagByPhone(userId, phone, tag_id);
+  return successResponse(res, { contact }, 'Tag added to contact successfully');
+}
+
 async function removeTagFromContact(req, res) {
   const userId = req.headers['x-user-id'] || req.user.id;
   const { id, tagId } = tagIdParamSchema.parse(req.params);
   const contact = await contactService.removeTagFromContact(userId, id, tagId);
   return successResponse(res, { contact }, 'Tag removed from contact successfully');
+}
+
+async function bulkAssignTagsToContacts(req, res) {
+  const userId = req.headers['x-user-id'] || req.user.id;
+  const { contact_ids, tag_ids } = bulkTagAssignmentSchema.parse(req.body);
+  const result = await contactService.bulkAssignTagsToContacts(userId, contact_ids, tag_ids);
+  return successResponse(res, result, 'Tags assigned successfully');
+}
+
+async function bulkRemoveTagsFromContacts(req, res) {
+  const userId = req.headers['x-user-id'] || req.user.id;
+  const { contact_ids, tag_ids } = bulkTagAssignmentSchema.parse(req.body);
+  const result = await contactService.bulkRemoveTagsFromContacts(userId, contact_ids, tag_ids);
+  return successResponse(res, result, 'Tags removed successfully');
 }
 
 // ─── Groups ──────────────────────────────────────────────────────────────────
@@ -139,8 +195,9 @@ async function createGroup(req, res) {
 
 async function listGroups(req, res) {
   const userId = req.headers['x-user-id'] || req.user.id;
-  const groups = await contactService.listGroups(userId);
-  return successResponse(res, { groups }, 'Groups retrieved successfully');
+  const filters = listGroupsSchema.parse(req.query);
+  const result = await contactService.listGroups(userId, filters);
+  return successResponse(res, { groups: result.groups }, 'Groups retrieved successfully', 200, result.meta);
 }
 
 async function getGroup(req, res) {
@@ -182,6 +239,20 @@ async function removeGroupMembers(req, res) {
   return successResponse(res, result, 'Members removed from group successfully');
 }
 
+async function bulkAssignContactsToGroups(req, res) {
+  const userId = req.headers['x-user-id'] || req.user.id;
+  const { group_ids, contact_ids } = bulkGroupMembershipSchema.parse(req.body);
+  const result = await contactService.bulkAssignContactsToGroups(userId, group_ids, contact_ids);
+  return successResponse(res, result, 'Contacts assigned to groups successfully');
+}
+
+async function bulkRemoveContactsFromGroups(req, res) {
+  const userId = req.headers['x-user-id'] || req.user.id;
+  const { group_ids, contact_ids } = bulkGroupMembershipSchema.parse(req.body);
+  const result = await contactService.bulkRemoveContactsFromGroups(userId, group_ids, contact_ids);
+  return successResponse(res, result, 'Contacts removed from groups successfully');
+}
+
 module.exports = {
   createContact,
   listContacts,
@@ -190,12 +261,18 @@ module.exports = {
   deleteContact,
   bulkDeleteContacts,
   importCsv,
+  importGroupsCsv,
+  downloadContactCsvSample,
+  downloadGroupCsvSample,
   createTag,
   listTags,
   updateTag,
   deleteTag,
   addTagsToContact,
+  addTagByPhone,
   removeTagFromContact,
+  bulkAssignTagsToContacts,
+  bulkRemoveTagsFromContacts,
   createGroup,
   listGroups,
   getGroup,
@@ -203,4 +280,6 @@ module.exports = {
   deleteGroup,
   addGroupMembers,
   removeGroupMembers,
+  bulkAssignContactsToGroups,
+  bulkRemoveContactsFromGroups,
 };

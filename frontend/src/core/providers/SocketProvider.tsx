@@ -4,6 +4,7 @@ import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import { useSelector } from 'react-redux';
 import type { RootState } from '@/core/store';
+import { resolveApiBaseUrl } from '@/core/api/baseUrl';
 
 interface SocketContextValue {
   chatSocket: Socket | null;
@@ -15,7 +16,7 @@ export const SocketContext = createContext<SocketContextValue>({
   notificationSocket: null,
 });
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = resolveApiBaseUrl();
 
 export function SocketProvider({ children }: { children: ReactNode }) {
   const { accessToken, isAuthenticated } = useSelector((state: RootState) => state.auth);

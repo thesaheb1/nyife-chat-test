@@ -42,9 +42,11 @@ export function LoginPage() {
       const target = isAdmin ? '/admin/dashboard' : from;
       navigate(target, { replace: true });
     } catch (error) {
-      const msg =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Login failed';
+      const typedError = error as {
+        message?: string;
+        response?: { data?: { message?: string } };
+      };
+      const msg = typedError.response?.data?.message || typedError.message || 'Login failed';
       toast.error(msg);
     } finally {
       setIsSubmitting(false);

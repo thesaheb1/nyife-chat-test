@@ -89,6 +89,24 @@ const webhookInboundSchema = z.object({
 });
 
 /**
+ * Schema for whatsapp.flow.completed events.
+ * Producer: whatsapp-service | Consumer: template-service, automation-service
+ */
+const whatsappFlowCompletedSchema = z.object({
+  userId: uuidField,
+  waAccountId: uuidField,
+  wabaId: z.string(),
+  phoneNumberId: z.string(),
+  metaFlowId: z.string(),
+  flowToken: z.string().optional(),
+  screenId: z.string().optional(),
+  contactPhone: z.string(),
+  payload: z.record(z.any()),
+  rawMessage: z.any(),
+  timestamp: timestampField,
+});
+
+/**
  * Schema for wallet.transaction events.
  * Producer: wallet-service | Consumer: analytics-service
  */
@@ -122,6 +140,7 @@ const TOPIC_SCHEMAS = {
   'notification.send': notificationSendSchema,
   'email.send': emailSendSchema,
   'webhook.inbound': webhookInboundSchema,
+  'whatsapp.flow.completed': whatsappFlowCompletedSchema,
   'wallet.transaction': walletTransactionSchema,
   'user.events': userEventsSchema,
 };
@@ -133,6 +152,7 @@ module.exports = {
   notificationSendSchema,
   emailSendSchema,
   webhookInboundSchema,
+  whatsappFlowCompletedSchema,
   walletTransactionSchema,
   userEventsSchema,
   TOPIC_SCHEMAS,

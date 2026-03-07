@@ -221,6 +221,32 @@ async function handleIncomingMessage(account, wabaId, phoneNumberId, displayPhon
       );
     }
   }
+
+  const flowCompletion = await resolveFlowCompletion(msg, account);
+  if (flowCompletion && kafkaProducer && account?.user_id) {
+    try {
+      await publishEvent(kafkaProducer, TOPICS.WHATSAPP_FLOW_COMPLETED, flowCompletion.metaFlowId, {
+        userId: account.user_id,
+        waAccountId: account.id,
+        wabaId: String(wabaId),
+        phoneNumberId: String(phoneNumberId),
+        metaFlowId: flowCompletion.metaFlowId,
+        flowToken: flowCompletion.flowToken || undefined,
+        screenId: flowCompletion.screenId || undefined,
+        contactPhone: from,
+        payload: flowCompletion.payload || {},
+        rawMessage: msg,
+        timestamp: timestamp
+          ? new Date(parseInt(timestamp, 10) * 1000).toISOString()
+          : new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error(
+        '[whatsapp-service] Failed to publish flow completion to Kafka:',
+        err.message
+      );
+    }
+  }
 }
 
 /**
@@ -299,6 +325,8 @@ function extractMessageContent(msg) {
         interactive_type: msg.interactive?.type || null,
         button_reply: msg.interactive?.button_reply || null,
         list_reply: msg.interactive?.list_reply || null,
+        nfm_reply: msg.interactive?.nfm_reply || null,
+        flow_payload: extractFlowCompletionPayload(msg),
       };
 
     case 'button':
@@ -329,6 +357,97 @@ function extractMessageContent(msg) {
       // Store the raw message for unknown types
       return { raw: msg[type] || msg };
   }
+}
+
+function parsePossiblyJson(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+
+  return value;
+}
+
+function extractFlowCompletionPayload(msg) {
+  const interactive = msg?.interactive || {};
+  if (interactive.type !== 'nfm_reply' && !interactive.nfm_reply) {
+    return null;
+  }
+
+  const nfmReply = interactive.nfm_reply || {};
+  const responseJson = parsePossiblyJson(
+    nfmReply.response_json
+    || interactive.response_json
+    || null
+  );
+
+  return {
+    name: nfmReply.name || null,
+    body: nfmReply.body || null,
+    flow_token: nfmReply.flow_token || responseJson?.flow_token || null,
+    screen_id: nfmReply.screen_id || responseJson?.screen_id || responseJson?.screen || null,
+    flow_id: nfmReply.flow_id || responseJson?.flow_id || responseJson?.meta_flow_id || null,
+    response_json: responseJson,
+  };
+}
+
+async function resolveFlowCompletion(msg, account) {
+  const payload = extractFlowCompletionPayload(msg);
+  if (!payload) {
+    return null;
+  }
+
+  let metaFlowId = payload.flow_id || null;
+  let localFlowId = null;
+
+  if ((!metaFlowId || !payload.flow_token) && msg.context?.id && account?.id) {
+    try {
+      const parentMessage = await WaMessage.findOne({
+        where: {
+          meta_message_id: msg.context.id,
+          wa_account_id: account.id,
+        },
+      });
+
+      const parentContent = parentMessage?.content || {};
+      const linkedFlows = Array.isArray(parentContent.linked_flows)
+        ? parentContent.linked_flows
+        : [];
+
+      if (!metaFlowId) {
+        metaFlowId = parentContent.meta_flow_id || linkedFlows[0]?.meta_flow_id || null;
+      }
+      if (!localFlowId) {
+        localFlowId = parentContent.local_flow_id || linkedFlows[0]?.local_flow_id || null;
+      }
+      if (!payload.flow_token) {
+        payload.flow_token = parentContent.flow_token || null;
+      }
+    } catch (err) {
+      console.warn('[whatsapp-service] Could not resolve parent flow message context:', err.message);
+    }
+  }
+
+  if (!metaFlowId) {
+    return null;
+  }
+
+  return {
+    metaFlowId,
+    localFlowId,
+    flowToken: payload.flow_token || null,
+    screenId: payload.screen_id || null,
+    payload: payload.response_json && typeof payload.response_json === 'object'
+      ? payload.response_json
+      : {},
+  };
 }
 
 /**

@@ -15,6 +15,7 @@ const {
   createCouponSchema,
   updateCouponSchema,
   createNotificationSchema,
+  sendAdminEmailSchema,
   updateSettingsSchema,
   createRoleSchema,
   updateRoleSchema,
@@ -314,6 +315,16 @@ async function createBroadcast(req, res) {
 }
 
 /**
+ * POST /email/send
+ * Sends an admin-initiated email to one or more recipients.
+ */
+async function sendAdminEmail(req, res) {
+  const data = sendAdminEmailSchema.parse(req.body);
+  const result = await adminService.sendAdminEmail(data, req.adminUser.id);
+  return successResponse(res, result, 'Email sent successfully', 201);
+}
+
+/**
  * GET /notifications
  * Lists past broadcast notifications.
  */
@@ -447,6 +458,7 @@ module.exports = {
   // Notifications
   createBroadcast,
   listBroadcasts,
+  sendAdminEmail,
 
   // Settings
   getAllSettings,

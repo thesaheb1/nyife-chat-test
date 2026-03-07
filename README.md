@@ -51,21 +51,25 @@ docker-compose up -d --build
 ### 3. Start for development
 
 ```bash
-# Start infrastructure only
-docker-compose up -d mysql redis zookeeper kafka
+# Start the full backend dev stack with one command
+docker compose -f docker-compose.dev.yml up -d --build
 
-# Run migrations
-bash scripts/migrate-all.sh
+# Or use the root shortcut
+npm run stack:up:build
 
-# Setup Kafka topics
-docker exec nyife-kafka bash -c "$(cat scripts/setup-kafka-topics.sh)"
+# Run all migrations
+npm run migrate:all
 
-# Start the API Gateway
-cd services/api-gateway && npm run dev
+# Optional: create Kafka topics explicitly
+npm run kafka:setup
 
-# Start individual services as needed
-cd services/auth-service && npm run dev
+# Start the frontend separately
+cd frontend && npm run dev
 ```
+
+Stop any locally running services on ports `3000-3017`, `3307`, `6379`, `9092`, or `2181` before starting the Docker dev stack.
+
+Command reference: [docs/DEV_COMMANDS.md](/c:/Users/mdsah/OneDrive/Desktop/nyife/docs/DEV_COMMANDS.md)
 
 ### Health Check
 
@@ -156,10 +160,10 @@ All schema changes use Sequelize CLI migrations — **never `sequelize.sync()`**
 
 ```bash
 # Run all migrations
-bash scripts/migrate-all.sh
+npm run migrate:all
 
 # Run for a specific service
-cd services/{service-name} && npx sequelize-cli db:migrate
+npm run migrate -- {service-name}
 
 # Create a new migration
 cd services/{service-name} && npx sequelize-cli migration:generate --name {name}
@@ -204,9 +208,14 @@ Each service has a 256MB memory limit. Nginx handles SSL termination, static ass
 ## Scripts
 
 ```bash
-npm run docker:dev          # Start dev environment
-npm run docker:dev:build    # Build and start dev environment
-npm run docker:dev:down     # Stop dev environment
+npm run stack:up            # Start backend stack
+npm run stack:up:build      # Build and start backend stack
+npm run stack:stop          # Stop all running stack containers
+npm run stack:down          # Remove stack containers
+npm run stack:restart       # Restart all stack containers
+npm run stack:ps            # List stack containers
+npm run service:start -- auth-service   # Start one service
+npm run service:restart -- auth-service # Restart one service
 npm run migrate:all         # Run all service migrations
 npm run kafka:setup         # Create Kafka topics
 bash scripts/test-all.sh    # Run all test suites

@@ -25,6 +25,7 @@ import { DataTable } from '@/shared/components/DataTable';
 import { useTemplates, useSyncTemplates } from './useTemplates';
 import { useDebounce } from '@/core/hooks';
 import type { Template } from '@/core/types';
+import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 
 const STATUS_COLORS: Record<Template['status'], string> = {
   draft: 'bg-gray-100 text-gray-800',
@@ -53,6 +54,7 @@ export function TemplateListPage() {
   const [page, setPage] = useState(1);
   const [syncOpen, setSyncOpen] = useState(false);
   const [wabaId, setWabaId] = useState('');
+  const { data: waAccounts } = useWhatsAppAccounts();
 
   const { data, isLoading } = useTemplates({
     page,
@@ -64,6 +66,17 @@ export function TemplateListPage() {
   });
 
   const syncTemplates = useSyncTemplates();
+  const wabaOptions = Array.from(
+    new Map(
+      (waAccounts || []).map((account) => [
+        account.waba_id,
+        {
+          value: account.waba_id,
+          label: `${account.verified_name || account.display_phone || account.waba_id} (${account.waba_id})`,
+        },
+      ])
+    ).values()
+  );
 
   const templates = data?.data?.templates ?? [];
   const meta = data?.meta;
@@ -250,6 +263,21 @@ export function TemplateListPage() {
           </DialogHeader>
           <div className="space-y-2">
             <Label>WABA ID</Label>
+            {wabaOptions.length > 0 && (
+              <Select value={wabaId || 'manual'} onValueChange={(value) => setWabaId(value === 'manual' ? '' : value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Manual entry</SelectItem>
+                  {wabaOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Input
               value={wabaId}
               onChange={(e) => setWabaId(e.target.value)}

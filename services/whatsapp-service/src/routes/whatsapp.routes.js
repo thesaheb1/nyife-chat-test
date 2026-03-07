@@ -16,6 +16,7 @@ router.get('/webhook', asyncHandler(whatsappController.verifyWebhook));
 
 // POST /webhook — Meta webhook events (signature verified by middleware)
 router.post('/webhook', verifyWebhookSignature, asyncHandler(whatsappController.processWebhook));
+router.post('/flows/data-exchange', asyncHandler(whatsappController.handleFlowDataExchange));
 
 // ────────────────────────────────────────────────
 // Account routes (authenticated)
@@ -65,6 +66,12 @@ router.post(
   '/send/template',
   authenticate,
   asyncHandler(whatsappController.sendTemplateMessage)
+);
+
+router.post(
+  '/send/flow',
+  authenticate,
+  asyncHandler(whatsappController.sendFlowMessage)
 );
 
 router.get(

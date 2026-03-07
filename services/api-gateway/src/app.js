@@ -32,6 +32,37 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
+const LOCALHOST_ORIGINS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  '[::1]',
+]);
+
+const PRIVATE_IP_PATTERNS = [
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/,
+];
+
+const isDevLocalOrigin = (origin) => {
+  if (config.nodeEnv !== 'development' || !origin) {
+    return false;
+  }
+
+  try {
+    const { hostname } = new URL(origin);
+    return (
+      LOCALHOST_ORIGINS.has(hostname) ||
+      PRIVATE_IP_PATTERNS.some((pattern) => pattern.test(hostname))
+    );
+  } catch {
+    return false;
+  }
+};
+
+const allowedOrigins = new Set((config.cors.origins || []).filter(Boolean));
+
 // ---------------------------------------------------------------------------
 // Express app
 // ---------------------------------------------------------------------------
@@ -53,10 +84,17 @@ app.use(helmet());
 // ---------------------------------------------------------------------------
 app.use(
   cors({
-    origin: config.cors.origins,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin) || isDevLocalOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`Origin "${origin}" is not allowed by CORS`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token'],
   })
 );
 
@@ -195,12 +233,31 @@ routeConfig.forEach((route) => {
       onProxyReq: (proxyReq, req) => {
         // If the request body was already parsed by express.json(), we need to
         // re-serialize it so the downstream service receives the body correctly.
-        if (req.body && Object.keys(req.body).length > 0) {
-          const bodyData = JSON.stringify(req.body);
-          proxyReq.setHeader('Content-Type', 'application/json');
-          proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-          proxyReq.write(bodyData);
+        const method = String(req.method || 'GET').toUpperCase();
+        const hasParsedBody = req.body !== undefined && req.body !== null;
+        const shouldForwardBody = hasParsedBody && !['GET', 'HEAD'].includes(method);
+        const contentType = String(req.headers['content-type'] || '');
+        const isMultipart = contentType.includes('multipart/form-data');
+        const isJsonLike = contentType.includes('application/json');
+        const isUrlEncoded = contentType.includes('application/x-www-form-urlencoded');
+
+        if (!shouldForwardBody || isMultipart) {
+          return;
         }
+
+        let bodyData;
+
+        if (isJsonLike) {
+          bodyData = JSON.stringify(req.body);
+        } else if (isUrlEncoded) {
+          bodyData = new URLSearchParams(req.body).toString();
+        } else {
+          return;
+        }
+
+        proxyReq.setHeader('Content-Type', contentType);
+        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+        proxyReq.write(bodyData);
       },
       onError: (err, req, res) => {
         logger.error(`Proxy error for ${route.prefix} → ${target}: ${err.message}`);

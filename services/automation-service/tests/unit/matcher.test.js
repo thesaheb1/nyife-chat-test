@@ -54,6 +54,36 @@ describe('findMatchingAutomation', () => {
     expect(findMatchingAutomation(autos, makeMsg('text', 'text'))).toBeNull();
   });
 
+  it('should match interactive button reply titles', () => {
+    const autos = [makeAuto('exact', 'Track Order')];
+    const message = {
+      type: 'interactive',
+      interactive: {
+        button_reply: {
+          id: 'track_order',
+          title: 'Track Order',
+        },
+      },
+    };
+
+    expect(findMatchingAutomation(autos, message)).toBe(autos[0]);
+  });
+
+  it('should match interactive list reply ids', () => {
+    const autos = [makeAuto('exact', 'catalog_support')];
+    const message = {
+      type: 'interactive',
+      interactive: {
+        list_reply: {
+          id: 'catalog_support',
+          title: 'Support',
+        },
+      },
+    };
+
+    expect(findMatchingAutomation(autos, message)).toBe(autos[0]);
+  });
+
   it('should return null when no match', () => {
     const autos = [makeAuto('exact', 'goodbye')];
     expect(findMatchingAutomation(autos, makeMsg('hello'))).toBeNull();
@@ -76,6 +106,16 @@ describe('findMatchingAutomation', () => {
   it('should handle unknown trigger type', () => {
     const autos = [makeAuto('unknown', 'test')];
     expect(findMatchingAutomation(autos, makeMsg('test'))).toBeNull();
+  });
+
+  it('should use fallback automation when nothing else matches', () => {
+    const autos = [
+      makeAuto('exact', 'hello', { id: 'exact-auto' }),
+      makeAuto('fallback', '', { id: 'fallback-auto' }),
+    ];
+
+    const result = findMatchingAutomation(autos, makeMsg('no match here'));
+    expect(result?.id).toBe('fallback-auto');
   });
 
   it('should evaluate time_of_day condition', () => {

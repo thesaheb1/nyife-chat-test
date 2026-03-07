@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { DataTypes } = require('sequelize');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -168,6 +169,7 @@ module.exports = (sequelize) => {
     const payload = {
       id: this.id,
       type: 'refresh',
+      jti: crypto.randomUUID(),
     };
     return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
       expiresIn: process.env.JWT_REFRESH_EXPIRY || '7d',

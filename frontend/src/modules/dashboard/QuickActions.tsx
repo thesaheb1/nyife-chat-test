@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Users, FileText, Megaphone, MessageSquare } from 'lucide-react';
+import { Users, FileText, Megaphone, MessageSquare, PlugZap, Webhook } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -11,6 +11,8 @@ export function QuickActions() {
     { label: 'Add Contact', icon: Users, path: '/contacts?action=create' },
     { label: 'New Template', icon: FileText, path: '/templates/create' },
     { label: 'View Chat', icon: MessageSquare, path: '/chat' },
+    { label: 'Connect WhatsApp', icon: PlugZap, path: '/whatsapp/connect' },
+    { label: 'Webhooks', icon: Webhook, path: '/automations/webhooks' },
   ];
 
   return (

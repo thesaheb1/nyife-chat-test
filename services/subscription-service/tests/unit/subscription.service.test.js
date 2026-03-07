@@ -125,6 +125,10 @@ describe('subscribe', () => {
       status: 'pending',
       user_id: USER_ID,
     }));
+    expect(Subscription.destroy).toHaveBeenCalledWith({
+      where: { user_id: USER_ID, status: 'pending' },
+      force: true,
+    });
     expect(result.payment_required).toBe(true);
     expect(result.razorpay_order.id).toBe('order_test');
   });
@@ -138,6 +142,10 @@ describe('subscribe', () => {
 
     const result = await subscriptionService.subscribe(USER_ID, { plan_id: 'plan-uuid-1' });
 
+    expect(Subscription.destroy).toHaveBeenCalledWith({
+      where: { user_id: USER_ID, status: 'pending' },
+      force: true,
+    });
     expect(createdSub.update).toHaveBeenCalledWith({ status: 'active', payment_id: 'free' });
     expect(result.payment_required).toBe(false);
   });
@@ -155,6 +163,93 @@ describe('subscribe', () => {
 
     await expect(subscriptionService.subscribe(USER_ID, { plan_id: 'bad' }))
       .rejects.toThrow('Plan not found or inactive');
+  });
+});
+
+describe('changePlan', () => {
+  it('should cancel the old subscription and create a paid replacement order', async () => {
+    const currentSubscription = makeSubscription({
+      id: 'sub-current',
+      plan_id: 'plan-old',
+      plan: makePlan({ id: 'plan-old' }),
+    });
+    const newPlan = makePlan({ id: 'plan-new' });
+    const pendingReplacement = makeSubscription({ id: 'sub-new', status: 'pending', plan_id: 'plan-new' });
+    pendingReplacement.destroy = jest.fn();
+
+    Plan.findByPk.mockResolvedValue(newPlan);
+    Subscription.findOne.mockResolvedValue(currentSubscription);
+    Subscription.create.mockResolvedValue(pendingReplacement);
+
+    const Razorpay = require('razorpay');
+    Razorpay.mockImplementation(() => ({
+      orders: {
+        create: jest.fn().mockResolvedValue({
+          id: 'order_change', amount: 118000, currency: 'INR',
+        }),
+      },
+    }));
+
+    const result = await subscriptionService.changePlan(USER_ID, { plan_id: 'plan-new' });
+
+    expect(Subscription.destroy).toHaveBeenCalledWith({
+      where: { user_id: USER_ID, status: 'pending' },
+      force: true,
+    });
+    expect(currentSubscription.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'cancelled',
+      cancellation_reason: 'plan_changed',
+      auto_renew: false,
+    }));
+    expect(result.previous_subscription_id).toBe('sub-current');
+    expect(result.payment_required).toBe(true);
+    expect(result.razorpay_order.id).toBe('order_change');
+  });
+
+  it('should activate immediately for a free replacement plan', async () => {
+    const currentSubscription = makeSubscription({
+      id: 'sub-current',
+      plan_id: 'plan-old',
+      plan: makePlan({ id: 'plan-old' }),
+    });
+    const freePlan = makePlan({ id: 'plan-free', price: 0 });
+    const pendingReplacement = makeSubscription({ id: 'sub-free', status: 'pending', plan_id: 'plan-free' });
+
+    Plan.findByPk.mockResolvedValue(freePlan);
+    Subscription.findOne.mockResolvedValue(currentSubscription);
+    Subscription.create.mockResolvedValue(pendingReplacement);
+
+    const result = await subscriptionService.changePlan(USER_ID, { plan_id: 'plan-free' });
+
+    expect(currentSubscription.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'cancelled',
+      cancellation_reason: 'plan_changed',
+    }));
+    expect(pendingReplacement.update).toHaveBeenCalledWith({ status: 'active', payment_id: 'free' });
+    expect(result.payment_required).toBe(false);
+    expect(result.previous_subscription_id).toBe('sub-current');
+  });
+
+  it('should reject changing to the same plan', async () => {
+    const samePlan = makePlan({ id: 'plan-same' });
+    const currentSubscription = makeSubscription({
+      plan_id: 'plan-same',
+      plan: samePlan,
+    });
+
+    Plan.findByPk.mockResolvedValue(samePlan);
+    Subscription.findOne.mockResolvedValue(currentSubscription);
+
+    await expect(subscriptionService.changePlan(USER_ID, { plan_id: 'plan-same' }))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('should reject when there is no active subscription', async () => {
+    Plan.findByPk.mockResolvedValue(makePlan({ id: 'plan-new' }));
+    Subscription.findOne.mockResolvedValue(null);
+
+    await expect(subscriptionService.changePlan(USER_ID, { plan_id: 'plan-new' }))
+      .rejects.toThrow('No active subscription found');
   });
 });
 

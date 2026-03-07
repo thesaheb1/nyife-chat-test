@@ -108,6 +108,24 @@ describe('processFlowStep', () => {
     expect(result.nextStepId).toBe('s2');
   });
 
+  it('should store interactive button reply text when waiting for reply', () => {
+    const step = { id: 's1', type: 'wait_for_reply', branches: { received: 's2' } };
+    const collectedData = {};
+    const message = {
+      interactive: {
+        button_reply: {
+          id: 'track_order',
+          title: 'Track Order',
+        },
+      },
+    };
+
+    const result = processFlowStep(step, message, collectedData);
+
+    expect(collectedData.s1).toBe('Track Order');
+    expect(result.nextStepId).toBe('s2');
+  });
+
   it('should handle condition step - true branch', () => {
     const step = {
       id: 's1', type: 'condition',
@@ -138,6 +156,25 @@ describe('processFlowStep', () => {
     };
     expect(processFlowStep(step, { text: { body: '12345' } }, {}).nextStepId).toBe('s2');
     expect(processFlowStep(step, { text: { body: 'abc' } }, {}).nextStepId).toBe('s3');
+  });
+
+  it('should match condition step against interactive replies', () => {
+    const step = {
+      id: 's1', type: 'condition',
+      config: { operator: 'equals', value: 'Talk to agent' },
+      branches: { true: 's2', false: 's3' },
+    };
+
+    const result = processFlowStep(step, {
+      interactive: {
+        button_reply: {
+          id: 'talk_to_agent',
+          title: 'Talk to agent',
+        },
+      },
+    }, {});
+
+    expect(result.nextStepId).toBe('s2');
   });
 
   it('should handle add_tag step', () => {

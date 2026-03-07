@@ -56,6 +56,12 @@ const routeConfig = [
     rateLimit: 'global',
   },
   {
+    prefix: '/api/v1/flows',
+    service: 'template',
+    auth: true,
+    rateLimit: 'global',
+  },
+  {
     prefix: '/api/v1/campaigns',
     service: 'campaign',
     auth: true,
@@ -73,7 +79,7 @@ const routeConfig = [
     service: 'whatsapp',
     auth: true,
     rateLimit: 'global',
-    publicPaths: ['/api/v1/whatsapp/webhook'],
+    publicPaths: ['/api/v1/whatsapp/webhook', '/api/v1/whatsapp/flows/data-exchange'],
   },
   {
     prefix: '/api/v1/automations',

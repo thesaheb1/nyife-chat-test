@@ -61,6 +61,7 @@ router.delete('/coupons/:id', adminRbac('plans', 'delete'), asyncHandler(ctrl.de
 // ===========================================================================
 router.post('/notifications', adminRbac('notifications', 'create'), asyncHandler(ctrl.createBroadcast));
 router.get('/notifications', adminRbac('notifications', 'read'), asyncHandler(ctrl.listBroadcasts));
+router.post('/email/send', adminRbac('emails', 'create'), asyncHandler(ctrl.sendAdminEmail));
 
 // ===========================================================================
 // Settings (admin RBAC: settings resource)

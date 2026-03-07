@@ -4,6 +4,7 @@ export const ENDPOINTS = {
     LOGIN: '/api/v1/auth/login',
     LOGOUT: '/api/v1/auth/logout',
     REFRESH: '/api/v1/auth/refresh',
+    CSRF_TOKEN: '/api/v1/auth/csrf-token',
     ME: '/api/v1/auth/me',
     VERIFY_EMAIL: '/api/v1/auth/verify-email',
     FORGOT_PASSWORD: '/api/v1/auth/forgot-password',
@@ -20,13 +21,23 @@ export const ENDPOINTS = {
   CONTACTS: {
     BASE: '/api/v1/contacts',
     TAGS: '/api/v1/contacts/tags',
+    TAGS_BULK_ASSIGN: '/api/v1/contacts/tags/bulk-assign',
     GROUPS: '/api/v1/contacts/groups',
+    GROUPS_BULK_MEMBERSHIPS: '/api/v1/contacts/groups/bulk-memberships',
     BULK_DELETE: '/api/v1/contacts/bulk-delete',
     IMPORT_CSV: '/api/v1/contacts/import/csv',
+    IMPORT_GROUPS_CSV: '/api/v1/contacts/groups/import/csv',
+    SAMPLE_CONTACT_CSV: '/api/v1/contacts/import/csv/sample/contacts',
+    SAMPLE_GROUP_CSV: '/api/v1/contacts/import/csv/sample/groups',
   },
   TEMPLATES: {
     BASE: '/api/v1/templates',
     SYNC: '/api/v1/templates/sync',
+  },
+  FLOWS: {
+    BASE: '/api/v1/flows',
+    SYNC: '/api/v1/flows/sync',
+    DATA_EXCHANGE: '/api/v1/flows/data-exchange',
   },
   CAMPAIGNS: {
     BASE: '/api/v1/campaigns',
@@ -36,8 +47,10 @@ export const ENDPOINTS = {
   },
   WHATSAPP: {
     ACCOUNTS: '/api/v1/whatsapp/accounts',
+    EMBEDDED_SIGNUP: '/api/v1/whatsapp/accounts/embedded-signup',
     SEND: '/api/v1/whatsapp/send',
     SEND_TEMPLATE: '/api/v1/whatsapp/send/template',
+    SEND_FLOW: '/api/v1/whatsapp/send/flow',
     MESSAGES: '/api/v1/whatsapp/messages',
   },
   AUTOMATIONS: {
@@ -49,7 +62,9 @@ export const ENDPOINTS = {
   },
   SUBSCRIPTIONS: {
     PLANS: '/api/v1/subscriptions/plans',
+    PLAN_DETAILS: (slug: string) => `/api/v1/subscriptions/plans/${slug}`,
     SUBSCRIBE: '/api/v1/subscriptions/subscribe',
+    CHANGE_PLAN: '/api/v1/subscriptions/change-plan',
     VERIFY_PAYMENT: '/api/v1/subscriptions/verify-payment',
     CURRENT: '/api/v1/subscriptions/current',
     CANCEL: '/api/v1/subscriptions/cancel',

@@ -1,7 +1,7 @@
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState, AppDispatch } from '@/core/store';
 import { setCredentials, logout as logoutAction, setLoading } from '@/core/store/authSlice';
-import { apiClient } from '@/core/api/client';
+import { apiClient, refreshSession } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import type { User, ApiResponse } from '@/core/types';
 
@@ -29,10 +29,7 @@ export function useAuth() {
   const refreshAuth = async () => {
     try {
       dispatch(setLoading(true));
-      const { data } = await apiClient.post<ApiResponse<{ accessToken: string; user: User }>>(
-        ENDPOINTS.AUTH.REFRESH
-      );
-      dispatch(setCredentials({ accessToken: data.data.accessToken, user: data.data.user }));
+      await refreshSession();
     } catch {
       dispatch(logoutAction());
     }

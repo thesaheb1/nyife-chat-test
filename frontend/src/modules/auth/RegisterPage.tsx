@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription }
 import { AuthLayout } from '@/shared/layouts/AuthLayout';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 import { registerSchema } from './validations';
 import type { RegisterFormData } from './validations';
 
@@ -24,6 +25,7 @@ export function RegisterPage() {
     handleSubmit,
     setValue,
     watch,
+    control,
     formState: { errors },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -92,7 +94,21 @@ export function RegisterPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone (optional)</Label>
-              <Input id="phone" type="tel" placeholder="+91 98765 43210" {...register('phone')} />
+              <Controller
+                control={control}
+                name="phone"
+                render={({ field }) => (
+                  <PhoneNumberInput
+                    id="phone"
+                    autoComplete="tel"
+                    placeholder="Enter phone number"
+                    value={field.value || ''}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    invalid={Boolean(errors.phone)}
+                  />
+                )}
+              />
               {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
             </div>
             <div className="space-y-2">

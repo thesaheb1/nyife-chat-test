@@ -49,6 +49,10 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 'draft',
       },
+      source: {
+        type: DataTypes.ENUM('nyife', 'meta_sync'),
+        allowNull: true,
+      },
       components: {
         type: DataTypes.JSON,
         allowNull: false,

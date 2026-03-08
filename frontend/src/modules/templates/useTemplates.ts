@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
-import type { Template, ApiResponse, PaginationMeta } from '@/core/types';
+import type { Template, ApiResponse, MediaFile, PaginationMeta } from '@/core/types';
 import type { CreateTemplateFormData, UpdateTemplateFormData } from './validations';
 
 interface TemplateListParams {
@@ -110,5 +110,16 @@ export function useSyncTemplates() {
       return data.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
+  });
+}
+
+export function useUploadTemplateMedia() {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const { data } = await apiClient.post<ApiResponse<MediaFile>>(ENDPOINTS.MEDIA.UPLOAD, formData);
+      return data.data;
+    },
   });
 }

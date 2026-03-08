@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { optionalPhoneSchema } from '@/shared/utils/phone';
 
 export const loginSchema = z.object({
   email: z.email('Invalid email address'),
@@ -11,7 +12,7 @@ export const registerSchema = z
     first_name: z.string().min(1, 'First name is required').max(100),
     last_name: z.string().min(1, 'Last name is required').max(100),
     email: z.email('Invalid email address'),
-    phone: z.string().optional(),
+    phone: optionalPhoneSchema,
     password: z.string().min(8, 'Password must be at least 8 characters'),
     confirm_password: z.string().min(1, 'Please confirm your password'),
     terms: z.literal(true, { error: 'You must accept the terms' }),

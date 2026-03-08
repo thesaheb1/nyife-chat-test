@@ -1,7 +1,8 @@
 import { z } from 'zod/v4';
+import { optionalPhoneSchema, requiredPhoneSchema } from '@/shared/utils/phone';
 
 export const createContactSchema = z.object({
-  phone: z.string().min(1, 'Phone is required').regex(/^\+[1-9]\d{6,14}$/, 'Must be E.164 format (e.g., +919876543210)'),
+  phone: requiredPhoneSchema,
   name: z.string().max(200).optional(),
   email: z.email().max(255).optional().or(z.literal('')),
   company: z.string().max(200).optional(),
@@ -12,7 +13,7 @@ export const createContactSchema = z.object({
 export type CreateContactFormData = z.infer<typeof createContactSchema>;
 
 export const updateContactSchema = z.object({
-  phone: z.string().regex(/^\+[1-9]\d{6,14}$/, 'Must be E.164 format').optional(),
+  phone: optionalPhoneSchema,
   name: z.string().max(200).nullable().optional(),
   email: z.email().max(255).nullable().optional().or(z.literal('')),
   company: z.string().max(200).nullable().optional(),

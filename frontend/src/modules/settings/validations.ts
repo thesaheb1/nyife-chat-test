@@ -1,9 +1,10 @@
 import { z } from 'zod/v4';
+import { optionalPhoneSchema } from '@/shared/utils/phone';
 
 export const profileSchema = z.object({
   first_name: z.string().min(1, 'First name is required').max(100),
   last_name: z.string().min(1, 'Last name is required').max(100),
-  phone: z.string().max(20).optional().or(z.literal('')),
+  phone: optionalPhoneSchema,
 });
 export type ProfileFormData = z.infer<typeof profileSchema>;
 

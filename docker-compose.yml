@@ -281,6 +281,7 @@ services:
       NODE_ENV: production
       TEMPLATE_SERVICE_PORT: 3006
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
+      MEDIA_SERVICE_URL: http://media-service:3017
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092

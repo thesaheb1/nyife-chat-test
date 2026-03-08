@@ -5,6 +5,33 @@ const axios = require('axios');
 const { Template, Flow, sequelize } = require('../models');
 const { AppError, decrypt, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
 const config = require('../config');
+const { assertTemplateBusinessRules, getTemplateAvailableActions } = require('../helpers/templateRules');
+const TEMPLATE_MEDIA_RULES = {
+  IMAGE: {
+    label: 'Image',
+    mimeTypes: ['image/jpeg', 'image/png'],
+    maxSizeBytes: 5 * 1024 * 1024,
+  },
+  VIDEO: {
+    label: 'Video',
+    mimeTypes: ['video/mp4', 'video/3gpp', 'video/3gp'],
+    maxSizeBytes: 16 * 1024 * 1024,
+  },
+  DOCUMENT: {
+    label: 'Document',
+    mimeTypes: [
+      'text/plain',
+      'application/pdf',
+      'application/vnd.ms-powerpoint',
+      'application/msword',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ],
+    maxSizeBytes: 100 * 1024 * 1024,
+  },
+};
 
 // ─── Helper: check subscription limit ──────────────────────────────────────
 
@@ -26,25 +53,31 @@ async function checkSubscriptionLimit(userId) {
 
     if (response.data && response.data.success) {
       const limits = response.data.data;
-      if (limits && typeof limits.limit === 'number') {
-        const currentCount = await Template.count({
-          where: { user_id: userId },
-        });
-        if (currentCount >= limits.limit) {
+      if (limits && limits.allowed === false) {
+        if (limits.message === 'No active subscription') {
           throw AppError.forbidden(
-            `Template limit reached. Your plan allows a maximum of ${limits.limit} templates. Please upgrade your plan.`
+            'No active subscription found. Please subscribe to a plan before creating templates.'
           );
         }
+
+        const limitLabel = limits.limit === 'unlimited' ? 'your plan limit' : limits.limit;
+        throw AppError.forbidden(
+          `Template limit reached. Your plan allows a maximum of ${limitLabel} templates. Please upgrade your plan.`
+        );
       }
+
+      return;
     }
+
+    throw AppError.internal('Invalid response received while validating your template subscription limit.');
   } catch (err) {
     // If the error is an AppError we threw, re-throw it
     if (err instanceof AppError) {
       throw err;
     }
-    // If subscription service is unreachable, log warning and allow creation
-    // This prevents template creation from being blocked when subscription-service is down
-    console.warn('[template-service] Could not verify subscription limit:', err.message);
+    throw AppError.internal(
+      'Unable to validate your template subscription limit right now. Please try again in a moment.'
+    );
   }
 }
 
@@ -72,6 +105,20 @@ async function notifySubscriptionUsage(userId, action) {
   } catch (err) {
     console.warn('[template-service] Could not update subscription usage:', err.message);
   }
+}
+
+function didTemplateConsumeQuota(template) {
+  const record = typeof template?.toJSON === 'function' ? template.toJSON() : template;
+
+  if (!record) {
+    return false;
+  }
+
+  if (record.source === 'meta_sync') {
+    return false;
+  }
+
+  return true;
 }
 
 async function resolveAccessToken(userId, wabaId, providedAccessToken) {
@@ -124,7 +171,379 @@ async function resolveAccessToken(userId, wabaId, providedAccessToken) {
   }
 }
 
-async function resolveTemplateFlowButtons(userId, components) {
+function normalizeComponentType(type) {
+  return String(type || '').toUpperCase();
+}
+
+function trimString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function pickDefinedEntries(entries) {
+  return Object.fromEntries(entries.filter(([, value]) => value !== undefined && value !== null && value !== ''));
+}
+
+function assertMediaRecordCompatible(format, mediaRecord) {
+  const rule = TEMPLATE_MEDIA_RULES[normalizeComponentType(format)];
+  if (!rule) {
+    return;
+  }
+
+  const mimeType = trimString(mediaRecord?.mime_type);
+  if (!rule.mimeTypes.includes(mimeType)) {
+    throw AppError.badRequest(
+      `${rule.label} headers support ${rule.mimeTypes.join(', ')} only.`
+    );
+  }
+
+  if (typeof mediaRecord?.size === 'number' && mediaRecord.size > rule.maxSizeBytes) {
+    throw AppError.badRequest(
+      `${rule.label} headers must be ${Math.round(rule.maxSizeBytes / (1024 * 1024))} MB or smaller.`
+    );
+  }
+}
+
+function normalizeButtonExample(example) {
+  if (Array.isArray(example)) {
+    const items = example.map((value) => trimString(value)).filter(Boolean);
+    return items.length ? items : undefined;
+  }
+
+  const value = trimString(example);
+  return value ? [value] : undefined;
+}
+
+async function fetchMediaRecord(userId, fileId) {
+  try {
+    const response = await axios.get(
+      `${config.mediaServiceUrl}/api/v1/media/${fileId}`,
+      {
+        headers: {
+          'x-user-id': userId,
+        },
+        timeout: 10000,
+      }
+    );
+
+    return response.data?.data || null;
+  } catch (err) {
+    throw AppError.badRequest(
+      `Unable to load the selected header sample from Nyife media storage. ${err.response?.data?.message || err.message}`
+    );
+  }
+}
+
+async function fetchMediaBinary(userId, fileId) {
+  try {
+    const response = await axios.get(
+      `${config.mediaServiceUrl}/api/v1/media/${fileId}/download`,
+      {
+        headers: {
+          'x-user-id': userId,
+        },
+        responseType: 'arraybuffer',
+        timeout: 30000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+      }
+    );
+
+    return Buffer.from(response.data);
+  } catch (err) {
+    throw AppError.badRequest(
+      `Unable to download the selected header sample from Nyife media storage. ${err.response?.data?.message || err.message}`
+    );
+  }
+}
+
+async function createMetaUploadSession(accessToken, mediaRecord) {
+  if (!config.meta.appId) {
+    throw AppError.badRequest(
+      'META_APP_ID is required to publish templates with media headers.'
+    );
+  }
+
+  let response;
+  try {
+    response = await axios.post(
+      `${config.meta.baseUrl}/${config.meta.appId}/uploads`,
+      null,
+      {
+        params: {
+          file_length: mediaRecord.size,
+          file_type: mediaRecord.mime_type,
+          file_name: mediaRecord.original_name,
+        },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        timeout: 15000,
+      }
+    );
+  } catch (err) {
+    const metaError = err.response?.data?.error;
+    throw AppError.badRequest(
+      `Meta rejected the template media upload session. ${metaError?.message || err.message}`
+    );
+  }
+
+  const uploadSessionId = response.data?.id;
+  if (!uploadSessionId) {
+    throw AppError.badRequest('Meta did not return an upload session for the template media header.');
+  }
+
+  return uploadSessionId;
+}
+
+async function uploadTemplateHeaderSample(userId, accessToken, component) {
+  const fileId = trimString(component?.media_asset?.file_id);
+  if (!fileId) {
+    throw AppError.badRequest('Header media sample is missing its Nyife file ID.');
+  }
+
+  const mediaRecord = await fetchMediaRecord(userId, fileId);
+  if (!mediaRecord) {
+    throw AppError.badRequest('Header media sample could not be found.');
+  }
+
+  assertMediaRecordCompatible(component?.format, mediaRecord);
+
+  const uploadSessionId = await createMetaUploadSession(accessToken, mediaRecord);
+  const fileBuffer = await fetchMediaBinary(userId, fileId);
+  let response;
+  try {
+    response = await axios.post(
+      `${config.meta.baseUrl}/${uploadSessionId}`,
+      fileBuffer,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'file_offset': '0',
+          'Content-Type': mediaRecord.mime_type,
+          'Content-Length': fileBuffer.length,
+        },
+        timeout: 30000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+      }
+    );
+  } catch (err) {
+    const metaError = err.response?.data?.error;
+    throw AppError.badRequest(
+      `Meta rejected the uploaded template header sample. ${metaError?.message || err.message}`
+    );
+  }
+
+  const headerHandle = trimString(response.data?.h);
+  if (!headerHandle) {
+    throw AppError.badRequest('Meta did not return a header handle for the uploaded sample media.');
+  }
+
+  return headerHandle;
+}
+
+async function resolveHeaderHandle(userId, accessToken, component) {
+  const existingHandle = trimString(component?.media_asset?.header_handle)
+    || trimString(component?.example?.header_handle?.[0]);
+
+  if (existingHandle) {
+    return existingHandle;
+  }
+
+  return uploadTemplateHeaderSample(userId, accessToken, component);
+}
+
+function sanitizeButtonForMeta(button) {
+  const type = normalizeComponentType(button.type);
+  const cleaned = { type };
+  const text = trimString(button.text);
+
+  if (text) {
+    cleaned.text = text;
+  }
+
+  if (type === 'URL') {
+    Object.assign(cleaned, pickDefinedEntries([
+      ['url', trimString(button.url)],
+      ['example', normalizeButtonExample(button.example)],
+    ]));
+  }
+
+  if (type === 'PHONE_NUMBER') {
+    Object.assign(cleaned, pickDefinedEntries([
+      ['phone_number', trimString(button.phone_number)],
+    ]));
+  }
+
+  if (type === 'OTP') {
+    Object.assign(cleaned, pickDefinedEntries([
+      ['otp_type', trimString(button.otp_type)],
+      ['autofill_text', trimString(button.autofill_text)],
+      ['package_name', trimString(button.package_name)],
+      ['signature_hash', trimString(button.signature_hash)],
+    ]));
+  }
+
+  if (type === 'FLOW') {
+    const flowId = trimString(button.flow_id);
+    const flowName = trimString(button.flow_name);
+    const flowJson = trimString(button.flow_json);
+
+    if (flowId) {
+      cleaned.flow_id = flowId;
+    } else if (flowName) {
+      cleaned.flow_name = flowName;
+    } else if (flowJson) {
+      cleaned.flow_json = flowJson;
+    }
+
+    Object.assign(cleaned, pickDefinedEntries([
+      ['flow_action', trimString(button.flow_action)],
+      ['navigate_screen', trimString(button.navigate_screen)],
+    ]));
+  }
+
+  if (type === 'CATALOG' || type === 'MPM') {
+    const example = normalizeButtonExample(button.example);
+    if (example) {
+      cleaned.example = example;
+    }
+  }
+
+  return cleaned;
+}
+
+async function sanitizeTemplateComponentsForMeta(userId, accessToken, templateType, components) {
+  const sanitized = [];
+
+  for (const component of Array.isArray(components) ? components : []) {
+    const type = normalizeComponentType(component.type);
+
+    if (type === 'HEADER') {
+      const format = normalizeComponentType(component.format);
+      const sanitizedHeader = {
+        type: 'HEADER',
+        format,
+      };
+
+      if (format === 'TEXT') {
+        sanitizedHeader.text = trimString(component.text);
+      }
+
+      if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(format)) {
+        sanitizedHeader.example = {
+          header_handle: [await resolveHeaderHandle(userId, accessToken, component)],
+        };
+      }
+
+      sanitized.push(sanitizedHeader);
+      continue;
+    }
+
+    if (type === 'BODY') {
+      if (templateType === 'authentication') {
+        sanitized.push({
+          type: 'BODY',
+          add_security_recommendation: Boolean(component.add_security_recommendation),
+        });
+      } else {
+        sanitized.push(pickDefinedEntries([
+          ['type', templateType === 'flow' ? 'body' : 'BODY'],
+          ['text', trimString(component.text)],
+        ]));
+      }
+      continue;
+    }
+
+    if (type === 'FOOTER') {
+      if (templateType === 'authentication') {
+        sanitized.push({
+          type: 'FOOTER',
+          code_expiration_minutes: Number(component.code_expiration_minutes),
+        });
+      } else {
+        sanitized.push(pickDefinedEntries([
+          ['type', 'FOOTER'],
+          ['text', trimString(component.text)],
+        ]));
+      }
+      continue;
+    }
+
+    if (type === 'BUTTONS') {
+      sanitized.push({
+        type: 'BUTTONS',
+        buttons: Array.isArray(component.buttons) ? component.buttons.map(sanitizeButtonForMeta) : [],
+      });
+      continue;
+    }
+
+    if (type === 'CAROUSEL') {
+      const cards = Array.isArray(component.cards) ? component.cards : [];
+      sanitized.push({
+        type: 'CAROUSEL',
+        cards: await Promise.all(
+          cards.map(async (card) => ({
+            components: await sanitizeTemplateComponentsForMeta(
+              userId,
+              accessToken,
+              'carousel',
+              Array.isArray(card.components) ? card.components : []
+            ),
+          }))
+        ),
+      });
+      continue;
+    }
+
+    const generic = { ...component };
+    delete generic.media_asset;
+
+    if (Array.isArray(generic.buttons)) {
+      generic.buttons = generic.buttons.map(sanitizeButtonForMeta);
+    }
+
+    if (Array.isArray(generic.cards)) {
+      generic.cards = await Promise.all(
+        generic.cards.map(async (card) => ({
+          ...card,
+          components: await sanitizeTemplateComponentsForMeta(
+            userId,
+            accessToken,
+            'carousel',
+            Array.isArray(card.components) ? card.components : []
+          ),
+        }))
+      );
+    }
+
+    sanitized.push(generic);
+  }
+
+  return sanitized;
+}
+
+async function buildMetaTemplatePayload(userId, accessToken, template, wabaId) {
+  const resolvedComponents = await resolveTemplateFlowButtons(
+    userId,
+    wabaId,
+    template.components
+  );
+
+  return {
+    name: template.name,
+    language: template.language,
+    category: template.category,
+    components: await sanitizeTemplateComponentsForMeta(
+      userId,
+      accessToken,
+      template.type,
+      resolvedComponents
+    ),
+  };
+}
+
+async function resolveTemplateFlowButtons(userId, wabaId, components) {
   if (!Array.isArray(components)) {
     return components;
   }
@@ -155,6 +574,12 @@ async function resolveTemplateFlowButtons(userId, components) {
         throw AppError.badRequest(`Linked flow ${button.flow_id} was not found for this template.`);
       }
 
+      if (wabaId && linkedFlow.waba_id && String(linkedFlow.waba_id) !== String(wabaId)) {
+        throw AppError.badRequest(
+          `Linked flow "${linkedFlow.name}" belongs to WABA ${linkedFlow.waba_id}, but the template is being published for WABA ${wabaId}.`
+        );
+      }
+
       if (!linkedFlow.meta_flow_id) {
         throw AppError.badRequest(
           `Linked flow "${linkedFlow.name}" must be saved to Meta before this template can be published.`
@@ -166,9 +591,10 @@ async function resolveTemplateFlowButtons(userId, components) {
       resolvedButtons.push({
         ...button,
         flow_id: linkedFlow.meta_flow_id,
-        flow_name: button.flow_name || linkedFlow.name,
         flow_action: button.flow_action || 'navigate',
         navigate_screen: button.navigate_screen || firstScreenId,
+        flow_name: undefined,
+        flow_json: undefined,
       });
     }
 
@@ -185,6 +611,14 @@ function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
 }
 
+function serializeTemplate(template) {
+  const record = typeof template.toJSON === 'function' ? template.toJSON() : { ...template };
+  return {
+    ...record,
+    available_actions: getTemplateAvailableActions(record),
+  };
+}
+
 // ─── Create Template ───────────────────────────────────────────────────────
 
 /**
@@ -197,6 +631,7 @@ function isUuid(value) {
 async function createTemplate(userId, data) {
   // Check subscription limit before creating
   await checkSubscriptionLimit(userId);
+  assertTemplateBusinessRules(data);
 
   // Check name uniqueness scoped to user + waba_id
   const whereClause = {
@@ -225,6 +660,7 @@ async function createTemplate(userId, data) {
     category: data.category,
     type: data.type || 'standard',
     status: 'draft',
+    source: 'nyife',
     components: data.components,
     example_values: data.example_values || null,
   });
@@ -232,7 +668,7 @@ async function createTemplate(userId, data) {
   // Notify subscription service (best-effort)
   notifySubscriptionUsage(userId, 'increment');
 
-  return template;
+  return serializeTemplate(template);
 }
 
 // ─── List Templates ────────────────────────────────────────────────────────
@@ -278,7 +714,10 @@ async function listTemplates(userId, filters) {
 
   const meta = getPaginationMeta(count, page, sanitizedLimit);
 
-  return { templates: rows, meta };
+  return {
+    templates: rows.map(serializeTemplate),
+    meta,
+  };
 }
 
 // ─── Get Template ──────────────────────────────────────────────────────────
@@ -299,7 +738,7 @@ async function getTemplate(userId, templateId) {
     throw AppError.notFound('Template not found');
   }
 
-  return template;
+  return serializeTemplate(template);
 }
 
 // ─── Update Template ───────────────────────────────────────────────────────
@@ -330,15 +769,18 @@ async function updateTemplate(userId, templateId, data) {
     );
   }
 
-  // If name is being changed, check uniqueness
-  if (data.name && data.name !== template.name) {
+  const nextName = data.name !== undefined ? data.name : template.name;
+  const nextWabaId = data.waba_id !== undefined ? data.waba_id : template.waba_id;
+
+  // If the destination name or WABA changes, check uniqueness in the destination scope
+  if (nextName !== template.name || nextWabaId !== template.waba_id) {
     const whereClause = {
       user_id: userId,
-      name: data.name,
+      name: nextName,
       id: { [Op.ne]: templateId },
     };
-    if (template.waba_id) {
-      whereClause.waba_id = template.waba_id;
+    if (nextWabaId) {
+      whereClause.waba_id = nextWabaId;
     } else {
       whereClause.waba_id = { [Op.is]: null };
     }
@@ -346,10 +788,21 @@ async function updateTemplate(userId, templateId, data) {
     const existing = await Template.findOne({ where: whereClause });
     if (existing) {
       throw AppError.conflict(
-        `A template with the name "${data.name}" already exists${template.waba_id ? ` for WABA ${template.waba_id}` : ''}`
+        `A template with the name "${nextName}" already exists${nextWabaId ? ` for WABA ${nextWabaId}` : ''}`
       );
     }
   }
+
+  const nextTemplateState = {
+    ...template.toJSON(),
+    ...data,
+    components: data.components !== undefined ? data.components : template.components,
+    type: data.type !== undefined ? data.type : template.type,
+    category: data.category !== undefined ? data.category : template.category,
+    language: data.language !== undefined ? data.language : template.language,
+    waba_id: data.waba_id !== undefined ? data.waba_id : template.waba_id,
+  };
+  assertTemplateBusinessRules(nextTemplateState);
 
   // Build the update object only with provided fields
   const updateFields = {};
@@ -371,7 +824,7 @@ async function updateTemplate(userId, templateId, data) {
 
   await template.update(updateFields);
 
-  return template;
+  return serializeTemplate(template);
 }
 
 // ─── Delete Template ───────────────────────────────────────────────────────
@@ -408,7 +861,10 @@ async function deleteTemplate(userId, templateId, accessToken) {
       await axios.delete(
         `${config.meta.baseUrl}/${template.waba_id}/message_templates`,
         {
-          params: { name: template.name },
+          params: pickDefinedEntries([
+            ['name', template.name],
+            ['hsm_id', template.meta_template_id],
+          ]),
           headers: {
             Authorization: `Bearer ${resolvedAccessToken}`,
           },
@@ -434,8 +890,10 @@ async function deleteTemplate(userId, templateId, accessToken) {
   // Soft delete locally
   await template.destroy();
 
-  // Notify subscription service (best-effort)
-  notifySubscriptionUsage(userId, 'decrement');
+  if (didTemplateConsumeQuota(template)) {
+    // Notify subscription service (best-effort)
+    notifySubscriptionUsage(userId, 'decrement');
+  }
 }
 
 // ─── Publish Template ──────────────────────────────────────────────────────
@@ -482,14 +940,18 @@ async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) 
     );
   }
 
+  assertTemplateBusinessRules({
+    ...template.toJSON(),
+    waba_id: wabaId,
+  });
+
   // Build Meta API payload
-  const resolvedComponents = await resolveTemplateFlowButtons(userId, template.components);
-  const payload = {
-    name: template.name,
-    language: template.language,
-    category: template.category,
-    components: resolvedComponents,
-  };
+  const payload = await buildMetaTemplatePayload(
+    userId,
+    resolvedAccessToken,
+    template,
+    wabaId
+  );
 
   // Include example values if present (needed for templates with media headers or variables)
   // Meta expects examples within components, but some are passed at the top level
@@ -541,7 +1003,7 @@ async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) 
 
   await template.update(updateData);
 
-  return template;
+  return serializeTemplate(template);
 }
 
 // ─── Sync Templates ────────────────────────────────────────────────────────
@@ -641,15 +1103,22 @@ async function syncTemplates(userId, wabaId, accessToken) {
 
     if (localTemplate) {
       // Update existing template with Meta's current state
-      await localTemplate.update({
+      const updateData = {
         status: metaStatus,
         meta_template_id: metaId,
         components: metaComponents,
         category: metaCategory,
         language: metaLanguage,
+        type: detectTemplateType(metaComponents),
         rejection_reason: rejectionReason,
         last_synced_at: new Date(),
-      });
+      };
+
+      if (!localTemplate.source && !localTemplate.meta_template_id) {
+        updateData.source = 'meta_sync';
+      }
+
+      await localTemplate.update(updateData);
       updated++;
     } else {
       // Create new local record for template that exists on Meta but not locally
@@ -662,6 +1131,7 @@ async function syncTemplates(userId, wabaId, accessToken) {
         category: metaCategory,
         type: detectTemplateType(metaComponents),
         status: metaStatus,
+        source: 'meta_sync',
         components: metaComponents,
         meta_template_id: metaId,
         rejection_reason: rejectionReason,

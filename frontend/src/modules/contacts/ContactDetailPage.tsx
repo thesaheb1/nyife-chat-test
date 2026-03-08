@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2, Trash2, X, Plus } from 'lucide-react';
@@ -34,6 +34,7 @@ import type { UpdateContactFormData } from './validations';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { useQueryClient } from '@tanstack/react-query';
+import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 
 export function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -51,6 +52,7 @@ export function ContactDetailPage() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
     reset,
   } = useForm<UpdateContactFormData>({
@@ -69,7 +71,11 @@ export function ContactDetailPage() {
 
   const onSubmit = async (data: UpdateContactFormData) => {
     try {
-      await updateContact.mutateAsync(data);
+      await updateContact.mutateAsync({
+        ...data,
+        phone: data.phone || undefined,
+        email: data.email || undefined,
+      });
       toast.success('Contact updated');
       setIsEditing(false);
     } catch (error) {
@@ -177,7 +183,19 @@ export function ContactDetailPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Phone</Label>
-                    <Input {...register('phone')} />
+                    <Controller
+                      control={control}
+                      name="phone"
+                      render={({ field }) => (
+                        <PhoneNumberInput
+                          autoComplete="tel"
+                          value={field.value || ''}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur}
+                          invalid={Boolean(errors.phone)}
+                        />
+                      )}
+                    />
                     {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
                   </div>
                   <div className="space-y-2">

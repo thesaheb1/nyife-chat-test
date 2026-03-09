@@ -1,4 +1,4 @@
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
@@ -13,6 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 import { useCreateContact } from './useContacts';
 import { createContactSchema } from './validations';
 import type { CreateContactFormData } from './validations';
@@ -29,6 +30,7 @@ export function CreateContactDialog({ open, onOpenChange }: CreateContactDialogP
     register,
     handleSubmit,
     reset,
+    control,
     formState: { errors },
   } = useForm<CreateContactFormData>({
     resolver: zodResolver(createContactSchema),
@@ -60,7 +62,21 @@ export function CreateContactDialog({ open, onOpenChange }: CreateContactDialogP
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="phone">Phone *</Label>
-            <Input id="phone" placeholder="+919876543210" {...register('phone')} />
+            <Controller
+              control={control}
+              name="phone"
+              render={({ field }) => (
+                <PhoneNumberInput
+                  id="phone"
+                  autoComplete="tel"
+                  placeholder="Enter WhatsApp number"
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  invalid={Boolean(errors.phone)}
+                />
+              )}
+            />
             {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
           </div>
           <div className="space-y-2">

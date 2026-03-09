@@ -17,6 +17,7 @@ x-backend-env: &backend-env
   REDIS_PASSWORD: ${REDIS_PASSWORD:-}
   KAFKA_BROKERS: kafka:29092
   SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
+  MEDIA_SERVICE_URL: http://media-service:3017
 
 x-node-service-build: &node-service-build
   context: .

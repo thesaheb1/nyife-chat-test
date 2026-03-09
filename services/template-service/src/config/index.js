@@ -25,6 +25,7 @@ module.exports = {
   meta: {
     apiVersion: process.env.META_API_VERSION || 'v20.0',
     baseUrl: process.env.META_API_BASE_URL || 'https://graph.facebook.com/v20.0',
+    appId: process.env.META_APP_ID || null,
     systemUserAccessToken:
       process.env.META_SYSTEM_USER_ACCESS_TOKEN
       || process.env.META_ACCESS_TOKEN
@@ -40,6 +41,7 @@ module.exports = {
   },
   subscriptionServiceUrl: process.env.SUBSCRIPTION_SERVICE_URL || 'http://localhost:3003',
   whatsappServiceUrl: process.env.WHATSAPP_SERVICE_URL || 'http://localhost:3009',
+  mediaServiceUrl: process.env.MEDIA_SERVICE_URL || 'http://localhost:3017',
   publicApiBaseUrl: process.env.PUBLIC_API_BASE_URL || process.env.API_BASE_URL || 'http://localhost:3000',
   frontendBaseUrl: process.env.FRONTEND_APP_URL || process.env.FRONTEND_URL || 'http://localhost:5173',
   templateCacheTtl: 300, // 5 minutes in seconds

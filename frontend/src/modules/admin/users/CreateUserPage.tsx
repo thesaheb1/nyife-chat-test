@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import {
 import { useCreateAdminUser } from './useAdminUsers';
 import { createUserSchema, type CreateUserFormData } from './validations';
 import { toast } from 'sonner';
+import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 
 export function CreateUserPage() {
   const { t } = useTranslation();
@@ -27,16 +28,21 @@ export function CreateUserPage() {
     register,
     handleSubmit,
     setValue,
-    watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<CreateUserFormData>({
     resolver: zodResolver(createUserSchema),
     defaultValues: { role: 'user', status: 'active' },
   });
+  const roleValue = useWatch({ control, name: 'role' });
+  const statusValue = useWatch({ control, name: 'status' });
 
   const onSubmit = async (formData: CreateUserFormData) => {
     try {
-      await createUser.mutateAsync(formData);
+      await createUser.mutateAsync({
+        ...formData,
+        phone: formData.phone || undefined,
+      });
       toast.success('User created successfully');
       navigate('/admin/users');
     } catch {
@@ -86,7 +92,21 @@ export function CreateUserPage() {
 
             <div className="space-y-2">
               <Label htmlFor="phone">{t('common.phone')}</Label>
-              <Input id="phone" {...register('phone')} />
+              <Controller
+                control={control}
+                name="phone"
+                render={({ field }) => (
+                  <PhoneNumberInput
+                    id="phone"
+                    autoComplete="tel"
+                    value={field.value || ''}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    invalid={Boolean(errors.phone)}
+                  />
+                )}
+              />
+              {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
             </div>
 
             <div className="space-y-2">
@@ -100,7 +120,7 @@ export function CreateUserPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Role</Label>
-                <Select value={watch('role')} onValueChange={(v) => setValue('role', v as 'user' | 'admin')}>
+                <Select value={roleValue} onValueChange={(v) => setValue('role', v as 'user' | 'admin')}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -112,7 +132,7 @@ export function CreateUserPage() {
               </div>
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select value={watch('status')} onValueChange={(v) => setValue('status', v as 'active' | 'inactive' | 'suspended')}>
+                <Select value={statusValue} onValueChange={(v) => setValue('status', v as 'active' | 'inactive' | 'suspended')}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>

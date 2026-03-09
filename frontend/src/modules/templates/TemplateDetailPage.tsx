@@ -1,20 +1,26 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, Pencil, Trash2, Send, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  ArrowLeft,
+  Eye,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  RefreshCw,
+  Send,
+  Trash2,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -26,301 +32,317 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useTemplate, useDeleteTemplate, usePublishTemplate } from './useTemplates';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-800',
-  pending: 'bg-yellow-100 text-yellow-800',
-  approved: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800',
-  paused: 'bg-orange-100 text-orange-800',
-  disabled: 'bg-gray-300 text-gray-700',
-};
+import { TemplateOptionSelect } from './TemplateOptionSelect';
+import { WhatsAppTemplatePreview } from './WhatsAppTemplatePreview';
+import {
+  TEMPLATE_STATUS_CLASSES,
+  TEMPLATE_STATUS_LABELS,
+  TEMPLATE_TYPE_LABELS,
+  buildTemplateWabaOptions,
+  getTemplateAvailableActions,
+  getTemplateLanguageLabel,
+} from './templateCatalog';
+import {
+  useDeleteTemplate,
+  usePublishTemplate,
+  useSyncTemplates,
+  useTemplate,
+} from './useTemplates';
 
 export function TemplateDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: template, isLoading } = useTemplate(id);
-  const deleteTemplate = useDeleteTemplate();
-  const publishTemplate = usePublishTemplate();
   const { data: waAccounts } = useWhatsAppAccounts();
+  const publishTemplate = usePublishTemplate();
+  const syncTemplates = useSyncTemplates();
+  const deleteTemplate = useDeleteTemplate();
 
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [wabaId, setWabaId] = useState('');
-  const wabaOptions = Array.from(
-    new Map(
-      (waAccounts || []).map((account) => [
-        account.waba_id,
-        {
-          value: account.waba_id,
-          label: `${account.verified_name || account.display_phone || account.waba_id} (${account.waba_id})`,
-        },
-      ])
-    ).values()
-  );
 
-  const handleDelete = async () => {
-    if (!id) return;
-    try {
-      await deleteTemplate.mutateAsync(id);
-      toast.success('Template deleted');
-      navigate('/templates');
-    } catch {
-      toast.error('Failed to delete template');
-    }
-  };
-
-  const handlePublish = async () => {
-    if (!id) return;
-    try {
-      await publishTemplate.mutateAsync({ id, waba_id: wabaId || undefined });
-      toast.success('Template submitted for review');
-      setPublishOpen(false);
-    } catch (error) {
-      const msg =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to publish template';
-      toast.error(msg);
-    }
-  };
+  const wabaOptions = useMemo(() => buildTemplateWabaOptions(waAccounts), [waAccounts]);
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-3xl space-y-6">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-48 w-full" />
-        <Skeleton className="h-64 w-full" />
+      <div className="space-y-6">
+        <Skeleton className="h-14 w-72" />
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <Skeleton className="h-[780px] w-full rounded-3xl" />
+          <Skeleton className="h-[620px] w-full rounded-3xl" />
+        </div>
       </div>
     );
   }
 
   if (!template) {
-    return (
-      <div className="py-12 text-center text-muted-foreground">
-        Template not found.
-      </div>
-    );
+    return <div className="py-12 text-center text-muted-foreground">Template not found.</div>;
   }
 
-  const components = (template.components || []) as Array<{
-    type: string;
-    format?: string;
-    text?: string;
-    buttons?: Array<{ type: string; text: string; url?: string; phone_number?: string }>;
-  }>;
+  const actions = getTemplateAvailableActions(template);
 
-  const canEdit = template.status === 'draft' || template.status === 'rejected';
-  const canPublish = template.status === 'draft' || template.status === 'rejected';
+  const handlePublish = async () => {
+    const resolvedWabaId = wabaId.trim() || template.waba_id || undefined;
+    if (!resolvedWabaId) {
+      toast.error('Choose a WABA before submitting this template to Meta.');
+      return;
+    }
+
+    try {
+      await publishTemplate.mutateAsync({ id: template.id, waba_id: resolvedWabaId });
+      toast.success('Template submitted to Meta for review.');
+      setPublishOpen(false);
+      setWabaId('');
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to submit template.';
+      toast.error(message);
+    }
+  };
+
+  const handleSync = async () => {
+    if (!template.waba_id) {
+      toast.error('This template does not have a WABA ID assigned yet.');
+      return;
+    }
+
+    try {
+      const result = await syncTemplates.mutateAsync(template.waba_id);
+      toast.success(`Synced ${result.synced} templates for WABA ${template.waba_id}.`);
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to sync templates.';
+      toast.error(message);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      await deleteTemplate.mutateAsync(template.id);
+      toast.success('Template deleted.');
+      navigate('/templates');
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to delete template.';
+      toast.error(message);
+    }
+  };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/templates')}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold tracking-tight">
-            {template.display_name || template.name}
-          </h1>
-          <p className="text-sm text-muted-foreground">{template.name}</p>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3">
+          <Button variant="outline" size="icon" onClick={() => navigate('/templates')}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-semibold tracking-tight">
+                {template.display_name || template.name}
+              </h1>
+              <Badge variant="outline" className={TEMPLATE_STATUS_CLASSES[template.status]}>
+                {TEMPLATE_STATUS_LABELS[template.status]}
+              </Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {template.name} / {TEMPLATE_TYPE_LABELS[template.type]} / {getTemplateLanguageLabel(template.language)}
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          {canPublish && (
-            <Button variant="outline" size="sm" onClick={() => setPublishOpen(true)}>
-              <Send className="mr-2 h-4 w-4" />
-              Publish
-            </Button>
-          )}
-          {canEdit && (
-            <Button variant="outline" size="sm" onClick={() => navigate(`/templates/${id}/edit`)}>
+
+        <div className="flex gap-3">
+          {actions.includes('edit') ? (
+            <Button variant="outline" onClick={() => navigate(`/templates/${template.id}/edit`)}>
               <Pencil className="mr-2 h-4 w-4" />
               Edit
             </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={() => setDeleteOpen(true)}>
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete
-          </Button>
+          ) : null}
+          {actions.includes('publish') ? (
+            <Button onClick={() => { setWabaId(template.waba_id || ''); setPublishOpen(true); }}>
+              <Send className="mr-2 h-4 w-4" />
+              Submit to Meta
+            </Button>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <MoreHorizontal className="mr-2 h-4 w-4" />
+                Actions
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Template actions</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => navigate(`/templates/${template.id}`)}>
+                <Eye className="mr-2 h-4 w-4" />
+                View details
+              </DropdownMenuItem>
+              {actions.includes('sync') ? (
+                <DropdownMenuItem onSelect={handleSync}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Sync WABA templates
+                </DropdownMenuItem>
+              ) : null}
+              {actions.includes('delete') ? (
+                <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete template
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      {/* Info */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Details</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <Label className="text-xs text-muted-foreground">Status</Label>
-              <div className="mt-1">
-                <Badge className={`${STATUS_COLORS[template.status]} text-xs`} variant="secondary">
-                  {template.status.charAt(0).toUpperCase() + template.status.slice(1)}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <Tabs defaultValue="overview" className="space-y-4">
+          <TabsList variant="line">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="components">Components JSON</TabsTrigger>
+          </TabsList>
+          <TabsContent value="overview">
+            <Card>
+              <CardHeader>
+                <CardTitle>Template details</CardTitle>
+                <CardDescription>All metadata required for review, routing, and WABA-scoped usage.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Category</div>
+                  <div className="mt-2 font-semibold">{template.category}</div>
+                </div>
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Type</div>
+                  <div className="mt-2 font-semibold">{TEMPLATE_TYPE_LABELS[template.type]}</div>
+                </div>
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Language</div>
+                  <div className="mt-2 font-semibold">{getTemplateLanguageLabel(template.language)}</div>
+                </div>
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Last synced</div>
+                  <div className="mt-2 font-semibold">
+                    {template.last_synced_at ? new Date(template.last_synced_at).toLocaleString() : 'Not synced'}
+                  </div>
+                </div>
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Created</div>
+                  <div className="mt-2 font-semibold">{new Date(template.created_at).toLocaleString()}</div>
+                </div>
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Updated</div>
+                  <div className="mt-2 font-semibold">{new Date(template.updated_at).toLocaleString()}</div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {template.rejection_reason ? (
+              <Card className="mt-6 border-rose-200 dark:border-rose-900">
+                <CardHeader>
+                  <CardTitle>Rejection reason</CardTitle>
+                  <CardDescription>Meta returned this feedback during the last review cycle.</CardDescription>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground">{template.rejection_reason}</CardContent>
+              </Card>
+            ) : null}
+          </TabsContent>
+          <TabsContent value="components">
+            <Card>
+              <CardHeader>
+                <CardTitle>Components JSON</CardTitle>
+                <CardDescription>Exact component payload stored for this template.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <pre className="overflow-x-auto rounded-2xl bg-muted p-4 text-xs">
+                  {JSON.stringify(template.components, null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+
+        <div className="space-y-6 xl:sticky xl:top-6 xl:self-start">
+          <WhatsAppTemplatePreview
+            templateName={template.display_name || template.name}
+            type={template.type}
+            components={template.components}
+          />
+          <Card>
+            <CardHeader>
+              <CardTitle>Lifecycle</CardTitle>
+              <CardDescription>Track the Meta state and WABA scope for this template.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Status</span>
+                <Badge variant="outline" className={TEMPLATE_STATUS_CLASSES[template.status]}>
+                  {TEMPLATE_STATUS_LABELS[template.status]}
                 </Badge>
               </div>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Category</Label>
-              <p className="mt-1 text-sm font-medium">{template.category}</p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Type</Label>
-              <p className="mt-1 text-sm font-medium capitalize">{template.type.replace('_', ' ')}</p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Language</Label>
-              <p className="mt-1 text-sm font-medium">{template.language}</p>
-            </div>
-            {template.waba_id && (
-              <div>
-                <Label className="text-xs text-muted-foreground">WABA ID</Label>
-                <p className="mt-1 text-sm font-mono">{template.waba_id}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">WABA ID</span>
+                <span className="font-mono text-xs">{template.waba_id || 'Not assigned'}</span>
               </div>
-            )}
-            {template.meta_template_id && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Meta Template ID</Label>
-                <p className="mt-1 text-sm font-mono">{template.meta_template_id}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Meta template ID</span>
+                <span className="font-mono text-xs">{template.meta_template_id || 'Not synced yet'}</span>
               </div>
-            )}
-            <div>
-              <Label className="text-xs text-muted-foreground">Created</Label>
-              <p className="mt-1 text-sm">{new Date(template.created_at).toLocaleString()}</p>
-            </div>
-            {template.last_synced_at && (
-              <div>
-                <Label className="text-xs text-muted-foreground">Last Synced</Label>
-                <p className="mt-1 text-sm">{new Date(template.last_synced_at).toLocaleString()}</p>
-              </div>
-            )}
-          </div>
-          {template.rejection_reason && (
-            <div className="mt-4 rounded bg-red-50 dark:bg-red-950/30 p-3">
-              <Label className="text-xs font-medium text-red-800 dark:text-red-300">Rejection Reason</Label>
-              <p className="mt-1 text-sm text-red-700 dark:text-red-400">{template.rejection_reason}</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
-      {/* Preview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Template Preview</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="mx-auto max-w-sm rounded-lg bg-green-50 p-4 dark:bg-green-950/30">
-            {components.map((comp, idx) => (
-              <div key={idx}>
-                {comp.type === 'HEADER' && comp.format === 'TEXT' && comp.text && (
-                  <p className="mb-1 font-bold text-sm">{comp.text}</p>
-                )}
-                {comp.type === 'HEADER' && comp.format && comp.format !== 'TEXT' && (
-                  <div className="mb-2 rounded bg-gray-200 dark:bg-gray-700 p-6 text-center text-xs text-muted-foreground">
-                    [{comp.format}]
-                  </div>
-                )}
-                {comp.type === 'BODY' && comp.text && (
-                  <p className="text-sm whitespace-pre-wrap">{comp.text}</p>
-                )}
-                {comp.type === 'FOOTER' && comp.text && (
-                  <p className="mt-2 text-xs text-muted-foreground">{comp.text}</p>
-                )}
-                {comp.type === 'BUTTONS' && comp.buttons && comp.buttons.length > 0 && (
-                  <div className="mt-3 space-y-1">
-                    <Separator />
-                    {comp.buttons.map((btn, btnIdx) => (
-                      <div
-                        key={btnIdx}
-                        className="rounded bg-white dark:bg-gray-800 py-1.5 text-center text-sm font-medium text-blue-600 dark:text-blue-400"
-                      >
-                        {btn.text}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Components raw view */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Components (JSON)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <pre className="overflow-auto rounded bg-muted p-4 text-xs">
-            {JSON.stringify(template.components, null, 2)}
-          </pre>
-        </CardContent>
-      </Card>
-
-      {/* Publish Dialog */}
       <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Publish Template</DialogTitle>
+            <DialogTitle>Submit template to Meta</DialogTitle>
+            <DialogDescription>Select the connected WABA that should own this template in Meta review.</DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Submit this template to Meta for review. Once approved, it can be used in campaigns.
-          </p>
-          <div className="space-y-2">
-            <Label>WABA ID</Label>
-            {wabaOptions.length > 0 && (
-              <Select value={wabaId || template.waba_id || 'manual'} onValueChange={(value) => setWabaId(value === 'manual' ? '' : value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="manual">Manual entry</SelectItem>
-                  {wabaOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Input
-              value={wabaId}
-              onChange={(e) => setWabaId(e.target.value)}
-              placeholder="WhatsApp Business Account ID"
-            />
-          </div>
+          <TemplateOptionSelect
+            value={wabaId || null}
+            options={wabaOptions}
+            placeholder="Select connected WABA"
+            searchPlaceholder="Search connected WABAs"
+            emptyMessage="No connected WABAs available."
+            onChange={setWabaId}
+          />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPublishOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setPublishOpen(false)}>Cancel</Button>
             <Button onClick={handlePublish} disabled={publishTemplate.isPending}>
-              {publishTemplate.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Submit for Review
+              {publishTemplate.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Submit to Meta
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete template?</AlertDialogTitle>
+            <AlertDialogTitle>Delete this template?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the template "{template.display_name || template.name}".
+              {template.display_name || template.name} will be removed from Nyife, and the backend will attempt the matching Meta cleanup where supported.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground"
-            >
-              Delete
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete template
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

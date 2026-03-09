@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpRight, Loader2, Trash2 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector, useDispatch } from 'react-redux';
@@ -25,6 +25,7 @@ import type { User, UserSettings, ApiResponse } from '@/core/types';
 import { profileSchema, preferencesSchema, changePasswordSchema } from './validations';
 import type { ProfileFormData, PreferencesFormData, ChangePasswordFormData } from './validations';
 import { useWhatsAppAccounts, useDisconnectWhatsAppAccount } from '@/modules/whatsapp/useWhatsAppAccounts';
+import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -61,7 +62,7 @@ function ProfileTab() {
   const dispatch = useDispatch();
   const user = useSelector((state: RootState) => state.auth.user);
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ProfileFormData>({
+  const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
     defaultValues: { first_name: user?.first_name ?? '', last_name: user?.last_name ?? '', phone: user?.phone ?? '' },
   });
@@ -100,7 +101,19 @@ function ProfileTab() {
           <div className="space-y-2"><Label>Email</Label><Input value={user?.email ?? ''} disabled /></div>
           <div className="space-y-2">
             <Label>Phone</Label>
-            <Input {...register('phone')} placeholder="+91..." />
+            <Controller
+              control={control}
+              name="phone"
+              render={({ field }) => (
+                <PhoneNumberInput
+                  autoComplete="tel"
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  invalid={Boolean(errors.phone)}
+                />
+              )}
+            />
             {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
           </div>
           <Button type="submit" disabled={isSubmitting}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Changes</Button>

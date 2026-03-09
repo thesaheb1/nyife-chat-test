@@ -145,6 +145,7 @@ export interface Template {
   rejection_reason: string | null;
   meta_template_id: string | null;
   available_actions?: Array<'view' | 'edit' | 'publish' | 'sync' | 'delete'>;
+  available_actions?: Array<'view' | 'edit' | 'publish' | 'sync' | 'delete'>;
   last_synced_at: string | null;
   created_at: string;
   updated_at: string;

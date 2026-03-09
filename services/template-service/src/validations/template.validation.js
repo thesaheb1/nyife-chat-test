@@ -8,6 +8,13 @@ const {
   TEMPLATE_TYPES,
 } = require('../constants/template.constants');
 
+const {
+  META_TEMPLATE_LANGUAGE_CODES,
+  TEMPLATE_CATEGORIES,
+  TEMPLATE_STATUSES,
+  TEMPLATE_TYPES,
+} = require('../constants/template.constants');
+
 const templateNameRegex = /^[a-z][a-z0-9_]*$/;
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HEADER_FORMATS = ['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT', 'LOCATION'];
@@ -40,13 +47,20 @@ const buttonSchema = z.object({
   text: z.string().trim().min(1).max(25).optional(),
   url: z.string().trim().url().max(2000).optional(),
   phone_number: z.string().trim().regex(/^\+?[1-9]\d{6,14}$/, 'Phone number must be in international format').optional(),
+  text: z.string().trim().min(1).max(25).optional(),
+  url: z.string().trim().url().max(2000).optional(),
+  phone_number: z.string().trim().regex(/^\+?[1-9]\d{6,14}$/, 'Phone number must be in international format').optional(),
   example: z.union([z.string(), z.array(z.string())]).optional(),
   flow_id: z.string().optional(),
   flow_name: z.string().optional(),
   flow_action: z.enum(FLOW_ACTIONS).optional(),
+  flow_action: z.enum(FLOW_ACTIONS).optional(),
   flow_json: z.string().optional(),
   navigate_screen: z.string().optional(),
   otp_type: z.enum(['COPY_CODE', 'ONE_TAP', 'ZERO_TAP']).optional(),
+  autofill_text: z.string().trim().max(25).optional(),
+  package_name: z.string().trim().max(255).optional(),
+  signature_hash: z.string().trim().max(255).optional(),
   autofill_text: z.string().trim().max(25).optional(),
   package_name: z.string().trim().max(255).optional(),
   signature_hash: z.string().trim().max(255).optional(),
@@ -56,11 +70,13 @@ const componentSchema = z.object({
   type: z.enum(['HEADER', 'BODY', 'FOOTER', 'BUTTONS', 'CAROUSEL', 'LIMITED_TIME_OFFER']),
   format: z.enum(HEADER_FORMATS).optional(),
   text: z.string().trim().max(1024).optional(),
+  text: z.string().trim().max(1024).optional(),
   example: z.object({
     header_text: z.array(z.string()).optional(),
     body_text: z.array(z.array(z.string())).optional(),
     header_handle: z.array(z.string()).optional(),
   }).passthrough().optional(),
+  media_asset: mediaAssetSchema.optional(),
   media_asset: mediaAssetSchema.optional(),
   buttons: z.array(buttonSchema).optional(),
   cards: z.array(z.object({
@@ -86,7 +102,14 @@ const createTemplateSchema = z.object({
     .enum(TEMPLATE_CATEGORIES, {
       errorMap: () => ({ message: `Category must be one of: ${TEMPLATE_CATEGORIES.join(', ')}` }),
     }),
+  language: metaLanguageSchema.default('en_US'),
+  category: z
+    .enum(TEMPLATE_CATEGORIES, {
+      errorMap: () => ({ message: `Category must be one of: ${TEMPLATE_CATEGORIES.join(', ')}` }),
+    }),
   type: z
+    .enum(TEMPLATE_TYPES, {
+      errorMap: () => ({ message: `Type must be one of: ${TEMPLATE_TYPES.join(', ')}` }),
     .enum(TEMPLATE_TYPES, {
       errorMap: () => ({ message: `Type must be one of: ${TEMPLATE_TYPES.join(', ')}` }),
     })
@@ -114,12 +137,17 @@ const updateTemplateSchema = z.object({
     .optional()
     .nullable(),
   language: metaLanguageSchema.optional(),
+  language: metaLanguageSchema.optional(),
   category: z
+    .enum(TEMPLATE_CATEGORIES, {
+      errorMap: () => ({ message: `Category must be one of: ${TEMPLATE_CATEGORIES.join(', ')}` }),
     .enum(TEMPLATE_CATEGORIES, {
       errorMap: () => ({ message: `Category must be one of: ${TEMPLATE_CATEGORIES.join(', ')}` }),
     })
     .optional(),
   type: z
+    .enum(TEMPLATE_TYPES, {
+      errorMap: () => ({ message: `Type must be one of: ${TEMPLATE_TYPES.join(', ')}` }),
     .enum(TEMPLATE_TYPES, {
       errorMap: () => ({ message: `Type must be one of: ${TEMPLATE_TYPES.join(', ')}` }),
     })
@@ -141,14 +169,20 @@ const listTemplatesSchema = z.object({
   status: z
     .enum(TEMPLATE_STATUSES, {
       errorMap: () => ({ message: `Status must be one of: ${TEMPLATE_STATUSES.join(', ')}` }),
+    .enum(TEMPLATE_STATUSES, {
+      errorMap: () => ({ message: `Status must be one of: ${TEMPLATE_STATUSES.join(', ')}` }),
     })
     .optional(),
   category: z
     .enum(TEMPLATE_CATEGORIES, {
       errorMap: () => ({ message: `Category must be one of: ${TEMPLATE_CATEGORIES.join(', ')}` }),
+    .enum(TEMPLATE_CATEGORIES, {
+      errorMap: () => ({ message: `Category must be one of: ${TEMPLATE_CATEGORIES.join(', ')}` }),
     })
     .optional(),
   type: z
+    .enum(TEMPLATE_TYPES, {
+      errorMap: () => ({ message: `Type must be one of: ${TEMPLATE_TYPES.join(', ')}` }),
     .enum(TEMPLATE_TYPES, {
       errorMap: () => ({ message: `Type must be one of: ${TEMPLATE_TYPES.join(', ')}` }),
     })

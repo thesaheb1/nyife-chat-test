@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpRight, Loader2, Trash2 } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector, useDispatch } from 'react-redux';
@@ -65,6 +66,7 @@ function ProfileTab() {
   const user = useSelector((state: RootState) => state.auth.user);
 
   const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<ProfileFormData>({
+  const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
     defaultValues: { first_name: user?.first_name ?? '', last_name: user?.last_name ?? '', phone: user?.phone ?? '' },
   });
@@ -103,6 +105,19 @@ function ProfileTab() {
           <div className="space-y-2"><Label>Email</Label><Input value={user?.email ?? ''} disabled /></div>
           <div className="space-y-2">
             <Label>Phone</Label>
+            <Controller
+              control={control}
+              name="phone"
+              render={({ field }) => (
+                <PhoneNumberInput
+                  autoComplete="tel"
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  invalid={Boolean(errors.phone)}
+                />
+              )}
+            />
             <Controller
               control={control}
               name="phone"

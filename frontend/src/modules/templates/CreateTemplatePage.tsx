@@ -1,12 +1,18 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams, type NavigateFunction } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { useNavigate, useParams, type NavigateFunction } from 'react-router-dom';
 import { toast } from 'sonner';
+import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
 import { Progress } from '@/components/ui/progress';
 import {
   Select,
@@ -66,7 +72,9 @@ export function CreateTemplatePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
+  const isEdit = Boolean(id);
 
+  const { data: existing, isLoading: isTemplateLoading } = useTemplate(id);
   const { data: existing, isLoading: isTemplateLoading } = useTemplate(id);
   const { data: waAccounts } = useWhatsAppAccounts();
   const { data: currentSubscription } = useCurrentSubscription();
@@ -174,6 +182,8 @@ function TemplateComposer({
     }
     if (!isPayloadValid) {
       toast.error(validationIssues[0]?.message || 'Template validation failed.');
+    if (!isPayloadValid) {
+      toast.error(validationIssues[0]?.message || 'Template validation failed.');
       return;
     }
 
@@ -184,9 +194,20 @@ function TemplateComposer({
 
       toast.success(isEdit ? 'Template updated successfully.' : 'Template created successfully.');
       navigate(`/templates/${result.id}`);
+
+    try {
+      const result = isEdit && templateId
+        ? await updateTemplate.mutateAsync({ id: templateId, ...payload })
+        : await createTemplate.mutateAsync(payload);
+
+      toast.success(isEdit ? 'Template updated successfully.' : 'Template created successfully.');
+      navigate(`/templates/${result.id}`);
     } catch (error) {
       const message =
+      const message =
         (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Unable to save template.';
+      toast.error(message);
         'Unable to save template.';
       toast.error(message);
     }
@@ -222,6 +243,17 @@ function TemplateComposer({
         </div>
       </div>
 
+      <Card className={templateLimitReached ? 'border-destructive/50' : ''}>
+        <CardHeader>
+          <CardTitle>Subscription guardrail</CardTitle>
+          <CardDescription>Template creation is enforced across all WABAs under the active subscription.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-sm font-medium">{currentSubscription?.plan?.name || 'No active plan detected'}</div>
+              <div className="text-sm text-muted-foreground">
+                {templateLimit !== null ? `${templatesUsed} of ${templateLimit} templates used` : 'Subscription usage data is not available yet.'}
       <Card className={templateLimitReached ? 'border-destructive/50' : ''}>
         <CardHeader>
           <CardTitle>Subscription guardrail</CardTitle>
@@ -349,6 +381,20 @@ function TemplateComposer({
               ))}
             </CardContent>
           </Card>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Template type</CardTitle>
+              <CardDescription>Switching the type changes the builder so only required fields stay visible.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 lg:grid-cols-2">
+              {TEMPLATE_TYPE_OPTIONS.map((option) => (
+                <TypeCard key={option.value} title={option.label} description={option.description} active={draft.type === option.value} onClick={() => setTemplateType(option.value as TemplateDraft['type'])} />
+              ))}
+            </CardContent>
+          </Card>
 
           {draft.type === 'standard' ? <StandardTemplateSection draft={draft} onChange={setDraft} /> : null}
           {draft.type === 'authentication' ? <AuthenticationTemplateSection draft={draft} onChange={setDraft} /> : null}
@@ -397,7 +443,10 @@ function TemplateComposer({
               )}
             </CardContent>
           </Card>
+            </CardContent>
+          </Card>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Eye, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
@@ -132,7 +133,9 @@ export function TemplateListPage() {
   });
 
   const publishTemplate = usePublishTemplate();
+  const publishTemplate = usePublishTemplate();
   const syncTemplates = useSyncTemplates();
+  const deleteTemplate = useDeleteTemplate();
   const deleteTemplate = useDeleteTemplate();
 
   const templates = data?.data?.templates ?? [];
@@ -301,11 +304,22 @@ export function TemplateListPage() {
             <span className="text-xs text-muted-foreground">Not assigned</span>
           );
         },
+        accessorKey: 'waba_id',
+        header: 'WABA ID',
+        cell: ({ getValue }) => {
+          const value = getValue() as string | null;
+          return value ? (
+            <span className="font-mono text-xs">{value}</span>
+          ) : (
+            <span className="text-xs text-muted-foreground">Not assigned</span>
+          );
+        },
       },
       {
         accessorKey: 'language',
         header: 'Language',
         cell: ({ getValue }) => (
+          <div className="min-w-[130px] text-sm">{getTemplateLanguageLabel(getValue() as string)}</div>
           <div className="min-w-[130px] text-sm">{getTemplateLanguageLabel(getValue() as string)}</div>
         ),
       },
@@ -546,6 +560,8 @@ export function TemplateListPage() {
         totalPages={meta?.totalPages ?? 1}
         total={meta?.total}
         onPageChange={setPage}
+        onRowClick={(template) => navigate(`/templates/${template.id}`)}
+        emptyMessage="No templates found for the selected filters."
         onRowClick={(template) => navigate(`/templates/${template.id}`)}
         emptyMessage="No templates found for the selected filters."
       />

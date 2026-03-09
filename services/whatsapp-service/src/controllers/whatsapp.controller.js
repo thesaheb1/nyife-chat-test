@@ -42,8 +42,8 @@ async function previewEmbeddedSignup(req, res) {
 
 /**
  * POST /api/v1/whatsapp/accounts/embedded-signup
- * Completes the Meta Embedded Signup flow using the preview session, a phone
- * number selection, and the required 6-digit Meta registration PIN.
+ * Completes the Meta Embedded Signup flow using the preview session and a
+ * phone number selection. Nyife registers each selected number server-side.
  */
 async function handleEmbeddedSignup(req, res) {
   const userId = req.headers['x-user-id'];
@@ -54,7 +54,6 @@ async function handleEmbeddedSignup(req, res) {
     userId,
     data.signup_session_id,
     data.phone_number_ids,
-    data.pin,
     redis
   );
 

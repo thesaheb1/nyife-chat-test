@@ -41,7 +41,6 @@ export function useEmbeddedSignupComplete() {
     mutationFn: async (payload: {
       signup_session_id: string;
       phone_number_ids: string[];
-      pin: string;
     }) => {
       const { data } = await apiClient.post<ApiResponse<EmbeddedSignupCompleteResult>>(
         ENDPOINTS.WHATSAPP.EMBEDDED_SIGNUP,

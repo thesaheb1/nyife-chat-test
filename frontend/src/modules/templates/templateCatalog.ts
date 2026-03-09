@@ -212,10 +212,8 @@ export function buildTemplateWabaOptions(accounts: WaAccount[] | undefined) {
         account.waba_id,
         {
           value: account.waba_id,
-          label: account.verified_name || account.display_phone || account.waba_id,
-          description: [account.display_phone || null, account.verified_name ? null : account.waba_id]
-            .filter(Boolean)
-            .join(' / '),
+          label: account.waba_id,
+          description: account.verified_name || undefined,
         },
       ])
     ).values()

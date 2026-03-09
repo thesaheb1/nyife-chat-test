@@ -210,7 +210,7 @@ export function FlowTemplateSection({
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="rounded-2xl border bg-muted/10 p-4 text-sm text-muted-foreground">
-          Official Meta flow template examples do not include a header or footer. The selected WhatsApp account controls which Nyife flows are available in this dropdown.
+          Official Meta flow template examples do not include a header or footer. The selected WABA controls which Nyife flows are available in this dropdown.
         </div>
         <VariableTextareaField
           label="Body text"

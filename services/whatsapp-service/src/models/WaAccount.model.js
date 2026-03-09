@@ -39,6 +39,10 @@ module.exports = (sequelize) => {
         type: DataTypes.TEXT,
         allowNull: false,
       },
+      registration_pin: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
       quality_rating: {
         type: DataTypes.ENUM('GREEN', 'YELLOW', 'RED'),
         allowNull: true,
@@ -68,7 +72,7 @@ module.exports = (sequelize) => {
       paranoid: true,
       defaultScope: {
         attributes: {
-          exclude: ['access_token', 'webhook_secret'],
+          exclude: ['access_token', 'registration_pin', 'webhook_secret'],
         },
       },
       scopes: {
@@ -79,7 +83,7 @@ module.exports = (sequelize) => {
           attributes: { include: ['webhook_secret'] },
         },
         withAll: {
-          attributes: { include: ['access_token', 'webhook_secret'] },
+          attributes: { include: ['access_token', 'registration_pin', 'webhook_secret'] },
         },
       },
     }

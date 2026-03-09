@@ -116,9 +116,9 @@ Nyife now uses a tenant-scoped two-step embedded signup flow for WhatsApp Cloud 
    - Returns `signup_session_id`, `remaining_slots`, and discovered phone numbers with `already_connected` and `eligible` flags.
 
 2. `POST /api/v1/whatsapp/accounts/embedded-signup`
-   - Body: `{ "signup_session_id": "...", "phone_number_ids": ["..."], "pin": "123456" }`
+   - Body: `{ "signup_session_id": "...", "phone_number_ids": ["..."] }`
    - Validates subscription capacity.
-   - Registers each selected phone number with Meta using the user-provided 6-digit PIN.
+   - Registers each selected phone number with Meta using a Nyife-managed 6-digit registration PIN.
    - Subscribes the app once per unique WABA.
    - Restores or upserts local `wa_accounts` rows and increments subscription usage only for accounts that become active.
 

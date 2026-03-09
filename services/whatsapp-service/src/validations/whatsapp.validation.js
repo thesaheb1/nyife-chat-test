@@ -19,9 +19,6 @@ const embeddedSignupCompleteSchema = z.object({
   phone_number_ids: z
     .array(z.string().min(1, 'Phone number ID is required'))
     .min(1, 'Select at least one phone number'),
-  pin: z
-    .string()
-    .regex(/^\d{6}$/, 'PIN must be a 6-digit code'),
 });
 
 /**

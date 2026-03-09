@@ -59,7 +59,7 @@ export function TemplateOptionSelect({
           disabled={disabled}
         >
           <span className="truncate text-left">
-            {selected ? `${selected.label} (${selected.value})` : placeholder}
+            {selected ? selected.label : placeholder}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-60" />
         </Button>
@@ -105,7 +105,9 @@ export function TemplateOptionSelect({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate font-medium">{option.label}</span>
-                      <span className="truncate text-xs text-muted-foreground">{option.value}</span>
+                      {option.value !== option.label ? (
+                        <span className="truncate text-xs text-muted-foreground">{option.value}</span>
+                      ) : null}
                     </div>
                     {option.description ? (
                       <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>

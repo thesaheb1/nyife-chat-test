@@ -43,11 +43,6 @@ import {
 import { useDebounce } from '@/core/hooks';
 import type { Template } from '@/core/types';
 import { DataTable } from '@/shared/components/DataTable';
-import {
-  buildActiveWhatsAppAccountOptions,
-  findWhatsAppAccount,
-  getWhatsAppAccountLabel,
-} from '@/modules/whatsapp/accountOptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { TemplateOptionSelect } from './TemplateOptionSelect';
 import {
@@ -61,29 +56,29 @@ import {
   getTemplateLanguageLabel,
 } from './templateCatalog';
 import { useDeleteTemplate, usePublishTemplate, useSyncTemplates, useTemplates } from './useTemplates';
+import { buildTemplateWabaOptions, findTemplateWabaOption } from './wabaOptions';
 
-function getScopedAccountOptions(
+function getScopedWabaOptions(
   template: Template | null,
-  accountOptions: ReturnType<typeof buildActiveWhatsAppAccountOptions>
+  wabaOptions: ReturnType<typeof buildTemplateWabaOptions>
 ) {
   if (!template?.waba_id) {
-    return accountOptions;
+    return wabaOptions;
   }
 
-  return accountOptions.filter((option) => option.waba_id === template.waba_id);
+  return wabaOptions.filter((option) => option.waba_id === template.waba_id);
 }
 
-function getDefaultAccountId(
+function getDefaultWabaId(
   template: Template | null,
-  waAccounts: ReturnType<typeof useWhatsAppAccounts>['data'],
-  accountOptions: ReturnType<typeof buildActiveWhatsAppAccountOptions>
+  wabaOptions: ReturnType<typeof buildTemplateWabaOptions>
 ) {
-  const currentAccount = findWhatsAppAccount(waAccounts, template?.wa_account_id);
-  if (currentAccount?.status === 'active') {
-    return currentAccount.id;
-  }
-
-  return getScopedAccountOptions(template, accountOptions)[0]?.value || '';
+  return (
+    findTemplateWabaOption(getScopedWabaOptions(template, wabaOptions), {
+      wabaId: template?.waba_id,
+      waAccountId: template?.wa_account_id,
+    })?.value || getScopedWabaOptions(template, wabaOptions)[0]?.value || ''
+  );
 }
 
 export function TemplateListPage() {
@@ -92,38 +87,38 @@ export function TemplateListPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
-  const [accountFilterId, setAccountFilterId] = useState('');
+  const [wabaFilterId, setWabaFilterId] = useState('');
   const [page, setPage] = useState(1);
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncTarget, setSyncTarget] = useState<Template | null>(null);
-  const [syncAccountId, setSyncAccountId] = useState('');
+  const [syncWabaId, setSyncWabaId] = useState('');
   const [publishTarget, setPublishTarget] = useState<Template | null>(null);
-  const [publishAccountId, setPublishAccountId] = useState('');
+  const [publishWabaId, setPublishWabaId] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Template | null>(null);
   const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
   const debouncedSearch = useDebounce(search, 300);
 
   const { data: waAccounts } = useWhatsAppAccounts();
-  const activeAccountOptions = useMemo(() => buildActiveWhatsAppAccountOptions(waAccounts), [waAccounts]);
-  const selectedFilterAccount = useMemo(
-    () => findWhatsAppAccount(waAccounts, accountFilterId),
-    [accountFilterId, waAccounts]
-  );
+  const wabaOptions = useMemo(() => buildTemplateWabaOptions(waAccounts), [waAccounts]);
   const accountsById = useMemo(
     () => new Map((waAccounts || []).map((account) => [account.id, account])),
     [waAccounts]
   );
+  const activeAccountCount = useMemo(
+    () => (waAccounts || []).filter((account) => account.status === 'active').length,
+    [waAccounts]
+  );
   const connectedWabaCount = useMemo(
-    () => new Set(activeAccountOptions.map((option) => option.waba_id)).size,
-    [activeAccountOptions]
+    () => wabaOptions.length,
+    [wabaOptions]
   );
-  const syncAccountOptions = useMemo(
-    () => getScopedAccountOptions(syncTarget, activeAccountOptions),
-    [activeAccountOptions, syncTarget]
+  const syncWabaOptions = useMemo(
+    () => getScopedWabaOptions(syncTarget, wabaOptions),
+    [syncTarget, wabaOptions]
   );
-  const publishAccountOptions = useMemo(
-    () => getScopedAccountOptions(publishTarget, activeAccountOptions),
-    [activeAccountOptions, publishTarget]
+  const publishWabaOptions = useMemo(
+    () => getScopedWabaOptions(publishTarget, wabaOptions),
+    [publishTarget, wabaOptions]
   );
 
   const { data, isLoading } = useTemplates({
@@ -133,7 +128,7 @@ export function TemplateListPage() {
     status: statusFilter || undefined,
     category: categoryFilter || undefined,
     type: typeFilter || undefined,
-    waba_id: selectedFilterAccount?.waba_id || undefined,
+    waba_id: wabaFilterId || undefined,
   });
 
   const publishTemplate = usePublishTemplate();
@@ -149,25 +144,31 @@ export function TemplateListPage() {
 
   const openPublishDialog = (template: Template) => {
     setPublishTarget(template);
-    setPublishAccountId(getDefaultAccountId(template, waAccounts, activeAccountOptions));
+    setPublishWabaId(getDefaultWabaId(template, wabaOptions));
   };
 
   const openGlobalSyncDialog = () => {
     setSyncTarget(null);
-    setSyncAccountId('');
+    setSyncWabaId('');
     setSyncOpen(true);
   };
 
   const openTemplateSyncDialog = (template: Template) => {
     setSyncTarget(template);
-    setSyncAccountId(getDefaultAccountId(template, waAccounts, activeAccountOptions));
+    setSyncWabaId(getDefaultWabaId(template, wabaOptions));
     setSyncOpen(true);
   };
 
-  const handleSync = useCallback(async (waAccountId: string, scopeKey: string) => {
+  const handleSync = useCallback(async (wabaId: string, scopeKey: string) => {
+    const option = findTemplateWabaOption(syncTarget ? syncWabaOptions : wabaOptions, { wabaId });
+    if (!option) {
+      toast.error('Choose an active WABA to sync.');
+      return;
+    }
+
     setBusy(scopeKey);
     try {
-      const result = await syncTemplates.mutateAsync(waAccountId);
+      const result = await syncTemplates.mutateAsync(option.wa_account_id);
       toast.success(`Synced ${result.synced} templates (${result.created} created, ${result.updated} updated).`);
     } catch (error) {
       const message =
@@ -177,24 +178,25 @@ export function TemplateListPage() {
     } finally {
       setBusy(null);
     }
-  }, [syncTemplates]);
+  }, [syncTarget, syncTemplates, syncWabaOptions, wabaOptions]);
 
   const handlePublish = async () => {
     if (!publishTarget) {
       return;
     }
 
-    if (!publishAccountId) {
-      toast.error('Choose an active WhatsApp account before submitting this template to Meta.');
+    const option = findTemplateWabaOption(publishWabaOptions, { wabaId: publishWabaId });
+    if (!option) {
+      toast.error('Choose an active WABA before submitting this template to Meta.');
       return;
     }
 
     setBusy(`publish:${publishTarget.id}`);
     try {
-      await publishTemplate.mutateAsync({ id: publishTarget.id, wa_account_id: publishAccountId });
+      await publishTemplate.mutateAsync({ id: publishTarget.id, wa_account_id: option.wa_account_id });
       toast.success('Template submitted to Meta for review.');
       setPublishTarget(null);
-      setPublishAccountId('');
+      setPublishWabaId('');
     } catch (error) {
       const message =
         (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
@@ -230,7 +232,7 @@ export function TemplateListPage() {
     setStatusFilter('');
     setCategoryFilter('');
     setTypeFilter('');
-    setAccountFilterId('');
+    setWabaFilterId('');
     setPage(1);
   };
 
@@ -274,8 +276,11 @@ export function TemplateListPage() {
               <Badge variant="outline">{template.category}</Badge>
               <div className="text-xs text-muted-foreground">{TEMPLATE_TYPE_LABELS[template.type]}</div>
               <div className="text-[11px] text-muted-foreground">
-                {account ? getWhatsAppAccountLabel(account) : 'Account not assigned'}
+                {template.waba_id || 'WABA not assigned'}
               </div>
+              {account?.verified_name ? (
+                <div className="text-[11px] text-muted-foreground">{account.verified_name}</div>
+              ) : null}
               {account && account.status !== 'active' ? (
                 <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                   {account.status}
@@ -400,7 +405,7 @@ export function TemplateListPage() {
         },
       },
     ],
-    [accountsById, activeAccountOptions, navigate, rowBusyKey, waAccounts]
+    [accountsById, navigate, rowBusyKey]
   );
 
   return (
@@ -409,7 +414,7 @@ export function TemplateListPage() {
         <CardHeader className="border-none pb-0">
           <CardTitle className="text-2xl">WhatsApp Templates</CardTitle>
           <CardDescription className="text-emerald-50/80">
-            Manage template inventory across multiple connected WhatsApp accounts while preserving shared WABA scope underneath.
+            Manage template inventory across multiple connected WABAs while preserving shared Meta scope underneath.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pb-6 pt-4 lg:flex-row lg:items-end lg:justify-between">
@@ -420,7 +425,7 @@ export function TemplateListPage() {
             </div>
             <div className="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur">
               <div className="text-xs uppercase tracking-[0.22em] text-emerald-50/70">Active accounts</div>
-              <div className="mt-1 text-2xl font-semibold">{activeAccountOptions.length}</div>
+              <div className="mt-1 text-2xl font-semibold">{activeAccountCount}</div>
             </div>
             <div className="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur">
               <div className="text-xs uppercase tracking-[0.22em] text-emerald-50/70">Connected WABAs</div>
@@ -445,7 +450,7 @@ export function TemplateListPage() {
           <div>
             <CardTitle>Filter templates</CardTitle>
             <CardDescription>
-              Narrow by status, type, category, and connected account. Template rows still group by WABA behind the scenes.
+              Narrow by status, type, category, and WABA. Template rows stay grouped by WABA underneath.
             </CardDescription>
           </div>
         </CardHeader>
@@ -515,17 +520,17 @@ export function TemplateListPage() {
               ))}
             </SelectContent>
           </Select>
-          <TemplateOptionSelect
-            value={accountFilterId || null}
-            options={activeAccountOptions}
-            placeholder="Filter by account"
-            searchPlaceholder="Search connected accounts"
-            emptyMessage="No active WhatsApp accounts found."
+            <TemplateOptionSelect
+            value={wabaFilterId || null}
+            options={wabaOptions}
+            placeholder="Filter by WABA"
+            searchPlaceholder="Search connected WABAs"
+            emptyMessage="No active WhatsApp WABAs found."
             onChange={(value) => {
-              setAccountFilterId(value);
+              setWabaFilterId(value);
               setPage(1);
             }}
-            disabled={activeAccountOptions.length === 0}
+            disabled={wabaOptions.length === 0}
           />
           <Button variant="outline" onClick={resetFilters}>
             Reset
@@ -551,7 +556,7 @@ export function TemplateListPage() {
           setSyncOpen(open);
           if (!open) {
             setSyncTarget(null);
-            setSyncAccountId('');
+            setSyncWabaId('');
           }
         }}
       >
@@ -560,19 +565,19 @@ export function TemplateListPage() {
             <DialogTitle>Sync templates from Meta</DialogTitle>
             <DialogDescription>
               {syncTarget
-                ? 'Choose the connected account used to sync this template\'s WABA from Meta.'
-                : 'Pull the latest template catalogue for one connected WhatsApp account into Nyife.'}
+                ? 'Choose the WABA used to sync this template from Meta.'
+                : 'Pull the latest template catalogue for one connected WABA into Nyife.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <TemplateOptionSelect
-              value={syncAccountId || null}
-              options={syncAccountOptions}
-              placeholder="Select a connected account"
-              searchPlaceholder="Search connected accounts"
-              emptyMessage="No active WhatsApp accounts match this template."
-              onChange={setSyncAccountId}
-              disabled={syncAccountOptions.length === 0}
+              value={syncWabaId || null}
+              options={syncWabaOptions}
+              placeholder="Select a connected WABA"
+              searchPlaceholder="Search connected WABAs"
+              emptyMessage="No active WhatsApp WABAs match this template."
+              onChange={setSyncWabaId}
+              disabled={syncWabaOptions.length === 0}
             />
             <p className="text-xs text-muted-foreground">
               Sync is still WABA-scoped underneath. Existing local rows are updated when Meta returns the same template name and language.
@@ -584,16 +589,16 @@ export function TemplateListPage() {
             </Button>
             <Button
               onClick={async () => {
-                if (!syncAccountId) {
-                  toast.error('Choose an active WhatsApp account to sync.');
+                if (!syncWabaId) {
+                  toast.error('Choose an active WABA to sync.');
                   return;
                 }
-                await handleSync(syncAccountId, syncTarget ? `sync:${syncTarget.id}` : 'sync:dialog');
+                await handleSync(syncWabaId, syncTarget ? `sync:${syncTarget.id}` : 'sync:dialog');
                 setSyncOpen(false);
                 setSyncTarget(null);
-                setSyncAccountId('');
+                setSyncWabaId('');
               }}
-              disabled={syncTemplates.isPending || syncAccountOptions.length === 0}
+              disabled={syncTemplates.isPending || syncWabaOptions.length === 0}
             >
               {syncTemplates.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Sync templates
@@ -607,7 +612,7 @@ export function TemplateListPage() {
         onOpenChange={(open) => {
           if (!open) {
             setPublishTarget(null);
-            setPublishAccountId('');
+            setPublishWabaId('');
           }
         }}
       >
@@ -615,7 +620,7 @@ export function TemplateListPage() {
           <DialogHeader>
             <DialogTitle>Submit template to Meta</DialogTitle>
             <DialogDescription>
-              Only draft or rejected templates can be resubmitted. Pick the connected account that owns this template's WABA.
+              Only draft or rejected templates can be resubmitted. Pick the WABA that owns this template.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -626,13 +631,13 @@ export function TemplateListPage() {
               </div>
             </div>
             <TemplateOptionSelect
-              value={publishAccountId || null}
-              options={publishAccountOptions}
-              placeholder="Select the WhatsApp account used for this template"
-              searchPlaceholder="Search connected accounts"
-              emptyMessage="No active WhatsApp accounts match this template."
-              onChange={setPublishAccountId}
-              disabled={publishAccountOptions.length === 0}
+              value={publishWabaId || null}
+              options={publishWabaOptions}
+              placeholder="Select the WABA used for this template"
+              searchPlaceholder="Search connected WABAs"
+              emptyMessage="No active WhatsApp WABAs match this template."
+              onChange={setPublishWabaId}
+              disabled={publishWabaOptions.length === 0}
             />
           </div>
           <DialogFooter>
@@ -640,12 +645,12 @@ export function TemplateListPage() {
               variant="outline"
               onClick={() => {
                 setPublishTarget(null);
-                setPublishAccountId('');
+                setPublishWabaId('');
               }}
             >
               Cancel
             </Button>
-            <Button onClick={handlePublish} disabled={publishTemplate.isPending || publishAccountOptions.length === 0}>
+            <Button onClick={handlePublish} disabled={publishTemplate.isPending || publishWabaOptions.length === 0}>
               {publishTemplate.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Submit to Meta
             </Button>

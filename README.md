@@ -60,6 +60,11 @@ npm run stack:up:build
 # Run all migrations
 npm run migrate:all
 
+# Seed local test user and admin accounts
+# Requires AUTH_TEST_PASSWORD in .env
+(cd services/auth-service && npx sequelize-cli db:seed --seed src/seeders/20260309120000-seed-auth-manual-test-accounts.js)
+(cd services/admin-service && npx sequelize-cli db:seed --seed src/seeders/20240101000001-seed-admin-defaults.js)
+
 # Optional: create Kafka topics explicitly
 npm run kafka:setup
 
@@ -174,6 +179,25 @@ Conventions:
 - Every table has: `id` (UUID v4), `created_at`, `updated_at`, `deleted_at` (soft delete)
 - Multi-tenant: every user-facing table has `user_id`
 - Monetary values stored as integers (paise)
+
+### Seed test logins
+
+Add this to `.env` before running the auth seeder:
+
+```bash
+AUTH_TEST_PASSWORD=Test123!@#
+```
+
+Run the local testing seeds from the repo root:
+
+```bash
+(cd services/auth-service && npx sequelize-cli db:seed --seed src/seeders/20260309120000-seed-auth-manual-test-accounts.js)
+(cd services/admin-service && npx sequelize-cli db:seed --seed src/seeders/20240101000001-seed-admin-defaults.js)
+```
+
+Seeded logins:
+- `user.test@example.com` / `Test123!@#`
+- `admin.test@example.com` / `Test123!@#`
 
 ## Testing
 

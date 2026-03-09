@@ -21,8 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import type {
   EmbeddedSignupPreviewAccount,
@@ -92,7 +90,6 @@ export function WhatsAppOnboardingPage() {
   const [sdkError, setSdkError] = useState<string | null>(null);
   const [preview, setPreview] = useState<EmbeddedSignupPreviewResult | null>(null);
   const [selectedPhoneIds, setSelectedPhoneIds] = useState<string[]>([]);
-  const [pin, setPin] = useState('');
 
   const configReady = Boolean(META_APP_ID && META_EMBEDDED_SIGNUP_CONFIG_ID);
   const originError = getMetaEmbeddedSignupOriginError();
@@ -152,13 +149,11 @@ export function WhatsAppOnboardingPage() {
   const closePreviewDialog = () => {
     setPreview(null);
     setSelectedPhoneIds([]);
-    setPin('');
   };
 
   const openPreviewDialog = (result: EmbeddedSignupPreviewResult) => {
     setPreview(result);
     setSelectedPhoneIds(preselectPhoneNumbers(result));
-    setPin('');
   };
 
   const handleEmbeddedSignupResponse = (response: { authResponse?: { code?: string }; status?: string }) => {
@@ -245,11 +240,6 @@ export function WhatsAppOnboardingPage() {
       return;
     }
 
-    if (!/^\d{6}$/.test(pin)) {
-      toast.error('Enter the 6-digit Meta registration PIN.');
-      return;
-    }
-
     if (!selectedPhoneIds.length) {
       toast.error('Select at least one phone number to connect.');
       return;
@@ -259,7 +249,6 @@ export function WhatsAppOnboardingPage() {
       const result = await completeSignup.mutateAsync({
         signup_session_id: preview.signup_session_id,
         phone_number_ids: selectedPhoneIds,
-        pin,
       });
 
       const skippedText = result.skipped.length
@@ -297,7 +286,7 @@ export function WhatsAppOnboardingPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold tracking-tight">Connect WhatsApp Business</h1>
           <p className="text-sm text-muted-foreground">
-            Launch Meta embedded signup, register selected phone numbers with your 6-digit PIN, and store each connected account under the authenticated tenant.
+            Launch Meta embedded signup, choose which discovered phone numbers to activate, and let Nyife complete the registration flow automatically for the authenticated tenant.
           </p>
         </div>
         <Button
@@ -336,7 +325,7 @@ export function WhatsAppOnboardingPage() {
                 <div className="space-y-1">
                   <p className="font-medium">What this flow configures</p>
                   <p className="text-muted-foreground">
-                    Nyife exchanges the Meta code server-side, stores the signup session in Redis for 10 minutes, lets you choose which phone numbers to activate, registers each selection with your Meta PIN, subscribes the WABA to webhooks, and enforces your plan’s WhatsApp-number limit.
+                    Nyife exchanges the Meta code server-side, stores the signup session in Redis for 10 minutes, lets you choose which phone numbers to activate, registers each selection automatically, subscribes the WABA to webhooks, and enforces your plan’s WhatsApp-number limit.
                   </p>
                 </div>
               </div>
@@ -448,7 +437,7 @@ export function WhatsAppOnboardingPage() {
           <DialogHeader>
             <DialogTitle>Review discovered WhatsApp numbers</DialogTitle>
             <DialogDescription>
-              Select the phone numbers to activate for this tenant, then enter the 6-digit Meta registration PIN. {preview ? getRemainingSlotsLabel(preview.remaining_slots) : ''}
+              Select the phone numbers to activate for this tenant. Nyife will complete registration automatically after you confirm. {preview ? getRemainingSlotsLabel(preview.remaining_slots) : ''}
             </DialogDescription>
           </DialogHeader>
 
@@ -527,19 +516,8 @@ export function WhatsAppOnboardingPage() {
               })}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="meta-registration-pin">Meta registration PIN</Label>
-              <Input
-                id="meta-registration-pin"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="Enter 6-digit PIN"
-                value={pin}
-                onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
-              />
-              <p className="text-xs text-muted-foreground">
-                Meta requires this 6-digit PIN to register each selected phone number during Embedded Signup.
-              </p>
+            <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+              Nyife will handle the Meta registration step for each selected phone number during connect.
             </div>
           </div>
 
@@ -552,7 +530,7 @@ export function WhatsAppOnboardingPage() {
               disabled={!preview || completeSignup.isPending || !selectedPhoneIds.length}
             >
               {completeSignup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Register selected numbers
+              Connect selected numbers
             </Button>
           </DialogFooter>
         </DialogContent>

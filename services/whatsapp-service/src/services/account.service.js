@@ -14,11 +14,35 @@ function getMetaErrorMessage(err, fallbackMessage) {
   return metaMessage || fallbackMessage || err.message;
 }
 
+function getMetaErrorCode(err) {
+  return String(err.response?.data?.error?.code || '');
+}
+
 function buildMetaHeaders(accessToken) {
   return {
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
   };
+}
+
+function generateRegistrationPin() {
+  return crypto.randomInt(0, 1000000).toString().padStart(6, '0');
+}
+
+function resolveRegistrationPin(existingAccount) {
+  if (!existingAccount?.registration_pin) {
+    return generateRegistrationPin();
+  }
+
+  try {
+    return decrypt(existingAccount.registration_pin);
+  } catch (err) {
+    console.warn(
+      `[whatsapp-service] Failed to decrypt stored registration PIN for account ${existingAccount.id}:`,
+      err.message
+    );
+    return generateRegistrationPin();
+  }
 }
 
 function sanitizeConnectedAccount(account) {
@@ -432,6 +456,23 @@ async function subscribeAppToWaba(accessToken, wabaId) {
   }
 }
 
+async function setTwoStepVerificationPin(accessToken, phoneNumberId, pin) {
+  try {
+    await axios.post(
+      `${config.meta.baseUrl}/${phoneNumberId}`,
+      { pin },
+      {
+        headers: buildMetaHeaders(accessToken),
+        timeout: 15000,
+      }
+    );
+  } catch (err) {
+    throw AppError.badRequest(
+      `Failed to update Meta two-step verification for phone number ${phoneNumberId}. ${getMetaErrorMessage(err, 'Two-step verification update failed.')}`
+    );
+  }
+}
+
 async function registerPhoneNumber(accessToken, phoneNumberId, pin) {
   try {
     await axios.post(
@@ -446,14 +487,45 @@ async function registerPhoneNumber(accessToken, phoneNumberId, pin) {
       }
     );
   } catch (err) {
+    if (getMetaErrorCode(err) === '133005') {
+      await setTwoStepVerificationPin(accessToken, phoneNumberId, pin);
+
+      try {
+        await axios.post(
+          `${config.meta.baseUrl}/${phoneNumberId}/register`,
+          {
+            messaging_product: 'whatsapp',
+            pin,
+          },
+          {
+            headers: buildMetaHeaders(accessToken),
+            timeout: 15000,
+          }
+        );
+        return;
+      } catch (retryErr) {
+        throw AppError.badRequest(
+          `Failed to register phone number ${phoneNumberId} with Meta after refreshing the two-step verification PIN. ${getMetaErrorMessage(retryErr, 'Phone registration failed.')}`
+        );
+      }
+    }
+
     throw AppError.badRequest(
       `Failed to register phone number ${phoneNumberId} with Meta. ${getMetaErrorMessage(err, 'Phone registration failed.')}`
     );
   }
 }
 
-async function upsertConnectedAccount(userId, accessToken, businessId, phone, existingAccount) {
+async function upsertConnectedAccount(
+  userId,
+  accessToken,
+  businessId,
+  phone,
+  existingAccount,
+  registrationPin
+) {
   const encryptedToken = encrypt(accessToken);
+  const encryptedRegistrationPin = encrypt(registrationPin);
   const webhookSecret = existingAccount?.webhook_secret || crypto.randomBytes(32).toString('hex');
   const shouldIncrementUsage = !existingAccount || existingAccount.deleted_at || existingAccount.status !== 'active';
 
@@ -464,6 +536,7 @@ async function upsertConnectedAccount(userId, accessToken, businessId, phone, ex
 
     await existingAccount.update({
       access_token: encryptedToken,
+      registration_pin: encryptedRegistrationPin,
       waba_id: String(phone.waba_id),
       phone_number_id: String(phone.phone_number_id),
       display_phone: phone.display_phone || null,
@@ -490,6 +563,7 @@ async function upsertConnectedAccount(userId, accessToken, businessId, phone, ex
     verified_name: phone.verified_name || null,
     business_id: businessId ? String(businessId) : null,
     access_token: encryptedToken,
+    registration_pin: encryptedRegistrationPin,
     quality_rating: phone.quality_rating || null,
     messaging_limit: phone.messaging_limit || null,
     platform_type: phone.platform_type || 'CLOUD_API',
@@ -503,7 +577,7 @@ async function upsertConnectedAccount(userId, accessToken, businessId, phone, ex
   };
 }
 
-async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, pin, redis) {
+async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, redis) {
   const session = await loadSignupSession(redis, signupSessionId);
 
   if (session.userId !== userId) {
@@ -573,14 +647,21 @@ async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, p
       continue;
     }
 
-    await registerPhoneNumber(session.accessToken, String(phone.phone_number_id), pin);
+    const registrationPin = resolveRegistrationPin(existingAccount);
+
+    await registerPhoneNumber(
+      session.accessToken,
+      String(phone.phone_number_id),
+      registrationPin
+    );
 
     const result = await upsertConnectedAccount(
       userId,
       session.accessToken,
       session.businessId,
       phone,
-      existingAccount
+      existingAccount,
+      registrationPin
     );
 
     usageDelta += result.usageDelta;

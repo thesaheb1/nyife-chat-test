@@ -1,6 +1,6 @@
 'use strict';
 
-const { Op } = require('sequelize');
+const { Op, QueryTypes } = require('sequelize');
 const axios = require('axios');
 const { Campaign, CampaignMessage, sequelize } = require('../models');
 const { AppError, getPagination, getPaginationMeta, generateUUID } = require('@nyife/shared-utils');
@@ -82,6 +82,40 @@ async function fetchTemplate(userId, templateId) {
     }
     console.error('[campaign-service] Failed to fetch template:', err.message);
     throw AppError.internal('Unable to fetch template details');
+  }
+}
+
+async function findActiveWaAccount(userId, waAccountId) {
+  const accounts = await sequelize.query(
+    `SELECT id, user_id, waba_id, status
+     FROM wa_accounts
+     WHERE id = :waAccountId
+       AND user_id = :userId
+       AND status = :status
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    {
+      replacements: {
+        waAccountId,
+        userId,
+        status: 'active',
+      },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return accounts[0] || null;
+}
+
+function assertTemplateMatchesWaAccount(template, account) {
+  if (!template?.waba_id) {
+    return;
+  }
+
+  if (String(template.waba_id) !== String(account.waba_id)) {
+    throw AppError.badRequest(
+      `Template belongs to WABA ${template.waba_id}, but the selected WhatsApp account belongs to WABA ${account.waba_id}.`
+    );
   }
 }
 
@@ -230,6 +264,12 @@ async function createCampaign(userId, data) {
     throw AppError.badRequest(`Template is not approved. Current status: ${template.status}`);
   }
 
+  const account = await findActiveWaAccount(userId, data.wa_account_id);
+  if (!account) {
+    throw AppError.badRequest('Select an active WhatsApp account before creating a campaign.');
+  }
+  assertTemplateMatchesWaAccount(template, account);
+
   // 3. Estimate recipient count based on target_type
   let estimatedRecipients = 0;
   if (data.target_type === 'contacts') {
@@ -345,6 +385,22 @@ async function updateCampaign(userId, campaignId, data) {
     }
   }
 
+  if (data.wa_account_id || data.template_id) {
+    const nextWaAccountId = data.wa_account_id || campaign.wa_account_id;
+    const nextTemplateId = data.template_id || campaign.template_id;
+    const [account, templateData] = await Promise.all([
+      findActiveWaAccount(userId, nextWaAccountId),
+      fetchTemplate(userId, nextTemplateId),
+    ]);
+
+    if (!account) {
+      throw AppError.badRequest('Select an active WhatsApp account before updating this campaign.');
+    }
+
+    const template = templateData.template || templateData;
+    assertTemplateMatchesWaAccount(template, account);
+  }
+
   // Recalculate estimated cost if target changes
   if (data.target_config || data.target_type) {
     const targetType = data.target_type || campaign.target_type;
@@ -407,6 +463,18 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
     throw AppError.internal('Message broker is not available. Cannot start campaign.');
   }
 
+  const [account, templateData] = await Promise.all([
+    findActiveWaAccount(userId, campaign.wa_account_id),
+    fetchTemplate(userId, campaign.template_id),
+  ]);
+
+  if (!account) {
+    throw AppError.badRequest('The WhatsApp account selected for this campaign is no longer active.');
+  }
+
+  const template = templateData.template || templateData;
+  assertTemplateMatchesWaAccount(template, account);
+
   // 1. Check subscription message limit
   const msgLimitCheck = await checkSubscriptionLimit(userId, 'messages');
   if (!msgLimitCheck.allowed) {
@@ -427,10 +495,6 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
   if (contacts.length === 0) {
     throw AppError.badRequest('No contacts found matching the target criteria');
   }
-
-  // 4. Fetch template details
-  const templateData = await fetchTemplate(userId, campaign.template_id);
-  const template = templateData.template || templateData;
 
   // 5. Create CampaignMessage records for each contact
   const messageRecords = contacts.map((contact) => {
@@ -536,6 +600,18 @@ async function resumeCampaign(userId, campaignId, kafkaProducer) {
     throw AppError.internal('Message broker is not available. Cannot resume campaign.');
   }
 
+  const [account, templateData] = await Promise.all([
+    findActiveWaAccount(userId, campaign.wa_account_id),
+    fetchTemplate(userId, campaign.template_id),
+  ]);
+
+  if (!account) {
+    throw AppError.badRequest('The WhatsApp account selected for this campaign is no longer active.');
+  }
+
+  const template = templateData.template || templateData;
+  assertTemplateMatchesWaAccount(template, account);
+
   // Find pending messages
   const pendingMessages = await CampaignMessage.findAll({
     where: { campaign_id: campaign.id, status: 'pending' },
@@ -547,10 +623,6 @@ async function resumeCampaign(userId, campaignId, kafkaProducer) {
     await campaign.reload();
     return campaign;
   }
-
-  // Fetch template details
-  const templateData = await fetchTemplate(userId, campaign.template_id);
-  const template = templateData.template || templateData;
 
   // Re-publish pending messages to Kafka in batches of 50
   const batchSize = 50;
@@ -648,6 +720,18 @@ async function retryCampaign(userId, campaignId, kafkaProducer) {
     throw AppError.internal('Message broker is not available. Cannot retry campaign.');
   }
 
+  const [account, templateData] = await Promise.all([
+    findActiveWaAccount(userId, campaign.wa_account_id),
+    fetchTemplate(userId, campaign.template_id),
+  ]);
+
+  if (!account) {
+    throw AppError.badRequest('The WhatsApp account selected for this campaign is no longer active.');
+  }
+
+  const template = templateData.template || templateData;
+  assertTemplateMatchesWaAccount(template, account);
+
   // Find failed messages eligible for retry
   const failedMessages = await CampaignMessage.findAll({
     where: {
@@ -660,10 +744,6 @@ async function retryCampaign(userId, campaignId, kafkaProducer) {
   if (failedMessages.length === 0) {
     throw AppError.badRequest('No failed messages eligible for retry');
   }
-
-  // Fetch template details
-  const templateData = await fetchTemplate(userId, campaign.template_id);
-  const template = templateData.template || templateData;
 
   // Increment retry_count and reset status to queued
   const messageIds = failedMessages.map((m) => m.id);

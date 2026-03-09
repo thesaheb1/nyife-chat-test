@@ -23,6 +23,12 @@ router.post('/flows/data-exchange', asyncHandler(whatsappController.handleFlowDa
 // ────────────────────────────────────────────────
 
 router.post(
+  '/accounts/embedded-signup/preview',
+  authenticate,
+  asyncHandler(whatsappController.previewEmbeddedSignup)
+);
+
+router.post(
   '/accounts/embedded-signup',
   authenticate,
   asyncHandler(whatsappController.handleEmbeddedSignup)

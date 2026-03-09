@@ -119,6 +119,18 @@ cd frontend
 npm run dev
 ```
 
+Frontend dev now runs behind local HTTPS so Meta Embedded Signup can open correctly.
+Open:
+
+```text
+https://localhost:5173
+```
+
+Notes:
+
+- The Vite dev server proxies `/api` and `/socket.io` to `http://localhost:3000`, so backend requests still work locally.
+- Your browser may show a local-certificate warning the first time. Accept the warning for `https://localhost:5173` before testing Meta login.
+
 ## Ports
 
 ```text

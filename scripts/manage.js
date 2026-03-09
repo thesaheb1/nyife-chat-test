@@ -29,7 +29,25 @@ const BACKEND_SERVICES = [
   'media-service',
 ];
 
-const MIGRATION_SERVICES = BACKEND_SERVICES.filter((service) => service !== 'api-gateway');
+const MIGRATION_SERVICES = [
+  'auth-service',
+  'user-service',
+  'subscription-service',
+  'wallet-service',
+  'contact-service',
+  'whatsapp-service',
+  'template-service',
+  'campaign-service',
+  'chat-service',
+  'automation-service',
+  'organization-service',
+  'notification-service',
+  'email-service',
+  'support-service',
+  'admin-service',
+  'analytics-service',
+  'media-service',
+];
 const ALL_COMPOSE_SERVICES = [...INFRA_SERVICES, ...BACKEND_SERVICES];
 const KAFKA_TOPICS = [
   'campaign.execute',

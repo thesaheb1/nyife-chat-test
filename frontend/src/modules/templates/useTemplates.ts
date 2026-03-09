@@ -12,6 +12,7 @@ interface TemplateListParams {
   type?: string;
   search?: string;
   waba_id?: string;
+  wa_account_id?: string;
 }
 
 interface TemplateListResponse {
@@ -29,6 +30,7 @@ export function useTemplates(params: TemplateListParams = {}) {
   if (params.type) query.set('type', params.type);
   if (params.search) query.set('search', params.search);
   if (params.waba_id) query.set('waba_id', params.waba_id);
+  if (params.wa_account_id) query.set('wa_account_id', params.wa_account_id);
 
   const qs = query.toString();
   const url = `${ENDPOINTS.TEMPLATES.BASE}${qs ? `?${qs}` : ''}`;
@@ -93,8 +95,11 @@ export function useDeleteTemplate() {
 export function usePublishTemplate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, waba_id }: { id: string; waba_id?: string }) => {
-      const { data } = await apiClient.post<ApiResponse<{ template: Template }>>(`${ENDPOINTS.TEMPLATES.BASE}/${id}/publish`, { waba_id });
+    mutationFn: async ({ id, wa_account_id }: { id: string; wa_account_id?: string }) => {
+      const { data } = await apiClient.post<ApiResponse<{ template: Template }>>(
+        `${ENDPOINTS.TEMPLATES.BASE}/${id}/publish`,
+        { wa_account_id }
+      );
       return data.data.template;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
@@ -105,8 +110,11 @@ export function usePublishTemplate() {
 export function useSyncTemplates() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (waba_id: string) => {
-      const { data } = await apiClient.post<ApiResponse<{ synced: number; created: number; updated: number }>>(ENDPOINTS.TEMPLATES.SYNC, { waba_id });
+    mutationFn: async (wa_account_id: string) => {
+      const { data } = await apiClient.post<ApiResponse<{ synced: number; created: number; updated: number }>>(
+        ENDPOINTS.TEMPLATES.SYNC,
+        { wa_account_id }
+      );
       return data.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),

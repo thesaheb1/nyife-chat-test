@@ -36,6 +36,29 @@ function normalizeStatusPayload(event) {
   return event;
 }
 
+async function findWaAccountById(userId, waAccountId, requireActive = false) {
+  const conditions = ['id = :waAccountId', 'user_id = :userId', 'deleted_at IS NULL'];
+  const replacements = { waAccountId, userId };
+
+  if (requireActive) {
+    conditions.push('status = :status');
+    replacements.status = 'active';
+  }
+
+  const accounts = await sequelize.query(
+    `SELECT id, user_id, waba_id, phone_number_id, display_phone, verified_name, status
+     FROM wa_accounts
+     WHERE ${conditions.join(' AND ')}
+     LIMIT 1`,
+    {
+      replacements,
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return accounts[0] || null;
+}
+
 // ────────────────────────────────────────────────
 // Conversation List & Detail
 // ────────────────────────────────────────────────
@@ -181,6 +204,15 @@ async function sendMessage(userId, conversationId, data, io) {
 
   if (!conversation) {
     throw AppError.notFound('Conversation not found');
+  }
+
+  if (String(conversation.wa_account_id) !== String(wa_account_id)) {
+    throw AppError.badRequest('Messages can only be sent from the WhatsApp account bound to this conversation.');
+  }
+
+  const activeAccount = await findWaAccountById(userId, wa_account_id, true);
+  if (!activeAccount) {
+    throw AppError.badRequest('The WhatsApp account for this conversation is inactive and cannot send new messages.');
   }
 
   // Create the outbound chat message record

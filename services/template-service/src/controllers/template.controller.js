@@ -92,7 +92,7 @@ async function publishTemplate(req, res) {
     userId,
     id,
     accessToken,
-    body.waba_id || null
+    body.wa_account_id || null
   );
 
   return successResponse(res, { template }, 'Template submitted to Meta for review', 200);
@@ -104,10 +104,10 @@ async function publishTemplate(req, res) {
  */
 async function syncTemplates(req, res) {
   const userId = req.headers['x-user-id'];
-  const { waba_id } = syncTemplatesSchema.parse(req.body);
+  const { wa_account_id } = syncTemplatesSchema.parse(req.body);
   const accessToken = req.headers['x-wa-access-token'] || null;
 
-  const result = await templateService.syncTemplates(userId, waba_id, accessToken);
+  const result = await templateService.syncTemplates(userId, wa_account_id, accessToken);
 
   return successResponse(
     res,

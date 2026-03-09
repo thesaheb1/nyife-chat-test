@@ -101,3 +101,43 @@ Whatomate is a great open-source project but is NOT SaaS. Nyife adds:
 | Database | PostgreSQL | MySQL 8.0 |
 | Message Broker | Redis Streams | Apache Kafka |
 | Deployment | Single binary | Docker microservices |
+
+## Current Nyife Embedded Signup Flow
+
+Nyife now uses a tenant-scoped two-step embedded signup flow for WhatsApp Cloud API onboarding.
+
+### API flow
+
+1. `POST /api/v1/whatsapp/accounts/embedded-signup/preview`
+   - Body: `{ "code": "<meta_oauth_code>" }`
+   - Exchanges the Meta OAuth code server-side.
+   - Discovers all accessible WABAs and phone numbers.
+   - Stores the resolved access token and discovery payload in Redis for 10 minutes.
+   - Returns `signup_session_id`, `remaining_slots`, and discovered phone numbers with `already_connected` and `eligible` flags.
+
+2. `POST /api/v1/whatsapp/accounts/embedded-signup`
+   - Body: `{ "signup_session_id": "...", "phone_number_ids": ["..."], "pin": "123456" }`
+   - Validates subscription capacity.
+   - Registers each selected phone number with Meta using the user-provided 6-digit PIN.
+   - Subscribes the app once per unique WABA.
+   - Restores or upserts local `wa_accounts` rows and increments subscription usage only for accounts that become active.
+
+3. `DELETE /api/v1/whatsapp/accounts/:id`
+   - Local deactivation only.
+   - Marks the stored account as `inactive`.
+   - Preserves history and decrements usage once when an active account is disconnected.
+
+### Product behavior
+
+- `wa_accounts` is now the canonical selector across onboarding, templates, campaigns, and chat.
+- Templates still remain Meta WABA-scoped under the hood. The selected account is used to derive the WABA and access token.
+- Campaign creation requires an active account whose WABA matches the selected approved template.
+- Chat conversations remain pinned to their `wa_account_id`. Inactive or disconnected accounts make those conversations read-only for outbound sends.
+- Inbound chat sync continues only for active phone numbers because webhook resolution now ignores inactive accounts.
+
+### Frontend behavior
+
+- Embedded signup shows discovered phone numbers in a multi-select dialog and enforces plan remaining slots before completion.
+- Template create, publish, and sync actions use connected-account dropdowns instead of raw WABA IDs.
+- Campaign creation filters the template list by the selected account's WABA.
+- Chat conversation lists can be filtered by connected account and show the account bound to each conversation.

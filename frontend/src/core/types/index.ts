@@ -132,6 +132,7 @@ export interface Template {
   id: string;
   user_id: string;
   waba_id: string | null;
+  wa_account_id: string | null;
   source?: 'nyife' | 'meta_sync' | null;
   name: string;
   display_name: string | null;
@@ -367,9 +368,36 @@ export interface WaAccount {
   business_id: string | null;
   quality_rating: 'GREEN' | 'YELLOW' | 'RED' | null;
   messaging_limit: string | null;
+  platform_type?: string | null;
   status: 'active' | 'inactive' | 'restricted' | 'banned';
   created_at: string;
   updated_at: string;
+}
+
+export interface EmbeddedSignupPreviewAccount {
+  waba_id: string;
+  phone_number_id: string;
+  display_phone: string | null;
+  verified_name: string | null;
+  quality_rating: 'GREEN' | 'YELLOW' | 'RED' | null;
+  already_connected: boolean;
+  eligible: boolean;
+  existing_account_id: string | null;
+}
+
+export interface EmbeddedSignupPreviewResult {
+  signup_session_id: string;
+  remaining_slots: number | null;
+  accounts: EmbeddedSignupPreviewAccount[];
+}
+
+export interface EmbeddedSignupCompleteResult {
+  accounts: WaAccount[];
+  connected_count: number;
+  skipped: Array<{
+    phone_number_id: string;
+    reason: string;
+  }>;
 }
 
 // Subscriptions

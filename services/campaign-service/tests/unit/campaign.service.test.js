@@ -4,7 +4,7 @@ require('../setup');
 
 const axios = require('axios');
 const campaignService = require('../../src/services/campaign.service');
-const { Campaign, CampaignMessage } = require('../../src/models');
+const { Campaign, CampaignMessage, sequelize } = require('../../src/models');
 
 const USER_ID = 'user-uuid-1';
 
@@ -35,6 +35,18 @@ function makeCampaign(overrides = {}) {
   };
 }
 
+function mockActiveWaAccount(overrides = {}) {
+  sequelize.query.mockResolvedValue([
+    {
+      id: 'wa-uuid-1',
+      user_id: USER_ID,
+      waba_id: 'waba-123',
+      status: 'active',
+      ...overrides,
+    },
+  ]);
+}
+
 // Mock axios responses for inter-service calls
 function mockServiceCalls() {
   // Subscription limit check
@@ -43,7 +55,7 @@ function mockServiceCalls() {
       return Promise.resolve({ data: { data: { allowed: true, remaining: 99 } } });
     }
     if (url.includes('templates')) {
-      return Promise.resolve({ data: { data: { name: 'hello', status: 'APPROVED', language: 'en', components: [] } } });
+      return Promise.resolve({ data: { data: { name: 'hello', status: 'APPROVED', language: 'en', components: [], waba_id: 'waba-123' } } });
     }
     if (url.includes('balance')) {
       return Promise.resolve({ data: { data: { balance: 999999 } } });
@@ -64,6 +76,7 @@ function mockServiceCalls() {
 describe('createCampaign', () => {
   it('should create draft campaign', async () => {
     mockServiceCalls();
+    mockActiveWaAccount({ id: 'wa-1' });
     const camp = makeCampaign();
     Campaign.create.mockResolvedValue(camp);
 
@@ -108,6 +121,26 @@ describe('createCampaign', () => {
       name: 'Test', wa_account_id: 'wa-1', template_id: 'tmpl-1',
       target_type: 'contacts', target_config: { contact_ids: ['c1'] },
     })).rejects.toThrow('Template is not approved');
+  });
+
+  it('should throw when the selected account is inactive', async () => {
+    mockServiceCalls();
+    sequelize.query.mockResolvedValue([]);
+
+    await expect(campaignService.createCampaign(USER_ID, {
+      name: 'Test', wa_account_id: 'wa-1', template_id: 'tmpl-1',
+      target_type: 'contacts', target_config: { contact_ids: ['c1'] },
+    })).rejects.toThrow('Select an active WhatsApp account before creating a campaign.');
+  });
+
+  it('should throw when the template WABA does not match the selected account', async () => {
+    mockServiceCalls();
+    mockActiveWaAccount({ id: 'wa-1', waba_id: 'waba-other' });
+
+    await expect(campaignService.createCampaign(USER_ID, {
+      name: 'Test', wa_account_id: 'wa-1', template_id: 'tmpl-1',
+      target_type: 'contacts', target_config: { contact_ids: ['c1'] },
+    })).rejects.toThrow('Template belongs to WABA waba-123');
   });
 });
 
@@ -208,6 +241,7 @@ describe('deleteCampaign', () => {
 describe('startCampaign', () => {
   it('should start campaign and publish to Kafka', async () => {
     mockServiceCalls();
+    mockActiveWaAccount();
     const camp = makeCampaign({ status: 'draft' });
     Campaign.findOne.mockResolvedValue(camp);
     CampaignMessage.bulkCreate.mockResolvedValue([]);
@@ -243,6 +277,15 @@ describe('startCampaign', () => {
 
     await expect(campaignService.startCampaign(USER_ID, 'camp-1', null))
       .rejects.toThrow('Message broker is not available');
+  });
+
+  it('should throw if the campaign account is no longer active', async () => {
+    mockServiceCalls();
+    Campaign.findOne.mockResolvedValue(makeCampaign({ status: 'draft' }));
+    sequelize.query.mockResolvedValue([]);
+
+    await expect(campaignService.startCampaign(USER_ID, 'camp-1', {}))
+      .rejects.toThrow('The WhatsApp account selected for this campaign is no longer active.');
   });
 });
 

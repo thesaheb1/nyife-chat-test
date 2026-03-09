@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -21,32 +21,17 @@ import { useCreateCampaign } from './useCampaigns';
 import { createCampaignSchema } from './validations';
 import type { CreateCampaignFormData } from './validations';
 import { useTemplates } from '@/modules/templates/useTemplates';
-import { apiClient } from '@/core/api/client';
-import { ENDPOINTS } from '@/core/api/endpoints';
-import type { ApiResponse } from '@/core/types';
-
-interface WaAccount {
-  id: string;
-  phone_number: string;
-  display_name: string;
-}
+import {
+  buildActiveWhatsAppAccountOptions,
+  findWhatsAppAccount,
+  getWhatsAppAccountLabel,
+} from '@/modules/whatsapp/accountOptions';
+import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 
 export function CreateCampaignPage() {
   const navigate = useNavigate();
   const createCampaign = useCreateCampaign();
-
-  // Fetch WA accounts
-  const [waAccounts, setWaAccounts] = useState<WaAccount[]>([]);
-  useEffect(() => {
-    apiClient
-      .get<ApiResponse<{ accounts: WaAccount[] }>>(ENDPOINTS.WHATSAPP.ACCOUNTS)
-      .then((res) => setWaAccounts(res.data.data.accounts || []))
-      .catch(() => {});
-  }, []);
-
-  // Fetch approved templates
-  const { data: templatesData } = useTemplates({ status: 'approved', limit: 100 });
-  const templates = templatesData?.data?.templates ?? [];
+  const { data: waAccounts } = useWhatsAppAccounts();
 
   const {
     register,
@@ -65,12 +50,37 @@ export function CreateCampaignPage() {
 
   const campaignType = watch('type');
   const targetType = watch('target_type');
+  const selectedWaAccountId = watch('wa_account_id');
+  const selectedTemplateId = watch('template_id');
+  const selectedWaAccount = useMemo(
+    () => findWhatsAppAccount(waAccounts, selectedWaAccountId),
+    [selectedWaAccountId, waAccounts]
+  );
+  const activeAccountOptions = useMemo(() => buildActiveWhatsAppAccountOptions(waAccounts), [waAccounts]);
+
+  const { data: templatesData } = useTemplates({
+    status: 'approved',
+    limit: 100,
+    waba_id: selectedWaAccount?.waba_id || undefined,
+  });
+  const templates = templatesData?.data?.templates ?? [];
 
   // Tag/group IDs as comma-separated inputs
   const [groupIdsInput, setGroupIdsInput] = useState('');
   const [contactIdsInput, setContactIdsInput] = useState('');
   const [tagIdsInput, setTagIdsInput] = useState('');
   const [excludeTagIdsInput, setExcludeTagIdsInput] = useState('');
+
+  useEffect(() => {
+    if (!selectedTemplateId) {
+      return;
+    }
+
+    const stillValid = templates.some((template) => template.id === selectedTemplateId);
+    if (!stillValid) {
+      setValue('template_id', '', { shouldValidate: true });
+    }
+  }, [selectedTemplateId, setValue, templates]);
 
   const parseIds = (input: string) =>
     input
@@ -127,35 +137,48 @@ export function CreateCampaignPage() {
               <div className="space-y-2">
                 <Label>WhatsApp Account *</Label>
                 <Select
-                  value={watch('wa_account_id') || ''}
-                  onValueChange={(v) => setValue('wa_account_id', v)}
+                  value={selectedWaAccountId || ''}
+                  onValueChange={(value) => {
+                    setValue('wa_account_id', value, { shouldValidate: true });
+                    setValue('template_id', '', { shouldValidate: true });
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select account" />
                   </SelectTrigger>
                   <SelectContent>
-                    {waAccounts.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.display_name || a.phone_number}
+                    {activeAccountOptions.map((account) => (
+                      <SelectItem key={account.value} value={account.value}>
+                        {account.label}
                       </SelectItem>
                     ))}
-                    {waAccounts.length === 0 && (
+                    {activeAccountOptions.length === 0 && (
                       <SelectItem value="none" disabled>
-                        No accounts connected
+                        No active accounts connected
                       </SelectItem>
                     )}
                   </SelectContent>
                 </Select>
                 {errors.wa_account_id && <p className="text-sm text-destructive">{errors.wa_account_id.message}</p>}
+                {selectedWaAccount ? (
+                  <p className="text-xs text-muted-foreground">
+                    {getWhatsAppAccountLabel(selectedWaAccount)} / WABA {selectedWaAccount.waba_id}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Choose the connected account first. The template list is filtered to that account's WABA.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Template *</Label>
                 <Select
-                  value={watch('template_id') || ''}
-                  onValueChange={(v) => setValue('template_id', v)}
+                  value={selectedTemplateId || ''}
+                  onValueChange={(value) => setValue('template_id', value, { shouldValidate: true })}
+                  disabled={!selectedWaAccount}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select template" />
+                    <SelectValue placeholder={selectedWaAccount ? 'Select template' : 'Select account first'} />
                   </SelectTrigger>
                   <SelectContent>
                     {templates.map((t) => (
@@ -170,7 +193,7 @@ export function CreateCampaignPage() {
                     ))}
                     {templates.length === 0 && (
                       <SelectItem value="none" disabled>
-                        No approved templates
+                        {selectedWaAccount ? 'No approved templates for this account' : 'Select an account first'}
                       </SelectItem>
                     )}
                   </SelectContent>

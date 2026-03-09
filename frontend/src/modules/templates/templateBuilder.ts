@@ -41,6 +41,7 @@ export interface TemplateDraft {
   language: string;
   category: 'MARKETING' | 'UTILITY' | 'AUTHENTICATION';
   type: 'standard' | 'authentication' | 'carousel' | 'flow' | 'list_menu';
+  wa_account_id: string;
   waba_id: string;
   standard: {
     headerFormat: HeaderFormat;
@@ -129,6 +130,7 @@ export function createEmptyTemplateDraft(): TemplateDraft {
     language: 'en_US',
     category: 'MARKETING',
     type: 'standard',
+    wa_account_id: '',
     waba_id: '',
     standard: {
       headerFormat: 'NONE',
@@ -305,6 +307,7 @@ export function hydrateTemplateDraft(template: Template | null | undefined): Tem
   draft.language = template.language || 'en_US';
   draft.category = template.category;
   draft.type = template.type;
+  draft.wa_account_id = template.wa_account_id || '';
   draft.waba_id = template.waba_id || '';
 
   draft.standard = {
@@ -382,7 +385,7 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
     language: draft.language,
     category: draft.type === 'authentication' ? 'AUTHENTICATION' : draft.category,
     type: draft.type,
-    waba_id: trim(draft.waba_id) || undefined,
+    wa_account_id: trim(draft.wa_account_id),
     components: [],
   };
 

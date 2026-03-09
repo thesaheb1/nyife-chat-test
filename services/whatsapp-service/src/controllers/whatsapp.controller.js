@@ -5,7 +5,8 @@ const messageService = require('../services/message.service');
 const webhookService = require('../services/webhook.service');
 const { successResponse } = require('@nyife/shared-utils');
 const {
-  embeddedSignupSchema,
+  embeddedSignupPreviewSchema,
+  embeddedSignupCompleteSchema,
   sendMessageSchema,
   sendTemplateSchema,
   sendFlowSchema,
@@ -21,19 +22,46 @@ const {
 // ────────────────────────────────────────────────
 
 /**
- * POST /api/v1/whatsapp/accounts/embedded-signup
- * Handles the Meta Embedded Signup flow — exchanges a code for WABA access.
+ * POST /api/v1/whatsapp/accounts/embedded-signup/preview
+ * Exchanges the Meta authorization code, discovers available phone numbers,
+ * and stores a short-lived signup session in Redis.
  */
-async function handleEmbeddedSignup(req, res) {
+async function previewEmbeddedSignup(req, res) {
   const userId = req.headers['x-user-id'];
-  const data = embeddedSignupSchema.parse(req.body);
+  const data = embeddedSignupPreviewSchema.parse(req.body);
+  const redis = req.app.locals.redis || null;
 
-  const result = await accountService.handleEmbeddedSignup(userId, data.code);
+  const preview = await accountService.previewEmbeddedSignup(userId, data.code, redis);
 
   return successResponse(
     res,
-    { account: result },
-    'WhatsApp account connected successfully',
+    preview,
+    'Embedded signup preview loaded successfully'
+  );
+}
+
+/**
+ * POST /api/v1/whatsapp/accounts/embedded-signup
+ * Completes the Meta Embedded Signup flow using the preview session, a phone
+ * number selection, and the required 6-digit Meta registration PIN.
+ */
+async function handleEmbeddedSignup(req, res) {
+  const userId = req.headers['x-user-id'];
+  const data = embeddedSignupCompleteSchema.parse(req.body);
+  const redis = req.app.locals.redis || null;
+
+  const result = await accountService.completeEmbeddedSignup(
+    userId,
+    data.signup_session_id,
+    data.phone_number_ids,
+    data.pin,
+    redis
+  );
+
+  return successResponse(
+    res,
+    result,
+    'WhatsApp account connection completed successfully',
     201
   );
 }
@@ -227,6 +255,7 @@ async function developerSend(req, res) {
 }
 
 module.exports = {
+  previewEmbeddedSignup,
   handleEmbeddedSignup,
   listAccounts,
   getAccount,

@@ -6,50 +6,177 @@ const { WaAccount } = require('../models');
 const { AppError, encrypt, decrypt } = require('@nyife/shared-utils');
 const config = require('../config');
 
-async function checkWhatsAppNumberLimit(userId, additionalCount) {
-  if (!additionalCount || additionalCount <= 0) {
+const SIGNUP_SESSION_TTL_SECONDS = 10 * 60;
+const signupSessionFallbackStore = new Map();
+
+function getMetaErrorMessage(err, fallbackMessage) {
+  const metaMessage = err.response?.data?.error?.message;
+  return metaMessage || fallbackMessage || err.message;
+}
+
+function buildMetaHeaders(accessToken) {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+function sanitizeConnectedAccount(account) {
+  return account ? account.toSafeJSON() : null;
+}
+
+function serializeDiscoveredPhone(phone, existingAccount) {
+  const alreadyConnected = Boolean(
+    existingAccount
+    && !existingAccount.deleted_at
+    && existingAccount.status === 'active'
+  );
+
+  return {
+    waba_id: String(phone.waba_id),
+    phone_number_id: String(phone.phone_number_id),
+    display_phone: phone.display_phone || null,
+    verified_name: phone.verified_name || null,
+    quality_rating: phone.quality_rating || null,
+    already_connected: alreadyConnected,
+    eligible: !alreadyConnected,
+    existing_account_id: existingAccount?.id || null,
+  };
+}
+
+function getSignupSessionKey(signupSessionId) {
+  return `signup-session:${signupSessionId}`;
+}
+
+function pruneExpiredFallbackSessions() {
+  const now = Date.now();
+  for (const [sessionId, record] of signupSessionFallbackStore.entries()) {
+    if (!record || record.expiresAt <= now) {
+      signupSessionFallbackStore.delete(sessionId);
+    }
+  }
+}
+
+async function saveSignupSession(redis, payload) {
+  const signupSessionId = crypto.randomUUID();
+  const key = getSignupSessionKey(signupSessionId);
+  const serialized = JSON.stringify({
+    ...payload,
+    createdAt: new Date().toISOString(),
+  });
+
+  if (redis) {
+    await redis.set(key, serialized, 'EX', SIGNUP_SESSION_TTL_SECONDS);
+    return signupSessionId;
+  }
+
+  pruneExpiredFallbackSessions();
+  signupSessionFallbackStore.set(signupSessionId, {
+    value: serialized,
+    expiresAt: Date.now() + (SIGNUP_SESSION_TTL_SECONDS * 1000),
+  });
+  return signupSessionId;
+}
+
+async function loadSignupSession(redis, signupSessionId) {
+  const key = getSignupSessionKey(signupSessionId);
+
+  if (redis) {
+    const raw = await redis.get(key);
+    if (!raw) {
+      throw AppError.badRequest('Embedded signup session expired. Restart the Meta connection flow.');
+    }
+    return JSON.parse(raw);
+  }
+
+  pruneExpiredFallbackSessions();
+  const fallbackRecord = signupSessionFallbackStore.get(signupSessionId);
+  if (!fallbackRecord) {
+    throw AppError.badRequest('Embedded signup session expired. Restart the Meta connection flow.');
+  }
+
+  return JSON.parse(fallbackRecord.value);
+}
+
+async function deleteSignupSession(redis, signupSessionId) {
+  const key = getSignupSessionKey(signupSessionId);
+
+  if (redis) {
+    await redis.del(key);
     return;
   }
 
+  signupSessionFallbackStore.delete(signupSessionId);
+}
+
+async function fetchWhatsAppNumberLimit(userId) {
   try {
     const response = await axios.get(
       `${config.subscriptionServiceUrl}/api/v1/subscriptions/check-limit/${userId}/whatsapp_numbers`,
-      {
-        timeout: 5000,
-      }
+      { timeout: 5000 }
     );
 
-    const limitData = response.data?.data;
-    if (!limitData) {
-      return;
-    }
-
-    if (limitData.limit === 'unlimited') {
-      return;
-    }
-
-    if (!limitData.allowed || (limitData.remaining || 0) < additionalCount) {
-      throw AppError.forbidden(
-        'WhatsApp number limit reached for your subscription plan. Please upgrade.'
-      );
-    }
+    return response.data?.data || null;
   } catch (err) {
-    if (err instanceof AppError) {
-      throw err;
+    if (err.response?.status === 404) {
+      return null;
     }
 
-    if (err.response && err.response.status === 403) {
-      throw AppError.forbidden(
-        err.response.data?.message ||
-          'WhatsApp number limit reached for your subscription plan. Please upgrade.'
-      );
-    }
-
-    console.warn(
-      '[whatsapp-service] Could not check subscription limit:',
-      err.message
-    );
+    console.warn('[whatsapp-service] Could not check subscription limit:', err.message);
+    return null;
   }
+}
+
+async function getActiveAccountCount(userId) {
+  return WaAccount.count({
+    where: {
+      user_id: userId,
+      status: 'active',
+    },
+  });
+}
+
+async function getRemainingWhatsAppSlots(userId) {
+  const [limitData, activeCount] = await Promise.all([
+    fetchWhatsAppNumberLimit(userId),
+    getActiveAccountCount(userId),
+  ]);
+
+  if (!limitData) {
+    return {
+      activeCount,
+      remainingSlots: null,
+      limit: null,
+      hasActiveSubscription: true,
+    };
+  }
+
+  if (limitData.message === 'No active subscription') {
+    return {
+      activeCount,
+      remainingSlots: 0,
+      limit: 0,
+      hasActiveSubscription: false,
+    };
+  }
+
+  if (limitData.limit === 'unlimited') {
+    return {
+      activeCount,
+      remainingSlots: null,
+      limit: null,
+      hasActiveSubscription: true,
+    };
+  }
+
+  const numericLimit = Number(limitData.limit || 0);
+
+  return {
+    activeCount,
+    remainingSlots: Math.max(0, numericLimit - activeCount),
+    limit: numericLimit,
+    hasActiveSubscription: true,
+  };
 }
 
 async function adjustWhatsAppNumberUsage(userId, count) {
@@ -69,32 +196,13 @@ async function adjustWhatsAppNumberUsage(userId, count) {
       }
     );
   } catch (err) {
-    console.warn(
-      '[whatsapp-service] Could not update WhatsApp number usage:',
-      err.message
-    );
+    console.warn('[whatsapp-service] Could not update WhatsApp number usage:', err.message);
   }
 }
 
-/**
- * Handles the embedded signup flow.
- * 1. Exchange code for access token via Meta OAuth
- * 2. Debug token to find business_id
- * 3. Get shared WABAs
- * 4. Get phone numbers for each WABA
- * 5. Subscribe app to WABA
- * 6. Encrypt access token and store wa_accounts record
- * 7. Check subscription limit for whatsapp_numbers
- *
- * @param {string} userId - The tenant user ID
- * @param {string} code - The authorization code from Meta Embedded Signup SDK
- * @returns {Promise<object>} The created WaAccount record (safe JSON)
- */
-async function handleEmbeddedSignup(userId, code) {
-  // Step 1: Exchange code for access token
-  let accessToken;
+async function exchangeCodeForAccessToken(code) {
   try {
-    const tokenResponse = await axios.get(
+    const response = await axios.get(
       `https://graph.facebook.com/${config.meta.apiVersion}/oauth/access_token`,
       {
         params: {
@@ -104,272 +212,439 @@ async function handleEmbeddedSignup(userId, code) {
         },
       }
     );
-    accessToken = tokenResponse.data.access_token;
+
+    const accessToken = response.data?.access_token;
     if (!accessToken) {
-      throw new Error('No access_token returned from Meta OAuth');
+      throw new Error('No access token returned from Meta OAuth');
     }
+
+    return accessToken;
   } catch (err) {
-    if (err.response && err.response.data && err.response.data.error) {
-      const metaError = err.response.data.error;
-      throw AppError.badRequest(
-        `Meta OAuth error: ${metaError.message || 'Failed to exchange code'}`
-      );
-    }
-    throw AppError.badRequest('Failed to exchange authorization code for access token');
-  }
-
-  // Step 2: Debug token to find business_id and WABA info
-  let debugData;
-  try {
-    const debugResponse = await axios.get(
-      `https://graph.facebook.com/${config.meta.apiVersion}/debug_token`,
-      {
-        params: { input_token: accessToken },
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }
-    );
-    debugData = debugResponse.data.data;
-  } catch (err) {
-    throw AppError.badRequest('Failed to debug access token with Meta API');
-  }
-
-  const businessId =
-    debugData.granular_scopes?.find((s) => s.scope === 'whatsapp_business_management')
-      ?.target_ids?.[0] || debugData.profile_id || null;
-
-  // Step 3: Get shared WABAs
-  // The WABA ID may be in the debug token data or we need to fetch from business
-  let wabaId;
-  let wabaData;
-
-  // Try to get WABA from granular_scopes in debug token
-  const whatsappScope = debugData.granular_scopes?.find(
-    (s) => s.scope === 'whatsapp_business_messaging'
-  );
-  if (whatsappScope && whatsappScope.target_ids && whatsappScope.target_ids.length > 0) {
-    wabaId = whatsappScope.target_ids[0];
-  }
-
-  // If not found in scopes, try to get from business client_whatsapp_business_accounts
-  if (!wabaId && businessId) {
-    try {
-      const wabaResponse = await axios.get(
-        `${config.meta.baseUrl}/${businessId}/client_whatsapp_business_accounts`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
-      );
-      const wabaList = wabaResponse.data.data;
-      if (wabaList && wabaList.length > 0) {
-        wabaId = wabaList[0].id;
-        wabaData = wabaList[0];
-      }
-    } catch (err) {
-      // Try owned_whatsapp_business_accounts as fallback
-      try {
-        const ownedResponse = await axios.get(
-          `${config.meta.baseUrl}/${businessId}/owned_whatsapp_business_accounts`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          }
-        );
-        const ownedList = ownedResponse.data.data;
-        if (ownedList && ownedList.length > 0) {
-          wabaId = ownedList[0].id;
-          wabaData = ownedList[0];
-        }
-      } catch (innerErr) {
-        throw AppError.badRequest('Could not retrieve WhatsApp Business accounts from Meta');
-      }
-    }
-  }
-
-  if (!wabaId) {
     throw AppError.badRequest(
-      'No WhatsApp Business Account found. Please ensure you shared your WABA during signup.'
+      `Failed to exchange authorization code with Meta. ${getMetaErrorMessage(err, 'Meta OAuth exchange failed.')}`
     );
   }
+}
 
-  // Step 4: Get phone numbers for the WABA
-  let phoneNumbers;
+async function debugAccessToken(accessToken) {
   try {
-    const phoneResponse = await axios.get(
-      `${config.meta.baseUrl}/${wabaId}/phone_numbers`,
+    const response = await axios.get(
+      `${config.meta.baseUrl}/debug_token`,
       {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        params: {
+          input_token: accessToken,
+          access_token: `${config.meta.appId}|${config.meta.appSecret}`,
+        },
       }
     );
-    phoneNumbers = phoneResponse.data.data;
+
+    return response.data?.data || null;
   } catch (err) {
-    throw AppError.badRequest('Failed to retrieve phone numbers from Meta API');
+    throw AppError.badRequest(
+      `Failed to inspect Meta access token. ${getMetaErrorMessage(err, 'Debug token call failed.')}`
+    );
+  }
+}
+
+function extractBusinessId(debugData) {
+  return debugData?.granular_scopes
+    ?.find((scope) => scope.scope === 'whatsapp_business_management')
+    ?.target_ids?.[0]
+    || debugData?.profile_id
+    || null;
+}
+
+async function fetchWabaListFromBusinessEdge(accessToken, businessId, edge) {
+  if (!businessId) {
+    return [];
   }
 
-  if (!phoneNumbers || phoneNumbers.length === 0) {
+  try {
+    const response = await axios.get(
+      `${config.meta.baseUrl}/${businessId}/${edge}`,
+      {
+        headers: buildMetaHeaders(accessToken),
+        timeout: 15000,
+      }
+    );
+
+    return Array.isArray(response.data?.data) ? response.data.data : [];
+  } catch (err) {
+    console.warn(
+      `[whatsapp-service] Failed to fetch ${edge} for business ${businessId}:`,
+      getMetaErrorMessage(err, err.message)
+    );
+    return [];
+  }
+}
+
+async function discoverWabas(accessToken, debugData) {
+  const discovered = new Map();
+  const businessId = extractBusinessId(debugData);
+
+  const scopeWabaIds = debugData?.granular_scopes
+    ?.filter((scope) => scope.scope === 'whatsapp_business_messaging')
+    .flatMap((scope) => Array.isArray(scope.target_ids) ? scope.target_ids : []) || [];
+
+  for (const scopeWabaId of scopeWabaIds) {
+    discovered.set(String(scopeWabaId), {
+      id: String(scopeWabaId),
+      name: null,
+    });
+  }
+
+  const [clientWabas, ownedWabas] = await Promise.all([
+    fetchWabaListFromBusinessEdge(accessToken, businessId, 'client_whatsapp_business_accounts'),
+    fetchWabaListFromBusinessEdge(accessToken, businessId, 'owned_whatsapp_business_accounts'),
+  ]);
+
+  for (const waba of [...clientWabas, ...ownedWabas]) {
+    if (!waba?.id) {
+      continue;
+    }
+
+    discovered.set(String(waba.id), {
+      id: String(waba.id),
+      name: waba.name || discovered.get(String(waba.id))?.name || null,
+    });
+  }
+
+  return {
+    businessId: businessId ? String(businessId) : null,
+    wabas: Array.from(discovered.values()),
+  };
+}
+
+async function fetchWabaPhoneNumbers(accessToken, waba) {
+  try {
+    const response = await axios.get(
+      `${config.meta.baseUrl}/${waba.id}/phone_numbers`,
+      {
+        headers: buildMetaHeaders(accessToken),
+        timeout: 15000,
+      }
+    );
+
+    const phoneNumbers = Array.isArray(response.data?.data) ? response.data.data : [];
+    return phoneNumbers.map((phone) => ({
+      waba_id: String(waba.id),
+      waba_name: waba.name || null,
+      phone_number_id: String(phone.id),
+      display_phone: phone.display_phone_number || null,
+      verified_name: phone.verified_name || waba.name || null,
+      quality_rating: phone.quality_rating || null,
+      messaging_limit: phone.throughput?.level || null,
+      platform_type: phone.platform_type || 'CLOUD_API',
+    }));
+  } catch (err) {
+    console.warn(
+      `[whatsapp-service] Failed to fetch phone numbers for WABA ${waba.id}:`,
+      getMetaErrorMessage(err, err.message)
+    );
+    return [];
+  }
+}
+
+async function discoverEmbeddedSignupAccounts(accessToken) {
+  const debugData = await debugAccessToken(accessToken);
+  const { businessId, wabas } = await discoverWabas(accessToken, debugData);
+
+  if (!wabas.length) {
     throw AppError.badRequest(
-      'No phone numbers found for this WhatsApp Business Account'
+      'No WhatsApp Business Accounts were returned by Meta. Complete the Embedded Signup share step and try again.'
     );
   }
 
-  const existingAccounts = await Promise.all(
-    phoneNumbers.map((phone) => WaAccount.unscoped().findOne({
-      where: {
-        user_id: userId,
-        phone_number_id: String(phone.id),
-      },
-      paranoid: false,
-    }))
+  const phoneNumbersNested = await Promise.all(
+    wabas.map((waba) => fetchWabaPhoneNumbers(accessToken, waba))
   );
 
-  const additionalNumbersNeeded = existingAccounts.filter(
-    (account) => !account || account.deleted_at || account.status !== 'active'
-  ).length;
+  const phoneMap = new Map();
+  for (const phones of phoneNumbersNested) {
+    for (const phone of phones) {
+      phoneMap.set(String(phone.phone_number_id), phone);
+    }
+  }
 
-  // Step 5: Subscribe app to WABA
+  const discoveredPhones = Array.from(phoneMap.values());
+  if (!discoveredPhones.length) {
+    throw AppError.badRequest(
+      'Meta did not return any phone numbers for the selected WhatsApp Business Accounts.'
+    );
+  }
+
+  return {
+    businessId,
+    discoveredPhones,
+  };
+}
+
+async function getExistingAccountsByPhoneNumber(userId, phoneNumberIds) {
+  const records = await WaAccount.unscoped().findAll({
+    where: {
+      user_id: userId,
+      phone_number_id: phoneNumberIds.map((phoneNumberId) => String(phoneNumberId)),
+    },
+    paranoid: false,
+  });
+
+  return new Map(records.map((record) => [String(record.phone_number_id), record]));
+}
+
+async function previewEmbeddedSignup(userId, code, redis) {
+  const accessToken = await exchangeCodeForAccessToken(code);
+  const discovery = await discoverEmbeddedSignupAccounts(accessToken);
+  const phoneNumberIds = discovery.discoveredPhones.map((phone) => phone.phone_number_id);
+  const existingAccounts = await getExistingAccountsByPhoneNumber(userId, phoneNumberIds);
+  const slotStatus = await getRemainingWhatsAppSlots(userId);
+
+  const signupSessionId = await saveSignupSession(redis, {
+    userId,
+    businessId: discovery.businessId,
+    accessToken,
+    discoveredPhones: discovery.discoveredPhones,
+  });
+
+  return {
+    signup_session_id: signupSessionId,
+    remaining_slots: slotStatus.remainingSlots,
+    accounts: discovery.discoveredPhones.map((phone) =>
+      serializeDiscoveredPhone(phone, existingAccounts.get(String(phone.phone_number_id)))
+    ),
+  };
+}
+
+async function subscribeAppToWaba(accessToken, wabaId) {
   try {
     await axios.post(
       `${config.meta.baseUrl}/${wabaId}/subscribed_apps`,
       {},
       {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: buildMetaHeaders(accessToken),
+        timeout: 10000,
       }
     );
   } catch (err) {
-    // Log but do not fail — subscription may already exist
     console.warn(
-      '[whatsapp-service] Could not subscribe app to WABA:',
-      err.response?.data?.error?.message || err.message
+      `[whatsapp-service] Could not subscribe app to WABA ${wabaId}:`,
+      getMetaErrorMessage(err, err.message)
+    );
+  }
+}
+
+async function registerPhoneNumber(accessToken, phoneNumberId, pin) {
+  try {
+    await axios.post(
+      `${config.meta.baseUrl}/${phoneNumberId}/register`,
+      {
+        messaging_product: 'whatsapp',
+        pin,
+      },
+      {
+        headers: buildMetaHeaders(accessToken),
+        timeout: 15000,
+      }
+    );
+  } catch (err) {
+    throw AppError.badRequest(
+      `Failed to register phone number ${phoneNumberId} with Meta. ${getMetaErrorMessage(err, 'Phone registration failed.')}`
+    );
+  }
+}
+
+async function upsertConnectedAccount(userId, accessToken, businessId, phone, existingAccount) {
+  const encryptedToken = encrypt(accessToken);
+  const webhookSecret = existingAccount?.webhook_secret || crypto.randomBytes(32).toString('hex');
+  const shouldIncrementUsage = !existingAccount || existingAccount.deleted_at || existingAccount.status !== 'active';
+
+  if (existingAccount) {
+    if (existingAccount.deleted_at) {
+      await existingAccount.restore();
+    }
+
+    await existingAccount.update({
+      access_token: encryptedToken,
+      waba_id: String(phone.waba_id),
+      phone_number_id: String(phone.phone_number_id),
+      display_phone: phone.display_phone || null,
+      verified_name: phone.verified_name || null,
+      business_id: businessId ? String(businessId) : null,
+      quality_rating: phone.quality_rating || null,
+      messaging_limit: phone.messaging_limit || null,
+      platform_type: phone.platform_type || 'CLOUD_API',
+      status: 'active',
+      webhook_secret: webhookSecret,
+    });
+
+    return {
+      account: existingAccount,
+      usageDelta: shouldIncrementUsage ? 1 : 0,
+    };
+  }
+
+  const account = await WaAccount.create({
+    user_id: userId,
+    waba_id: String(phone.waba_id),
+    phone_number_id: String(phone.phone_number_id),
+    display_phone: phone.display_phone || null,
+    verified_name: phone.verified_name || null,
+    business_id: businessId ? String(businessId) : null,
+    access_token: encryptedToken,
+    quality_rating: phone.quality_rating || null,
+    messaging_limit: phone.messaging_limit || null,
+    platform_type: phone.platform_type || 'CLOUD_API',
+    status: 'active',
+    webhook_secret: webhookSecret,
+  });
+
+  return {
+    account,
+    usageDelta: 1,
+  };
+}
+
+async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, pin, redis) {
+  const session = await loadSignupSession(redis, signupSessionId);
+
+  if (session.userId !== userId) {
+    throw AppError.forbidden('Embedded signup session does not belong to the current tenant.');
+  }
+
+  const uniquePhoneNumberIds = [...new Set((phoneNumberIds || []).map((value) => String(value)))];
+  if (!uniquePhoneNumberIds.length) {
+    throw AppError.badRequest('Choose at least one phone number to connect.');
+  }
+
+  const discoveredPhones = Array.isArray(session.discoveredPhones) ? session.discoveredPhones : [];
+  const discoveredPhoneMap = new Map(
+    discoveredPhones.map((phone) => [String(phone.phone_number_id), phone])
+  );
+
+  const selectedPhones = uniquePhoneNumberIds.map((phoneNumberId) => {
+    const phone = discoveredPhoneMap.get(phoneNumberId);
+    if (!phone) {
+      throw AppError.badRequest(`Phone number ${phoneNumberId} is not part of the current signup session.`);
+    }
+    return phone;
+  });
+
+  const existingAccounts = await getExistingAccountsByPhoneNumber(userId, uniquePhoneNumberIds);
+  const slotStatus = await getRemainingWhatsAppSlots(userId);
+
+  if (!slotStatus.hasActiveSubscription) {
+    throw AppError.forbidden('An active subscription is required before connecting WhatsApp numbers.');
+  }
+
+  const additionalNumbersNeeded = selectedPhones.filter((phone) => {
+    const existingAccount = existingAccounts.get(String(phone.phone_number_id));
+    return !existingAccount || existingAccount.deleted_at || existingAccount.status !== 'active';
+  }).length;
+
+  if (
+    slotStatus.remainingSlots !== null
+    && additionalNumbersNeeded > slotStatus.remainingSlots
+  ) {
+    throw AppError.forbidden(
+      `Your subscription allows ${slotStatus.remainingSlots} more WhatsApp number(s). Reduce the selection or upgrade the plan.`
     );
   }
 
-  // Step 6: Check subscription limit for any additional active numbers.
-  await checkWhatsAppNumberLimit(userId, additionalNumbersNeeded);
+  const uniqueWabaIds = [...new Set(selectedPhones.map((phone) => String(phone.waba_id)))];
+  await Promise.all(uniqueWabaIds.map((wabaId) => subscribeAppToWaba(session.accessToken, wabaId)));
 
-  // Step 7: Encrypt access token and create wa_accounts records
-  const encryptedToken = encrypt(accessToken);
-  const webhookSecret = crypto.randomBytes(32).toString('hex');
-
-  const createdAccounts = [];
+  const connectedAccounts = [];
+  const skipped = [];
   let usageDelta = 0;
 
-  for (let index = 0; index < phoneNumbers.length; index++) {
-    const phone = phoneNumbers[index];
-    const existing = existingAccounts[index];
+  for (const phone of selectedPhones) {
+    const existingAccount = existingAccounts.get(String(phone.phone_number_id));
+    const alreadyConnected = Boolean(
+      existingAccount
+      && !existingAccount.deleted_at
+      && existingAccount.status === 'active'
+    );
 
-    // Check if account already exists for this user + phone_number_id
-    if (existing) {
-      const needsUsageIncrement = existing.deleted_at || existing.status !== 'active';
-
-      if (existing.deleted_at) {
-        await existing.restore();
-      }
-
-      // Update existing account with new token and info
-      await existing.update({
-        access_token: encryptedToken,
-        waba_id: String(wabaId),
-        display_phone: phone.display_phone_number || null,
-        verified_name: phone.verified_name || wabaData?.name || null,
-        business_id: businessId ? String(businessId) : null,
-        quality_rating: phone.quality_rating || null,
-        messaging_limit: phone.throughput?.level || null,
-        platform_type: phone.platform_type || 'CLOUD_API',
-        status: 'active',
-        webhook_secret: existing.webhook_secret || webhookSecret,
+    if (alreadyConnected) {
+      skipped.push({
+        phone_number_id: String(phone.phone_number_id),
+        reason: 'already_connected',
       });
-      if (needsUsageIncrement) {
-        usageDelta += 1;
-      }
-      createdAccounts.push(existing.toSafeJSON());
-    } else {
-      const account = await WaAccount.create({
-        user_id: userId,
-        waba_id: String(wabaId),
-        phone_number_id: String(phone.id),
-        display_phone: phone.display_phone_number || null,
-        verified_name: phone.verified_name || wabaData?.name || null,
-        business_id: businessId ? String(businessId) : null,
-        access_token: encryptedToken,
-        quality_rating: phone.quality_rating || null,
-        messaging_limit: phone.throughput?.level || null,
-        platform_type: phone.platform_type || 'CLOUD_API',
-        status: 'active',
-        webhook_secret: webhookSecret,
-      });
-      usageDelta += 1;
-      createdAccounts.push(account.toSafeJSON());
+      connectedAccounts.push(sanitizeConnectedAccount(existingAccount));
+      continue;
     }
+
+    await registerPhoneNumber(session.accessToken, String(phone.phone_number_id), pin);
+
+    const result = await upsertConnectedAccount(
+      userId,
+      session.accessToken,
+      session.businessId,
+      phone,
+      existingAccount
+    );
+
+    usageDelta += result.usageDelta;
+    connectedAccounts.push(sanitizeConnectedAccount(result.account));
   }
 
-  await adjustWhatsAppNumberUsage(userId, usageDelta);
+  if (usageDelta) {
+    await adjustWhatsAppNumberUsage(userId, usageDelta);
+  }
 
-  // Return the first account (primary) — most signups have a single phone
-  return createdAccounts.length === 1 ? createdAccounts[0] : createdAccounts;
+  await deleteSignupSession(redis, signupSessionId);
+
+  return {
+    accounts: connectedAccounts.filter(Boolean),
+    connected_count: connectedAccounts.length - skipped.length,
+    skipped,
+  };
 }
 
-/**
- * Lists all WA accounts for a user (excluding access_token).
- *
- * @param {string} userId - The tenant user ID
- * @returns {Promise<Array>} List of WaAccount records
- */
 async function listAccounts(userId) {
   const accounts = await WaAccount.findAll({
     where: { user_id: userId },
-    order: [['created_at', 'DESC']],
+    order: [['updated_at', 'DESC']],
   });
-  return accounts.map((acct) => acct.toSafeJSON());
+
+  return accounts.map((account) => account.toSafeJSON());
 }
 
-/**
- * Gets a single WA account by ID for a user (excluding access_token).
- *
- * @param {string} userId - The tenant user ID
- * @param {string} accountId - The WA account UUID
- * @returns {Promise<object>} WaAccount record
- */
 async function getAccount(userId, accountId) {
   const account = await WaAccount.findOne({
     where: { id: accountId, user_id: userId },
   });
+
   if (!account) {
     throw AppError.notFound('WhatsApp account not found');
   }
+
   return account.toSafeJSON();
 }
 
-/**
- * Deactivates a WA account (sets status to 'inactive').
- *
- * @param {string} userId - The tenant user ID
- * @param {string} accountId - The WA account UUID
- * @returns {Promise<object>} Updated WaAccount record
- */
 async function deactivateAccount(userId, accountId) {
   const account = await WaAccount.findOne({
     where: { id: accountId, user_id: userId },
   });
+
   if (!account) {
     throw AppError.notFound('WhatsApp account not found');
   }
+
   const wasActive = account.status === 'active';
   await account.update({ status: 'inactive' });
+
   if (wasActive) {
     await adjustWhatsAppNumberUsage(userId, -1);
   }
+
   return account.toSafeJSON();
 }
 
-/**
- * Fetches phone numbers for a WA account from Meta API.
- *
- * @param {string} userId - The tenant user ID
- * @param {string} accountId - The WA account UUID
- * @returns {Promise<Array>} Phone numbers from Meta API
- */
 async function getPhoneNumbers(userId, accountId) {
   const account = await WaAccount.scope('withToken').findOne({
     where: { id: accountId, user_id: userId },
   });
+
   if (!account) {
     throw AppError.notFound('WhatsApp account not found');
   }
@@ -380,63 +655,44 @@ async function getPhoneNumbers(userId, accountId) {
     const response = await axios.get(
       `${config.meta.baseUrl}/${account.waba_id}/phone_numbers`,
       {
-        headers: { Authorization: `Bearer ${decryptedToken}` },
+        headers: buildMetaHeaders(decryptedToken),
+        timeout: 15000,
       }
     );
-    return response.data.data || [];
+
+    return response.data?.data || [];
   } catch (err) {
-    if (err.response && err.response.data && err.response.data.error) {
-      throw AppError.badRequest(
-        `Meta API error: ${err.response.data.error.message}`
-      );
-    }
-    throw AppError.internal('Failed to fetch phone numbers from Meta API');
+    throw AppError.badRequest(
+      `Failed to fetch phone numbers from Meta. ${getMetaErrorMessage(err, 'Phone number lookup failed.')}`
+    );
   }
 }
 
-/**
- * Internal: Decrypts and returns the access token for a WA account.
- * Used by message.service and webhook.service.
- *
- * @param {string} accountId - The WA account UUID
- * @returns {Promise<string>} Decrypted access token
- */
 async function getDecryptedToken(accountId) {
   const account = await WaAccount.scope('withToken').findOne({
     where: { id: accountId },
   });
+
   if (!account) {
     throw AppError.notFound('WhatsApp account not found');
   }
+
   if (account.status !== 'active') {
     throw AppError.forbidden('WhatsApp account is not active');
   }
+
   return decrypt(account.access_token);
 }
 
-/**
- * Internal: Finds a WA account by phone_number_id (used by webhook processing).
- *
- * @param {string} phoneNumberId - The Meta phone_number_id
- * @returns {Promise<object|null>} WaAccount record or null
- */
 async function findByPhoneNumberId(phoneNumberId) {
-  const account = await WaAccount.findOne({
+  return WaAccount.findOne({
     where: {
       phone_number_id: String(phoneNumberId),
       status: 'active',
     },
   });
-  return account;
 }
 
-/**
- * Internal: Updates the quality rating of a WA account's phone number.
- *
- * @param {string} phoneNumberId - The Meta phone_number_id
- * @param {string} qualityRating - The new quality rating (GREEN, YELLOW, RED)
- * @returns {Promise<void>}
- */
 async function updateQualityRating(phoneNumberId, qualityRating) {
   await WaAccount.update(
     { quality_rating: qualityRating },
@@ -446,18 +702,12 @@ async function updateQualityRating(phoneNumberId, qualityRating) {
   );
 }
 
-/**
- * Internal: Updates the status of a WA account by WABA ID.
- *
- * @param {string} wabaId - The Meta WABA ID
- * @param {string} status - The new status
- * @returns {Promise<void>}
- */
 async function updateAccountStatusByWaba(wabaId, status) {
   const validStatuses = ['active', 'inactive', 'restricted', 'banned'];
   if (!validStatuses.includes(status)) {
     return;
   }
+
   await WaAccount.update(
     { status },
     {
@@ -467,7 +717,8 @@ async function updateAccountStatusByWaba(wabaId, status) {
 }
 
 module.exports = {
-  handleEmbeddedSignup,
+  previewEmbeddedSignup,
+  completeEmbeddedSignup,
   listAccounts,
   getAccount,
   deactivateAccount,

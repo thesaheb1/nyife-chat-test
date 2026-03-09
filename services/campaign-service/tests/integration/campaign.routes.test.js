@@ -1,5 +1,10 @@
 'use strict';
 
+jest.mock('axios', () => ({
+  get: jest.fn(),
+  post: jest.fn(),
+}), { virtual: true });
+
 jest.mock('@nyife/shared-middleware', () => {
   class AppError extends Error {
     constructor(message, statusCode) {

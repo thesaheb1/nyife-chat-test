@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { CreditCard, Download, Loader2 } from 'lucide-react';
@@ -14,15 +14,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DataTable } from '@/shared/components/DataTable';
 import { formatCurrency } from '@/shared/utils/formatters';
+import { loadRazorpayCheckout, unloadRazorpayCheckout } from '@/shared/utils/loadRazorpayCheckout';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import type { Wallet, Transaction, Invoice, ApiResponse, PaginationMeta } from '@/core/types';
-
-declare global {
-  interface Window {
-    Razorpay: new (options: Record<string, unknown>) => { open: () => void };
-  }
-}
 
 function useWalletBalance() {
   return useQuery<Wallet>({
@@ -84,27 +79,42 @@ export function WalletPage() {
       const { data } = await apiClient.post<ApiResponse<{ order_id: string; amount: number; currency: string }>>(ENDPOINTS.WALLET.RECHARGE, { amount: paise });
       return data.data;
     },
-    onSuccess: (order) => {
+    onSuccess: async (order) => {
       setRechargeOpen(false);
-      const options = {
-        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
-        amount: order.amount,
-        currency: order.currency,
-        name: 'Nyife',
-        description: 'Wallet Recharge',
-        order_id: order.order_id,
-        handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
-          try {
-            await apiClient.post(ENDPOINTS.WALLET.VERIFY_RECHARGE, response);
-            toast.success('Wallet recharged successfully!');
-            qc.invalidateQueries({ queryKey: ['wallet'] });
-            qc.invalidateQueries({ queryKey: ['transactions'] });
-          } catch { toast.error('Payment verification failed'); }
-        },
-        theme: { color: '#16a34a' },
-      };
-      const rzp = new window.Razorpay(options);
-      rzp.open();
+      try {
+        const Razorpay = await loadRazorpayCheckout();
+        const options = {
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+          amount: order.amount,
+          currency: order.currency,
+          name: 'Nyife',
+          description: 'Wallet Recharge',
+          order_id: order.order_id,
+          handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+            try {
+              await apiClient.post(ENDPOINTS.WALLET.VERIFY_RECHARGE, response);
+              unloadRazorpayCheckout();
+              toast.success('Wallet recharged successfully!');
+              qc.invalidateQueries({ queryKey: ['wallet'] });
+              qc.invalidateQueries({ queryKey: ['transactions'] });
+            } catch {
+              unloadRazorpayCheckout();
+              toast.error('Payment verification failed');
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              unloadRazorpayCheckout();
+            },
+          },
+          theme: { color: '#16a34a' },
+        };
+        const rzp = new Razorpay(options);
+        rzp.open();
+      } catch (error) {
+        unloadRazorpayCheckout();
+        toast.error(error instanceof Error ? error.message : 'Razorpay checkout is unavailable right now.');
+      }
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to initiate recharge'),
   });

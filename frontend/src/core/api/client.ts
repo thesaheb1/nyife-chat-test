@@ -29,6 +29,30 @@ const SAFE_METHODS = new Set(['get', 'head', 'options']);
 type RefreshPayload = { accessToken: string; user: User };
 let refreshSessionPromise: Promise<RefreshPayload> | null = null;
 
+function normalizeRetryUrl(url?: string) {
+  if (!url) {
+    return url;
+  }
+
+  if (url.startsWith(API_BASE_URL)) {
+    const relativeUrl = url.slice(API_BASE_URL.length);
+    return relativeUrl.startsWith('/') ? relativeUrl : `/${relativeUrl}`;
+  }
+
+  try {
+    const parsed = new URL(url, API_BASE_URL);
+    const apiBaseOrigin = new URL(API_BASE_URL).origin;
+
+    if (parsed.origin === apiBaseOrigin) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    return url;
+  }
+
+  return url;
+}
+
 function isAuthRequest(url?: string) {
   return !!url && url.includes('/api/v1/auth/');
 }
@@ -119,11 +143,18 @@ apiClient.interceptors.response.use(
 
     try {
       const { accessToken } = await refreshSession();
+      const retryUrl = normalizeRetryUrl(originalRequest.url);
+      const retryHeaders = {
+        ...(originalRequest.headers || {}),
+        Authorization: `Bearer ${accessToken}`,
+      };
 
-      if (originalRequest.headers) {
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-      }
-      return apiClient(originalRequest);
+      return apiClient.request({
+        ...originalRequest,
+        baseURL: API_BASE_URL,
+        url: retryUrl,
+        headers: retryHeaders,
+      });
     } catch (refreshError) {
       window.location.href = '/login';
       return Promise.reject(refreshError);

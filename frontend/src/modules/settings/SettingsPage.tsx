@@ -27,6 +27,8 @@ import type { ProfileFormData, PreferencesFormData, ChangePasswordFormData } fro
 import { useWhatsAppAccounts, useDisconnectWhatsAppAccount } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 
+
+
 export function SettingsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -269,6 +271,18 @@ function WhatsAppTab() {
   const { data: accounts, isLoading } = useWhatsAppAccounts();
   const disconnect = useDisconnectWhatsAppAccount();
 
+  const handleDisconnect = async (id: string) => {
+    try {
+      await disconnect.mutateAsync(id);
+      toast.success('WhatsApp number disconnected.');
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to disconnect account.';
+      toast.error(message);
+    }
+  };
+
   return (
     <Card className="max-w-lg">
       <CardHeader><CardTitle className="text-lg">Connected WhatsApp Accounts</CardTitle></CardHeader>
@@ -285,9 +299,11 @@ function WhatsAppTab() {
                 {a.quality_rating && <Badge variant="outline" className="text-[10px]">{a.quality_rating}</Badge>}
               </div>
             </div>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => disconnect.mutate(a.id)}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {a.status === 'active' ? (
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void handleDisconnect(a.id)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            ) : null}
           </div>
         ))}
         <Separator />

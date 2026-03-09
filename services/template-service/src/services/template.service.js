@@ -121,23 +121,45 @@ function didTemplateConsumeQuota(template) {
   return true;
 }
 
-async function resolveAccessToken(userId, wabaId, providedAccessToken) {
-  if (providedAccessToken) {
-    return Array.isArray(providedAccessToken) ? providedAccessToken[0] : providedAccessToken;
+async function fetchActiveWaAccountById(userId, waAccountId) {
+  if (!waAccountId) {
+    return null;
   }
 
-  if (config.meta.systemUserAccessToken) {
-    return config.meta.systemUserAccessToken;
-  }
+  try {
+    const accounts = await sequelize.query(
+      `SELECT id, user_id, waba_id, access_token, status, display_phone, verified_name
+       FROM wa_accounts
+       WHERE id = :waAccountId
+         AND user_id = :userId
+         AND status = :status
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      {
+        replacements: {
+          waAccountId,
+          userId,
+          status: 'active',
+        },
+        type: QueryTypes.SELECT,
+      }
+    );
 
+    return accounts[0] || null;
+  } catch (err) {
+    console.warn('[template-service] Failed to load WhatsApp account by ID:', err.message);
+    return null;
+  }
+}
+
+async function fetchLatestActiveWaAccountByWaba(userId, wabaId) {
   if (!wabaId) {
     return null;
   }
 
-  let accounts = [];
   try {
-    accounts = await sequelize.query(
-      `SELECT access_token
+    const accounts = await sequelize.query(
+      `SELECT id, user_id, waba_id, access_token, status, display_phone, verified_name
        FROM wa_accounts
        WHERE user_id = :userId
          AND waba_id = :wabaId
@@ -154,21 +176,77 @@ async function resolveAccessToken(userId, wabaId, providedAccessToken) {
         type: QueryTypes.SELECT,
       }
     );
+
+    return accounts[0] || null;
   } catch (err) {
-    console.warn('[template-service] Failed to load stored WhatsApp account token:', err.message);
+    console.warn('[template-service] Failed to load active WhatsApp account by WABA:', err.message);
     return null;
+  }
+}
+
+async function resolveAccountContext(userId, options = {}) {
+  const {
+    waAccountId = null,
+    wabaId = null,
+    providedAccessToken = null,
+    allowFallbackByWaba = true,
+  } = options;
+
+  let account = null;
+
+  if (waAccountId) {
+    account = await fetchActiveWaAccountById(userId, waAccountId);
   }
 
-  if (!accounts || accounts.length === 0 || !accounts[0].access_token) {
-    return null;
+  if (!account && allowFallbackByWaba && wabaId) {
+    account = await fetchLatestActiveWaAccountByWaba(userId, wabaId);
   }
 
-  try {
-    return decrypt(accounts[0].access_token);
-  } catch (err) {
-    console.warn('[template-service] Failed to decrypt stored WhatsApp access token:', err.message);
-    return null;
+  const resolvedWabaId = account?.waba_id || (wabaId ? String(wabaId) : null);
+
+  if (providedAccessToken && resolvedWabaId) {
+    return {
+      wa_account_id: account?.id || waAccountId || null,
+      waba_id: resolvedWabaId,
+      access_token: Array.isArray(providedAccessToken)
+        ? providedAccessToken[0]
+        : providedAccessToken,
+      account,
+    };
   }
+
+  if (account?.access_token) {
+    try {
+      return {
+        wa_account_id: account.id,
+        waba_id: String(account.waba_id),
+        access_token: decrypt(account.access_token),
+        account,
+      };
+    } catch (err) {
+      console.warn('[template-service] Failed to decrypt stored WhatsApp access token:', err.message);
+      return null;
+    }
+  }
+
+  if (config.meta.systemUserAccessToken && resolvedWabaId) {
+    return {
+      wa_account_id: account?.id || waAccountId || null,
+      waba_id: resolvedWabaId,
+      access_token: config.meta.systemUserAccessToken,
+      account,
+    };
+  }
+
+  return null;
+}
+
+async function requireActiveWaAccount(userId, waAccountId) {
+  const account = await fetchActiveWaAccountById(userId, waAccountId);
+  if (!account) {
+    throw AppError.badRequest('Select an active WhatsApp account before continuing.');
+  }
+  return account;
 }
 
 function normalizeComponentType(type) {
@@ -631,29 +709,32 @@ function serializeTemplate(template) {
 async function createTemplate(userId, data) {
   // Check subscription limit before creating
   await checkSubscriptionLimit(userId);
-  assertTemplateBusinessRules(data);
+  const activeAccount = await requireActiveWaAccount(userId, data.wa_account_id);
+  const resolvedWabaId = String(activeAccount.waba_id);
+
+  assertTemplateBusinessRules({
+    ...data,
+    waba_id: resolvedWabaId,
+  });
 
   // Check name uniqueness scoped to user + waba_id
   const whereClause = {
     user_id: userId,
     name: data.name,
   };
-  if (data.waba_id) {
-    whereClause.waba_id = data.waba_id;
-  } else {
-    whereClause.waba_id = { [Op.is]: null };
-  }
+  whereClause.waba_id = resolvedWabaId;
 
   const existingTemplate = await Template.findOne({ where: whereClause });
   if (existingTemplate) {
     throw AppError.conflict(
-      `A template with the name "${data.name}" already exists${data.waba_id ? ` for WABA ${data.waba_id}` : ''}`
+      `A template with the name "${data.name}" already exists for WABA ${resolvedWabaId}`
     );
   }
 
   const template = await Template.create({
     user_id: userId,
-    waba_id: data.waba_id || null,
+    waba_id: resolvedWabaId,
+    wa_account_id: activeAccount.id,
     name: data.name,
     display_name: data.display_name || null,
     language: data.language || 'en_US',
@@ -681,7 +762,7 @@ async function createTemplate(userId, data) {
  * @returns {Promise<{ templates: Array, meta: object }>}
  */
 async function listTemplates(userId, filters) {
-  const { page, limit, status, category, type, search, waba_id } = filters;
+  const { page, limit, status, category, type, search, waba_id, wa_account_id } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
 
   const where = { user_id: userId };
@@ -697,6 +778,9 @@ async function listTemplates(userId, filters) {
   }
   if (waba_id) {
     where.waba_id = waba_id;
+  }
+  if (wa_account_id) {
+    where.wa_account_id = wa_account_id;
   }
   if (search) {
     where[Op.or] = [
@@ -769,8 +853,20 @@ async function updateTemplate(userId, templateId, data) {
     );
   }
 
+  let nextWaAccountId = template.wa_account_id;
+  let nextWabaId = template.waba_id;
+
+  if (data.wa_account_id !== undefined) {
+    if (data.wa_account_id) {
+      const activeAccount = await requireActiveWaAccount(userId, data.wa_account_id);
+      nextWaAccountId = activeAccount.id;
+      nextWabaId = String(activeAccount.waba_id);
+    } else {
+      nextWaAccountId = null;
+    }
+  }
+
   const nextName = data.name !== undefined ? data.name : template.name;
-  const nextWabaId = data.waba_id !== undefined ? data.waba_id : template.waba_id;
 
   // If the destination name or WABA changes, check uniqueness in the destination scope
   if (nextName !== template.name || nextWabaId !== template.waba_id) {
@@ -800,7 +896,8 @@ async function updateTemplate(userId, templateId, data) {
     type: data.type !== undefined ? data.type : template.type,
     category: data.category !== undefined ? data.category : template.category,
     language: data.language !== undefined ? data.language : template.language,
-    waba_id: data.waba_id !== undefined ? data.waba_id : template.waba_id,
+    wa_account_id: nextWaAccountId,
+    waba_id: nextWabaId,
   };
   assertTemplateBusinessRules(nextTemplateState);
 
@@ -813,7 +910,8 @@ async function updateTemplate(userId, templateId, data) {
   if (data.type !== undefined) updateFields.type = data.type;
   if (data.components !== undefined) updateFields.components = data.components;
   if (data.example_values !== undefined) updateFields.example_values = data.example_values;
-  if (data.waba_id !== undefined) updateFields.waba_id = data.waba_id;
+  if (data.wa_account_id !== undefined) updateFields.wa_account_id = nextWaAccountId;
+  if (data.wa_account_id !== undefined && nextWabaId) updateFields.waba_id = nextWabaId;
 
   // If the template was rejected and is being re-edited, reset status to draft
   if (template.status === 'rejected') {
@@ -849,9 +947,14 @@ async function deleteTemplate(userId, templateId, accessToken) {
 
   // If the template has been published to Meta, delete from Meta first
   if (template.meta_template_id && template.waba_id) {
-    const resolvedAccessToken = await resolveAccessToken(userId, template.waba_id, accessToken);
+    const accountContext = await resolveAccountContext(userId, {
+      waAccountId: template.wa_account_id,
+      wabaId: template.waba_id,
+      providedAccessToken: accessToken,
+      allowFallbackByWaba: true,
+    });
 
-    if (!resolvedAccessToken) {
+    if (!accountContext) {
       throw AppError.badRequest(
         'WhatsApp access token is required to delete a published template. Configure META_SYSTEM_USER_ACCESS_TOKEN, connect an active WhatsApp account for this WABA, or provide x-wa-access-token.'
       );
@@ -859,14 +962,14 @@ async function deleteTemplate(userId, templateId, accessToken) {
 
     try {
       await axios.delete(
-        `${config.meta.baseUrl}/${template.waba_id}/message_templates`,
+        `${config.meta.baseUrl}/${accountContext.waba_id}/message_templates`,
         {
           params: pickDefinedEntries([
             ['name', template.name],
             ['hsm_id', template.meta_template_id],
           ]),
           headers: {
-            Authorization: `Bearer ${resolvedAccessToken}`,
+            Authorization: `Bearer ${accountContext.access_token}`,
           },
           timeout: 10000,
         }
@@ -905,10 +1008,10 @@ async function deleteTemplate(userId, templateId, accessToken) {
  * @param {string} userId
  * @param {string} templateId
  * @param {string} accessToken - Meta WhatsApp access token
- * @param {string|null} wabaIdOverride - Optional WABA ID override from request body
+ * @param {string|null} waAccountIdOverride - Optional WhatsApp account override from request body
  * @returns {Promise<object>} The updated template with meta_template_id
  */
-async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) {
+async function publishTemplate(userId, templateId, accessToken, waAccountIdOverride) {
   const template = await Template.findOne({
     where: { id: templateId, user_id: userId },
   });
@@ -924,31 +1027,36 @@ async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) 
     );
   }
 
-  // Determine the WABA ID to use
-  const wabaId = wabaIdOverride || template.waba_id;
-  if (!wabaId) {
-    throw AppError.badRequest(
-      'WABA ID is required for publishing. Set it on the template or provide it in the request body.'
-    );
-  }
+  const accountContext = await resolveAccountContext(userId, {
+    waAccountId: waAccountIdOverride || template.wa_account_id,
+    wabaId: template.waba_id,
+    providedAccessToken: accessToken,
+    allowFallbackByWaba: true,
+  });
 
-  const resolvedAccessToken = await resolveAccessToken(userId, wabaId, accessToken);
-
-  if (!resolvedAccessToken) {
+  if (!accountContext) {
     throw AppError.badRequest(
       'WhatsApp access token is required for publishing. Configure META_SYSTEM_USER_ACCESS_TOKEN, connect an active WhatsApp account for this WABA, or provide x-wa-access-token.'
     );
   }
 
+  const wabaId = String(accountContext.waba_id);
+  if (template.waba_id && String(template.waba_id) !== wabaId) {
+    throw AppError.badRequest(
+      `The selected WhatsApp account belongs to WABA ${wabaId}, but this template is scoped to WABA ${template.waba_id}.`
+    );
+  }
+
   assertTemplateBusinessRules({
     ...template.toJSON(),
+    wa_account_id: accountContext.wa_account_id,
     waba_id: wabaId,
   });
 
   // Build Meta API payload
   const payload = await buildMetaTemplatePayload(
     userId,
-    resolvedAccessToken,
+    accountContext.access_token,
     template,
     wabaId
   );
@@ -964,7 +1072,7 @@ async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) 
       payload,
       {
         headers: {
-          Authorization: `Bearer ${resolvedAccessToken}`,
+          Authorization: `Bearer ${accountContext.access_token}`,
           'Content-Type': 'application/json',
         },
         timeout: 15000,
@@ -990,6 +1098,7 @@ async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) 
     status: 'pending',
     meta_template_id: metaTemplateId || null,
     waba_id: wabaId,
+    wa_account_id: accountContext.wa_account_id || template.wa_account_id,
     last_synced_at: new Date(),
   };
 
@@ -1014,18 +1123,24 @@ async function publishTemplate(userId, templateId, accessToken, wabaIdOverride) 
  * Also creates local records for templates that exist on Meta but not locally.
  *
  * @param {string} userId
- * @param {string} wabaId - WhatsApp Business Account ID
+ * @param {string} waAccountId - WhatsApp account ID
  * @param {string} accessToken - Meta WhatsApp access token
  * @returns {Promise<{ synced: number, created: number, updated: number }>}
  */
-async function syncTemplates(userId, wabaId, accessToken) {
-  const resolvedAccessToken = await resolveAccessToken(userId, wabaId, accessToken);
+async function syncTemplates(userId, waAccountId, accessToken) {
+  const accountContext = await resolveAccountContext(userId, {
+    waAccountId,
+    providedAccessToken: accessToken,
+    allowFallbackByWaba: false,
+  });
 
-  if (!resolvedAccessToken) {
+  if (!accountContext) {
     throw AppError.badRequest(
-      'WhatsApp access token is required for syncing. Configure META_SYSTEM_USER_ACCESS_TOKEN, connect an active WhatsApp account for this WABA, or provide x-wa-access-token.'
+      'Select an active WhatsApp account before syncing templates.'
     );
   }
+
+  const wabaId = String(accountContext.waba_id);
 
   if (!wabaId) {
     throw AppError.badRequest('WABA ID is required for syncing templates.');
@@ -1039,7 +1154,7 @@ async function syncTemplates(userId, wabaId, accessToken) {
     while (nextUrl) {
       const response = await axios.get(nextUrl, {
         headers: {
-          Authorization: `Bearer ${resolvedAccessToken}`,
+          Authorization: `Bearer ${accountContext.access_token}`,
         },
         timeout: 15000,
       });
@@ -1111,6 +1226,8 @@ async function syncTemplates(userId, wabaId, accessToken) {
         language: metaLanguage,
         type: detectTemplateType(metaComponents),
         rejection_reason: rejectionReason,
+        waba_id: wabaId,
+        wa_account_id: accountContext.wa_account_id,
         last_synced_at: new Date(),
       };
 
@@ -1125,6 +1242,7 @@ async function syncTemplates(userId, wabaId, accessToken) {
       await Template.create({
         user_id: userId,
         waba_id: wabaId,
+        wa_account_id: accountContext.wa_account_id,
         name: metaName,
         display_name: metaName.replace(/_/g, ' '),
         language: metaLanguage,
@@ -1204,5 +1322,5 @@ module.exports = {
   deleteTemplate,
   publishTemplate,
   syncTemplates,
-  resolveAccessToken,
+  resolveAccountContext,
 };

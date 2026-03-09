@@ -11,6 +11,7 @@ interface ConversationListParams {
   status?: string;
   search?: string;
   unread?: boolean;
+  wa_account_id?: string;
 }
 
 // List conversations
@@ -21,6 +22,7 @@ export function useConversations(params: ConversationListParams = {}) {
   if (params.status) query.set('status', params.status);
   if (params.search) query.set('search', params.search);
   if (params.unread) query.set('unread', 'true');
+  if (params.wa_account_id) query.set('wa_account_id', params.wa_account_id);
 
   const qs = query.toString();
   const url = `${ENDPOINTS.CHAT.CONVERSATIONS}${qs ? `?${qs}` : ''}`;

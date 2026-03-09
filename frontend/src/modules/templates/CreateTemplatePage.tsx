@@ -16,10 +16,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { Subscription, Template } from '@/core/types';
+import type { Subscription, Template, WaAccount } from '@/core/types';
 import { useFlows } from '@/modules/flows/useFlows';
 import { useCurrentSubscription } from '@/modules/subscription/useSubscriptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
+import {
+  buildActiveWhatsAppAccountOptions,
+  findWhatsAppAccount,
+  getWhatsAppAccountLabel,
+} from '@/modules/whatsapp/accountOptions';
 import { buildTemplatePayload, createEmptyTemplateDraft, hydrateTemplateDraft, type TemplateDraft } from './templateBuilder';
 import {
   FieldError,
@@ -40,7 +45,6 @@ import {
   TEMPLATE_CATEGORY_OPTIONS,
   TEMPLATE_TYPE_LABELS,
   TEMPLATE_TYPE_OPTIONS,
-  buildTemplateWabaOptions,
   getTemplateLanguageLabel,
 } from './templateCatalog';
 import { findIssue, type ValidationIssue } from './templateComposerUtils';
@@ -67,7 +71,7 @@ export function CreateTemplatePage() {
   const { data: existing, isLoading: isTemplateLoading } = useTemplate(id);
   const { data: waAccounts } = useWhatsAppAccounts();
   const { data: currentSubscription } = useCurrentSubscription();
-  const wabaOptions = useMemo(() => buildTemplateWabaOptions(waAccounts), [waAccounts]);
+  const accountOptions = useMemo(() => buildActiveWhatsAppAccountOptions(waAccounts), [waAccounts]);
 
   if (isEdit && isTemplateLoading) {
     return (
@@ -94,7 +98,8 @@ export function CreateTemplatePage() {
       isEdit={isEdit}
       templateId={id}
       currentSubscription={currentSubscription}
-      wabaOptions={wabaOptions}
+      waAccounts={waAccounts}
+      accountOptions={accountOptions}
       navigate={navigate}
     />
   );
@@ -105,19 +110,25 @@ function TemplateComposer({
   isEdit,
   templateId,
   currentSubscription,
-  wabaOptions,
+  waAccounts,
+  accountOptions,
   navigate,
 }: {
   draftSeed: TemplateDraft;
   isEdit: boolean;
   templateId?: string;
   currentSubscription: Subscription | null | undefined;
-  wabaOptions: Array<{ value: string; label: string; description?: string }>;
+  waAccounts: WaAccount[] | undefined;
+  accountOptions: ReturnType<typeof buildActiveWhatsAppAccountOptions>;
   navigate: NavigateFunction;
 }) {
   const createTemplate = useCreateTemplate();
   const updateTemplate = useUpdateTemplate();
   const [draft, setDraft] = useState<TemplateDraft>(draftSeed);
+  const selectedAccount = useMemo(
+    () => findWhatsAppAccount(waAccounts, draft.wa_account_id),
+    [draft.wa_account_id, waAccounts]
+  );
 
   const { data: flowsData } = useFlows({ limit: 100, waba_id: draft.waba_id || undefined });
   const flows = flowsData?.flows || [];
@@ -189,7 +200,7 @@ function TemplateComposer({
               <Badge variant="outline">{TEMPLATE_TYPE_LABELS[draft.type]}</Badge>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Type-specific builder with live preview, Meta language support, and WABA-scoped validation.
+              Type-specific builder with live preview, Meta language support, and account-selected WABA validation.
             </p>
           </div>
         </div>
@@ -232,7 +243,7 @@ function TemplateComposer({
           <Card>
             <CardHeader>
               <CardTitle>Basic information</CardTitle>
-              <CardDescription>Set the template identity, language, WABA scope, and Meta category.</CardDescription>
+              <CardDescription>Set the template identity, connected account, language, and Meta category.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-4 lg:grid-cols-2">
@@ -260,29 +271,44 @@ function TemplateComposer({
                   <FieldError message={findIssue(validationIssues, 'language')} />
                 </div>
                 <div className="space-y-2">
-                  <Label>WABA ID</Label>
-                  {wabaOptions.length ? (
-                    <TemplateOptionSelect
-                      value={draft.waba_id || null}
-                      options={wabaOptions}
-                      placeholder="Select connected WABA"
-                      searchPlaceholder="Search connected WABAs"
-                      emptyMessage="No connected WABAs found."
-                      onChange={(value) => setDraft((current) => ({
+                  <Label>WhatsApp account</Label>
+                  <TemplateOptionSelect
+                    value={draft.wa_account_id || null}
+                    options={accountOptions}
+                    placeholder="Select an active WhatsApp account"
+                    searchPlaceholder="Search connected accounts"
+                    emptyMessage="No active WhatsApp accounts found."
+                    onChange={(value) => {
+                      const account = findWhatsAppAccount(waAccounts, value);
+                      setDraft((current) => ({
                         ...current,
-                        waba_id: value,
+                        wa_account_id: value,
+                        waba_id: account?.waba_id || '',
                         flow: {
                           ...current.flow,
                           flow_id: '',
                           flow_name: '',
                           navigate_screen: '',
                         },
-                      }))}
-                    />
+                      }));
+                    }}
+                    disabled={accountOptions.length === 0}
+                  />
+                  <FieldError message={findIssue(validationIssues, 'wa_account_id')} />
+                  {selectedAccount ? (
+                    <p className="text-xs text-muted-foreground">
+                      {getWhatsAppAccountLabel(selectedAccount)} / WABA {selectedAccount.waba_id}
+                    </p>
                   ) : (
-                    <Input value={draft.waba_id} onChange={(event) => setDraft((current) => ({ ...current, waba_id: event.target.value }))} placeholder="Enter numeric WABA ID" />
+                    <p className="text-xs text-muted-foreground">
+                      Choose an active account. The template remains WABA-scoped underneath.
+                    </p>
                   )}
-                  <FieldError message={findIssue(validationIssues, 'waba_id')} />
+                  {selectedAccount && selectedAccount.status !== 'active' ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      This template is currently linked to an inactive account. Reassign it before publishing or syncing.
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
@@ -299,7 +325,7 @@ function TemplateComposer({
                   <FieldError message={findIssue(validationIssues, 'category')} />
                 </div>
                 <div className="rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">
-                  Templates are counted per user, not per WABA. Choosing a different WABA will not bypass subscription limits.
+                  Templates are counted per user, not per account. Choosing a different connected account will not bypass subscription limits.
                 </div>
               </div>
             </CardContent>
@@ -340,6 +366,7 @@ function TemplateComposer({
               <ValidationSummary valid={isPayloadValid} issueCount={validationIssues.length} />
               <div className="space-y-2 text-sm text-muted-foreground">
                 <p>Language: {getTemplateLanguageLabel(draft.language)}</p>
+                <p>Account: {selectedAccount ? getWhatsAppAccountLabel(selectedAccount) : 'No account selected yet'}</p>
                 <p>WABA: {draft.waba_id || 'No WABA selected yet'}</p>
                 <p>Category: {draft.category}</p>
                 <p>Type: {TEMPLATE_TYPE_LABELS[draft.type]}</p>

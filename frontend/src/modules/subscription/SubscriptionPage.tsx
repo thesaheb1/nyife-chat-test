@@ -43,6 +43,7 @@ import { cn } from '@/lib/utils';
 import type { CouponValidationResult, Plan, Subscription } from '@/core/types';
 import { formatCurrency, formatDate } from '@/shared/utils/formatters';
 import { DataTable } from '@/shared/components/DataTable';
+import { loadRazorpayCheckout, unloadRazorpayCheckout } from '@/shared/utils/loadRazorpayCheckout';
 import { PlanCard, PlanDetailsSheet } from './SubscriptionComponents';
 import {
   subscriptionQueryKeys,
@@ -65,12 +66,6 @@ import {
   getUsageMetrics,
   humanizeKey,
 } from './subscriptionUtils';
-
-declare global {
-  interface Window {
-    Razorpay: new (options: Record<string, unknown>) => { open: () => void };
-  }
-}
 
 type ActiveTab = 'overview' | 'plans' | 'history';
 
@@ -206,12 +201,13 @@ export function SubscriptionPage() {
         return;
       }
 
-      if (!window.Razorpay || !result.razorpay_order) {
-        toast.error('Razorpay checkout is unavailable. Reload the page and try again.');
+      if (!result.razorpay_order) {
+        toast.error('Razorpay checkout details are missing for this payment.');
         return;
       }
 
-      const razorpay = new window.Razorpay({
+      const Razorpay = await loadRazorpayCheckout();
+      const razorpay = new Razorpay({
         key: result.razorpay_order.key_id,
         amount: result.razorpay_order.amount,
         currency: result.razorpay_order.currency,
@@ -226,15 +222,18 @@ export function SubscriptionPage() {
               razorpayPaymentId: response.razorpay_payment_id,
               razorpaySignature: response.razorpay_signature,
             });
+            unloadRazorpayCheckout();
             toast.success(checkoutMode === 'change' ? 'Plan changed successfully.' : 'Subscription activated successfully.');
             setActiveTab('overview');
             closeCheckout();
           } catch (error) {
+            unloadRazorpayCheckout();
             toast.error(getPaymentError(error, 'Payment verification failed.'));
           }
         },
         modal: {
           ondismiss: () => {
+            unloadRazorpayCheckout();
             toast.error('Payment was cancelled before completion.');
           },
         },

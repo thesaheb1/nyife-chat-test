@@ -15,7 +15,9 @@ export function resolveApiBaseUrl() {
     return normalizeBaseUrl(configuredBaseUrl || 'http://localhost:3000');
   }
 
-  const fallbackBaseUrl = `${window.location.protocol}//${window.location.hostname}:3000`;
+  const fallbackBaseUrl = import.meta.env.DEV
+    ? window.location.origin
+    : `${window.location.protocol}//${window.location.hostname}:3000`;
 
   if (!configuredBaseUrl) {
     return fallbackBaseUrl;
@@ -28,12 +30,9 @@ export function resolveApiBaseUrl() {
     // points at loopback. This avoids localhost/127.0.0.1/LAN mismatches.
     if (
       import.meta.env.DEV &&
-      isLoopbackHost(configuredUrl.hostname) &&
-      configuredUrl.hostname !== window.location.hostname
+      isLoopbackHost(configuredUrl.hostname)
     ) {
-      configuredUrl.protocol = window.location.protocol;
-      configuredUrl.hostname = window.location.hostname;
-      return normalizeBaseUrl(configuredUrl.toString());
+      return normalizeBaseUrl(window.location.origin);
     }
 
     return normalizeBaseUrl(configuredUrl.toString());

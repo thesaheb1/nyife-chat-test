@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Search,
@@ -45,21 +45,42 @@ import {
 import { useDebounce } from '@/core/hooks';
 import { formatPhone } from '@/shared/utils/formatters';
 import type { Conversation, ChatMessage } from '@/core/types';
+import {
+  buildActiveWhatsAppAccountOptions,
+  findWhatsAppAccount,
+  getWhatsAppAccountDescription,
+  getWhatsAppAccountLabel,
+} from '@/modules/whatsapp/accountOptions';
+import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 
 export function ChatPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [statusFilter, setStatusFilter] = useState('');
+  const [accountFilterId, setAccountFilterId] = useState('');
+  const { data: waAccounts } = useWhatsAppAccounts();
+  const activeAccountOptions = useMemo(() => buildActiveWhatsAppAccountOptions(waAccounts), [waAccounts]);
+  const accountsById = useMemo(
+    () => new Map((waAccounts || []).map((account) => [account.id, account])),
+    [waAccounts]
+  );
 
   const { data: convoData, isLoading: convosLoading } = useConversations({
     limit: 50,
     search: debouncedSearch || undefined,
     status: statusFilter || undefined,
+    wa_account_id: accountFilterId || undefined,
   });
   const conversations = convoData?.data?.conversations ?? [];
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (selectedId && !conversations.some((conversation) => conversation.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [conversations, selectedId]);
 
   return (
     <div className="flex h-[calc(100vh-5rem)] -m-4 md:-m-6">
@@ -94,6 +115,22 @@ export function ChatPage() {
               <SelectItem value="closed">Closed</SelectItem>
             </SelectContent>
           </Select>
+          <Select
+            value={accountFilterId || 'all'}
+            onValueChange={(value) => setAccountFilterId(value === 'all' ? '' : value)}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue placeholder="All accounts" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All accounts</SelectItem>
+              {activeAccountOptions.map((account) => (
+                <SelectItem key={account.value} value={account.value}>
+                  {account.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Conversation Items */}
@@ -120,6 +157,7 @@ export function ChatPage() {
                 <ConversationItem
                   key={c.id}
                   conversation={c}
+                  account={accountsById.get(c.wa_account_id) || null}
                   isActive={c.id === selectedId}
                   onClick={() => setSelectedId(c.id)}
                 />
@@ -138,6 +176,7 @@ export function ChatPage() {
         {selected ? (
           <MessagePanel
             conversation={selected}
+            account={accountsById.get(selected.wa_account_id) || null}
             onBack={() => setSelectedId(null)}
           />
         ) : (
@@ -154,16 +193,21 @@ export function ChatPage() {
 
 function ConversationItem({
   conversation: c,
+  account,
   isActive,
   onClick,
 }: {
   conversation: Conversation;
+  account: ReturnType<typeof findWhatsAppAccount>;
   isActive: boolean;
   onClick: () => void;
 }) {
   const initials = (c.contact_name || c.contact_phone)
     .slice(0, 2)
     .toUpperCase();
+  const accountLabel = getWhatsAppAccountLabel(account);
+  const accountDescription = getWhatsAppAccountDescription(account);
+  const accountIsActive = account?.status === 'active';
 
   return (
     <button
@@ -176,25 +220,37 @@ function ConversationItem({
         <AvatarFallback className="text-xs">{initials}</AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between">
-          <span className="truncate text-sm font-medium">
-            {c.contact_name || formatPhone(c.contact_phone)}
-          </span>
-          {c.last_message_at && (
-            <span className="text-[10px] text-muted-foreground">
-              {formatTime(c.last_message_at)}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="truncate text-sm font-medium">
+              {c.contact_name || formatPhone(c.contact_phone)}
             </span>
-          )}
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="truncate text-xs text-muted-foreground">
-            {c.last_message_preview || 'No messages yet'}
-          </span>
-          {c.unread_count > 0 && (
-            <Badge className="ml-1 h-5 min-w-5 justify-center rounded-full bg-green-500 px-1.5 text-[10px] text-white">
-              {c.unread_count}
-            </Badge>
-          )}
+            {c.last_message_at && (
+              <span className="text-[10px] text-muted-foreground">
+                {formatTime(c.last_message_at)}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[11px] text-muted-foreground">
+              {accountDescription ? `${accountLabel} / ${accountDescription}` : accountLabel}
+            </span>
+            {!accountIsActive ? (
+              <Badge variant="outline" className="h-5 text-[10px]">
+                {account?.status || 'disconnected'}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="truncate text-xs text-muted-foreground">
+              {c.last_message_preview || 'No messages yet'}
+            </span>
+            {c.unread_count > 0 && (
+              <Badge className="ml-1 h-5 min-w-5 justify-center rounded-full bg-green-500 px-1.5 text-[10px] text-white">
+                {c.unread_count}
+              </Badge>
+            )}
+          </div>
         </div>
       </div>
     </button>
@@ -205,9 +261,11 @@ function ConversationItem({
 
 function MessagePanel({
   conversation,
+  account,
   onBack,
 }: {
   conversation: Conversation;
+  account: ReturnType<typeof findWhatsAppAccount>;
   onBack: () => void;
 }) {
   const [text, setText] = useState('');
@@ -223,6 +281,9 @@ function MessagePanel({
   const messages = msgData?.data?.messages ?? [];
   // API returns newest first, reverse for display
   const sortedMessages = [...messages].reverse();
+  const isReadOnly = account?.status !== 'active';
+  const accountLabel = getWhatsAppAccountLabel(account);
+  const accountDescription = getWhatsAppAccountDescription(account);
 
   // Mark as read when opening
   useEffect(() => {
@@ -238,7 +299,7 @@ function MessagePanel({
 
   const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || isReadOnly) return;
     setText('');
     emitStopTyping();
     try {
@@ -295,10 +356,18 @@ function MessagePanel({
           <p className="text-xs text-muted-foreground">
             {formatPhone(conversation.contact_phone)}
           </p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {accountDescription ? `${accountLabel} / ${accountDescription}` : accountLabel}
+          </p>
         </div>
         <Badge variant="outline" className="text-[10px] capitalize">
           {conversation.status}
         </Badge>
+        {!isReadOnly ? null : (
+          <Badge variant="outline" className="text-[10px]">
+            {account?.status || 'disconnected'}
+          </Badge>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -308,6 +377,7 @@ function MessagePanel({
           <DropdownMenuContent align="end">
             {conversation.status !== 'closed' && (
               <DropdownMenuItem
+                disabled={isReadOnly}
                 onClick={() =>
                   updateStatus.mutate(
                     { id: conversation.id, status: 'closed' },
@@ -320,6 +390,7 @@ function MessagePanel({
             )}
             {conversation.status === 'closed' && (
               <DropdownMenuItem
+                disabled={isReadOnly}
                 onClick={() =>
                   updateStatus.mutate(
                     { id: conversation.id, status: 'open' },
@@ -360,6 +431,11 @@ function MessagePanel({
 
       {/* Input */}
       <div className="border-t px-4 py-3">
+        {isReadOnly ? (
+          <div className="mb-2 text-xs text-amber-700 dark:text-amber-300">
+            This conversation is read-only because the connected WhatsApp account is {account?.status || 'disconnected'}.
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" disabled>
             <Paperclip className="h-4 w-4" />
@@ -368,14 +444,15 @@ function MessagePanel({
             value={text}
             onChange={(e) => handleInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
+            placeholder={isReadOnly ? 'Sending disabled for inactive accounts' : 'Type a message...'}
             className="h-9"
+            disabled={isReadOnly}
           />
           <Button
             size="icon"
             className="h-9 w-9 shrink-0"
             onClick={handleSend}
-            disabled={!text.trim() || sendMessage.isPending}
+            disabled={isReadOnly || !text.trim() || sendMessage.isPending}
           >
             <Send className="h-4 w-4" />
           </Button>

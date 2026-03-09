@@ -23,6 +23,8 @@ const metaWabaIdSchema = z
   .regex(/^\d+$/, 'WABA ID must contain only digits')
   .max(100, 'WABA ID must be at most 100 characters');
 
+const uuidSchema = z.string().regex(uuidRegex, 'Invalid UUID format');
+
 const mediaAssetSchema = z.object({
   file_id: z.string().trim().optional(),
   original_name: z.string().trim().optional(),
@@ -96,7 +98,7 @@ const createTemplateSchema = z.object({
     .record(z.any())
     .optional()
     .nullable(),
-  waba_id: metaWabaIdSchema.optional().nullable(),
+  wa_account_id: uuidSchema,
 });
 
 const updateTemplateSchema = z.object({
@@ -130,7 +132,7 @@ const updateTemplateSchema = z.object({
     .record(z.any())
     .optional()
     .nullable(),
-  waba_id: metaWabaIdSchema.optional().nullable(),
+  wa_account_id: uuidSchema.optional().nullable(),
 });
 
 const listTemplatesSchema = z.object({
@@ -153,14 +155,15 @@ const listTemplatesSchema = z.object({
     .optional(),
   search: z.string().max(255).optional(),
   waba_id: metaWabaIdSchema.optional(),
+  wa_account_id: uuidSchema.optional(),
 });
 
 const publishTemplateSchema = z.object({
-  waba_id: metaWabaIdSchema.optional(),
+  wa_account_id: uuidSchema.optional(),
 });
 
 const syncTemplatesSchema = z.object({
-  waba_id: metaWabaIdSchema.min(1, 'WABA ID is required for syncing'),
+  wa_account_id: uuidSchema,
 });
 
 const templateIdSchema = z.object({

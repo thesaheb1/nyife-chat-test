@@ -1,31 +1,44 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, CheckCircle2, Loader2, MessageSquare, ShieldCheck, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Loader2,
+  MessageSquare,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDisconnectWhatsAppAccount, useEmbeddedSignup, useWhatsAppAccounts } from './useWhatsAppAccounts';
-
-type FacebookAuthResponse = {
-  authResponse?: {
-    code?: string;
-  };
-  status?: string;
-};
-
-type FacebookSDK = {
-  init: (config: Record<string, unknown>) => void;
-  login: (
-    callback: (response: FacebookAuthResponse) => void,
-    options?: Record<string, unknown>
-  ) => void;
-};
+import type {
+  EmbeddedSignupPreviewAccount,
+  EmbeddedSignupPreviewResult,
+} from '@/core/types';
+import { buildActiveWhatsAppAccountOptions, getActiveWhatsAppAccounts } from './accountOptions';
+import {
+  useDisconnectWhatsAppAccount,
+  useEmbeddedSignupComplete,
+  useEmbeddedSignupPreview,
+  useWhatsAppAccounts,
+} from './useWhatsAppAccounts';
+import { loadFacebookSdk, type FacebookSDK } from './loadFacebookSdk';
 
 type FacebookWindow = Window & {
   FB?: FacebookSDK;
-  fbAsyncInit?: () => void;
 };
 
 const META_APP_ID = import.meta.env.VITE_META_APP_ID;
@@ -39,80 +52,135 @@ function getAccountLabel(account: {
   return account.verified_name || account.display_phone || account.waba_id;
 }
 
+function getRemainingSlotsLabel(remainingSlots: number | null) {
+  return remainingSlots === null ? 'Unlimited by plan' : `${remainingSlots} slot(s) left`;
+}
+
+function getMetaEmbeddedSignupOriginError() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  if (window.location.protocol === 'https:') {
+    return null;
+  }
+
+  return `Meta embedded signup requires HTTPS. Restart the frontend and open https://${window.location.host}${window.location.pathname}.`;
+}
+
+function preselectPhoneNumbers(preview: EmbeddedSignupPreviewResult) {
+  const eligibleAccounts = preview.accounts.filter(
+    (account) => account.eligible && !account.already_connected
+  );
+
+  if (preview.remaining_slots === null) {
+    return eligibleAccounts.map((account) => account.phone_number_id);
+  }
+
+  return eligibleAccounts
+    .slice(0, Math.max(0, preview.remaining_slots))
+    .map((account) => account.phone_number_id);
+}
+
 export function WhatsAppOnboardingPage() {
   const navigate = useNavigate();
   const { data: accounts, isLoading } = useWhatsAppAccounts();
-  const signupMutation = useEmbeddedSignup();
+  const previewSignup = useEmbeddedSignupPreview();
+  const completeSignup = useEmbeddedSignupComplete();
   const disconnectMutation = useDisconnectWhatsAppAccount();
   const [sdkReady, setSdkReady] = useState(false);
   const [sdkError, setSdkError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<EmbeddedSignupPreviewResult | null>(null);
+  const [selectedPhoneIds, setSelectedPhoneIds] = useState<string[]>([]);
+  const [pin, setPin] = useState('');
 
   const configReady = Boolean(META_APP_ID && META_EMBEDDED_SIGNUP_CONFIG_ID);
+  const originError = getMetaEmbeddedSignupOriginError();
   const configError = configReady
     ? null
     : 'Set VITE_META_APP_ID and VITE_META_EMBEDDED_SIGNUP_CONFIG_ID to use embedded signup.';
 
   useEffect(() => {
-    if (!configReady) {
+    if (!configReady || originError) {
+      setSdkReady(false);
       return;
     }
 
-    const fbWindow = window as FacebookWindow;
+    let active = true;
+    setSdkError(null);
+    setSdkReady(false);
 
-    if (fbWindow.FB) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSdkReady(true);
-      return;
-    }
-
-    fbWindow.fbAsyncInit = () => {
-      if (!fbWindow.FB) {
-        setSdkError('Facebook SDK loaded without the expected global object.');
-        return;
-      }
-
-      fbWindow.FB.init({
-        appId: META_APP_ID,
-        autoLogAppEvents: true,
-        xfbml: false,
-        version: 'v20.0',
+    void loadFacebookSdk(META_APP_ID)
+      .then(() => {
+        if (active) {
+          setSdkReady(true);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setSdkError(error instanceof Error ? error.message : 'Failed to load the Facebook SDK.');
+        }
       });
 
-      setSdkReady(true);
-    };
-
-    const existingScript = document.getElementById('facebook-jssdk');
-    if (existingScript) {
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.id = 'facebook-jssdk';
-    script.async = true;
-    script.defer = true;
-    script.src = 'https://connect.facebook.net/en_US/sdk.js';
-    script.onerror = () => {
-      setSdkError('Failed to load the Facebook SDK. Check network access and Meta app configuration.');
-    };
-    document.body.appendChild(script);
-
     return () => {
-      delete fbWindow.fbAsyncInit;
+      active = false;
     };
-  }, [configReady]);
+  }, [configReady, originError]);
 
-  const activeAccounts = useMemo(
-    () => accounts?.filter((account) => account.status === 'active') ?? [],
+  const allAccounts = useMemo(() => accounts ?? [], [accounts]);
+  const activeAccounts = useMemo(() => getActiveWhatsAppAccounts(accounts), [accounts]);
+  const activeAccountOptions = useMemo(
+    () => buildActiveWhatsAppAccountOptions(accounts),
     [accounts]
   );
-  const effectiveSdkError = configError || sdkError;
+  const effectiveSdkError = configError || originError || sdkError;
   const accountSummary = useMemo(() => {
     const wabas = new Set(activeAccounts.map((account) => account.waba_id));
     return {
-      accounts: activeAccounts.length,
+      activeAccounts: activeAccounts.length,
+      totalAccounts: allAccounts.length,
       wabas: wabas.size,
     };
-  }, [activeAccounts]);
+  }, [activeAccounts, allAccounts]);
+
+  const maxSelectable = preview?.remaining_slots ?? Number.POSITIVE_INFINITY;
+  const selectedCount = selectedPhoneIds.length;
+  const hasEligiblePreviewAccounts = Boolean(
+    preview?.accounts.some((account) => account.eligible && !account.already_connected)
+  );
+
+  const closePreviewDialog = () => {
+    setPreview(null);
+    setSelectedPhoneIds([]);
+    setPin('');
+  };
+
+  const openPreviewDialog = (result: EmbeddedSignupPreviewResult) => {
+    setPreview(result);
+    setSelectedPhoneIds(preselectPhoneNumbers(result));
+    setPin('');
+  };
+
+  const handleEmbeddedSignupResponse = (response: { authResponse?: { code?: string }; status?: string }) => {
+    const code = response.authResponse?.code;
+
+    if (!code) {
+      toast.error('Meta did not return an authorization code.');
+      return;
+    }
+
+    void (async () => {
+      try {
+        const result = await previewSignup.mutateAsync(code);
+        openPreviewDialog(result);
+      } catch (error) {
+        const message =
+          (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+          'Failed to start embedded signup.';
+        toast.error(message);
+      }
+    })();
+  };
 
   const handleConnect = () => {
     const fbWindow = window as FacebookWindow;
@@ -122,31 +190,18 @@ export function WhatsAppOnboardingPage() {
       return;
     }
 
+    if (originError) {
+      toast.error(originError);
+      return;
+    }
+
     if (!fbWindow.FB) {
       toast.error('Facebook SDK is still loading.');
       return;
     }
 
-    fbWindow.FB.login(
-      async (response) => {
-        const code = response.authResponse?.code;
-
-        if (!code) {
-          toast.error('Meta did not return an authorization code.');
-          return;
-        }
-
-        try {
-          await signupMutation.mutateAsync(code);
-          toast.success('WhatsApp account connected successfully.');
-        } catch (error) {
-          const message =
-            (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-            'Failed to complete embedded signup.';
-          toast.error(message);
-        }
-      },
-      {
+    try {
+      fbWindow.FB.login(handleEmbeddedSignupResponse, {
         config_id: META_EMBEDDED_SIGNUP_CONFIG_ID,
         response_type: 'code',
         override_default_response_type: true,
@@ -154,8 +209,71 @@ export function WhatsAppOnboardingPage() {
           featureType: 'whatsapp_embedded_signup',
           sessionInfoVersion: '3',
         },
-      }
-    );
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to open Meta embedded signup.';
+      toast.error(message);
+    }
+  };
+
+  const togglePhoneSelection = (account: EmbeddedSignupPreviewAccount, checked: boolean) => {
+    const phoneNumberId = account.phone_number_id;
+    const isSelected = selectedPhoneIds.includes(phoneNumberId);
+    const remainingSlots = preview?.remaining_slots ?? null;
+    const limitReached =
+      remainingSlots !== null
+      && selectedPhoneIds.length >= remainingSlots
+      && !isSelected;
+
+    if (!checked) {
+      setSelectedPhoneIds((current) =>
+        current.filter((value) => value !== phoneNumberId)
+      );
+      return;
+    }
+
+    if (limitReached) {
+      toast.error(`Your current plan allows selecting up to ${remainingSlots ?? 0} new number(s) in this session.`);
+      return;
+    }
+
+    setSelectedPhoneIds((current) => [...new Set([...current, phoneNumberId])]);
+  };
+
+  const handleCompleteSignup = async () => {
+    if (!preview) {
+      return;
+    }
+
+    if (!/^\d{6}$/.test(pin)) {
+      toast.error('Enter the 6-digit Meta registration PIN.');
+      return;
+    }
+
+    if (!selectedPhoneIds.length) {
+      toast.error('Select at least one phone number to connect.');
+      return;
+    }
+
+    try {
+      const result = await completeSignup.mutateAsync({
+        signup_session_id: preview.signup_session_id,
+        phone_number_ids: selectedPhoneIds,
+        pin,
+      });
+
+      const skippedText = result.skipped.length
+        ? ` ${result.skipped.length} already connected number(s) were skipped.`
+        : '';
+
+      toast.success(`Connected ${result.connected_count} WhatsApp number(s).${skippedText}`);
+      closePreviewDialog();
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to complete embedded signup.';
+      toast.error(message);
+    }
   };
 
   const handleDisconnect = async (id: string) => {
@@ -179,11 +297,14 @@ export function WhatsAppOnboardingPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold tracking-tight">Connect WhatsApp Business</h1>
           <p className="text-sm text-muted-foreground">
-            Launch Meta embedded signup, connect numbers to your tenant, and sync the WABAs you can publish templates against.
+            Launch Meta embedded signup, register selected phone numbers with your 6-digit PIN, and store each connected account under the authenticated tenant.
           </p>
         </div>
-        <Button onClick={handleConnect} disabled={!sdkReady || signupMutation.isPending}>
-          {signupMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        <Button
+          onClick={handleConnect}
+          disabled={!sdkReady || previewSignup.isPending || completeSignup.isPending}
+        >
+          {previewSignup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Connect with Meta
         </Button>
       </div>
@@ -196,16 +317,16 @@ export function WhatsAppOnboardingPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Connected numbers</p>
-                <p className="mt-2 text-2xl font-semibold">{accountSummary.accounts}</p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Active numbers</p>
+                <p className="mt-2 text-2xl font-semibold">{accountSummary.activeAccounts}</p>
+              </div>
+              <div className="rounded-lg border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Stored accounts</p>
+                <p className="mt-2 text-2xl font-semibold">{accountSummary.totalAccounts}</p>
               </div>
               <div className="rounded-lg border p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Connected WABAs</p>
                 <p className="mt-2 text-2xl font-semibold">{accountSummary.wabas}</p>
-              </div>
-              <div className="rounded-lg border p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Tenant scope</p>
-                <p className="mt-2 text-sm font-medium">Per authenticated workspace</p>
               </div>
             </div>
 
@@ -215,66 +336,72 @@ export function WhatsAppOnboardingPage() {
                 <div className="space-y-1">
                   <p className="font-medium">What this flow configures</p>
                   <p className="text-muted-foreground">
-                    Nyife exchanges the Meta code server-side, subscribes the selected WABA to webhooks, stores encrypted access tokens, and enforces your tenant-level WhatsApp number quota.
+                    Nyife exchanges the Meta code server-side, stores the signup session in Redis for 10 minutes, lets you choose which phone numbers to activate, registers each selection with your Meta PIN, subscribes the WABA to webhooks, and enforces your plan’s WhatsApp-number limit.
                   </p>
                 </div>
               </div>
             </div>
 
-            {effectiveSdkError && (
+            {effectiveSdkError ? (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
                 {effectiveSdkError}
               </div>
-            )}
+            ) : null}
 
-            {!effectiveSdkError && !sdkReady && (
+            {!effectiveSdkError && !sdkReady ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 Loading the Facebook SDK so Meta can open the onboarding popup.
               </div>
-            )}
+            ) : null}
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border p-4">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  <p className="font-medium">Publish templates against connected WABAs</p>
+                  <p className="font-medium">Account-driven template routing</p>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Template publish and sync now resolve access tokens from the active account you connect here.
+                  Template create, publish, and sync flows now resolve the WABA from the active account you pick instead of asking for a raw WABA ID.
                 </p>
               </div>
               <div className="rounded-lg border p-4">
                 <div className="flex items-center gap-2">
                   <MessageSquare className="h-4 w-4 text-primary" />
-                  <p className="font-medium">Drive campaigns, chat, and automations</p>
+                  <p className="font-medium">Campaign and chat account pinning</p>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Inbound webhooks, status updates, automation matching, and chat sync all map to the tenant account selected during signup.
+                  Campaigns and conversations stay bound to one connected account, while inactive accounts remain visible for history but cannot be used for new sends.
                 </p>
               </div>
             </div>
+
+            {activeAccountOptions.length > 0 ? (
+              <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+                Active account labels are reused across template, campaign, and chat selectors so the same connected number is shown consistently everywhere.
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Connected Accounts</CardTitle>
+            <CardTitle className="text-lg">Stored Accounts</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {isLoading && (
+            {isLoading ? (
               <>
                 <Skeleton className="h-20 w-full" />
                 <Skeleton className="h-20 w-full" />
               </>
-            )}
+            ) : null}
 
-            {!isLoading && activeAccounts.length === 0 && (
+            {!isLoading && allAccounts.length === 0 ? (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                No active WhatsApp numbers are connected yet.
+                No WhatsApp numbers are connected yet.
               </div>
-            )}
+            ) : null}
 
-            {activeAccounts.map((account) => (
+            {allAccounts.map((account) => (
               <div key={account.id} className="rounded-lg border p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-2">
@@ -283,7 +410,9 @@ export function WhatsAppOnboardingPage() {
                       <Badge variant="secondary" className="capitalize">
                         {account.status}
                       </Badge>
-                      {account.quality_rating && <Badge variant="outline">{account.quality_rating}</Badge>}
+                      {account.quality_rating ? (
+                        <Badge variant="outline">{account.quality_rating}</Badge>
+                      ) : null}
                     </div>
                     <div className="space-y-1 text-xs text-muted-foreground">
                       <p>Display phone: {account.display_phone || 'Unknown'}</p>
@@ -291,16 +420,18 @@ export function WhatsAppOnboardingPage() {
                       <p>Phone number ID: {account.phone_number_id}</p>
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => handleDisconnect(account.id)}
-                    disabled={disconnectMutation.isPending}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {account.status === 'active' ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => handleDisconnect(account.id)}
+                      disabled={disconnectMutation.isPending}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -311,6 +442,121 @@ export function WhatsAppOnboardingPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) closePreviewDialog(); }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Review discovered WhatsApp numbers</DialogTitle>
+            <DialogDescription>
+              Select the phone numbers to activate for this tenant, then enter the 6-digit Meta registration PIN. {preview ? getRemainingSlotsLabel(preview.remaining_slots) : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {preview ? (
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Discovered</p>
+                  <p className="mt-1 text-xl font-semibold">{preview.accounts.length}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Selected</p>
+                  <p className="mt-1 text-xl font-semibold">
+                    {selectedCount}
+                    {Number.isFinite(maxSelectable) ? ` / ${maxSelectable}` : ''}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Plan capacity</p>
+                  <p className="mt-1 text-sm font-medium">{getRemainingSlotsLabel(preview.remaining_slots)}</p>
+                </div>
+              </div>
+            ) : null}
+
+            {!hasEligiblePreviewAccounts ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                Meta returned phone numbers, but none of them can be newly connected right now. They may already be active in this tenant or your plan has no remaining slots.
+              </div>
+            ) : null}
+
+            <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
+              {preview?.accounts.map((account) => {
+                const isSelected = selectedPhoneIds.includes(account.phone_number_id);
+                const limitReached =
+                  preview.remaining_slots !== null
+                  && selectedPhoneIds.length >= preview.remaining_slots
+                  && !isSelected;
+                const disabled =
+                  account.already_connected
+                  || !account.eligible
+                  || limitReached
+                  || (preview.remaining_slots === 0);
+
+                return (
+                  <label
+                    key={`${account.waba_id}:${account.phone_number_id}`}
+                    className="flex items-start gap-3 rounded-lg border p-4"
+                  >
+                    <Checkbox
+                      checked={isSelected}
+                      disabled={disabled}
+                      onCheckedChange={(checked) =>
+                        togglePhoneSelection(account, checked === true)
+                      }
+                    />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">
+                          {account.verified_name || account.display_phone || account.phone_number_id}
+                        </p>
+                        <Badge variant="outline">{account.waba_id}</Badge>
+                        {account.already_connected ? (
+                          <Badge variant="secondary">Already connected</Badge>
+                        ) : null}
+                        {account.quality_rating ? (
+                          <Badge variant="outline">{account.quality_rating}</Badge>
+                        ) : null}
+                      </div>
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <p>Display phone: {account.display_phone || 'Unknown'}</p>
+                        <p>Phone number ID: {account.phone_number_id}</p>
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="meta-registration-pin">Meta registration PIN</Label>
+              <Input
+                id="meta-registration-pin"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="Enter 6-digit PIN"
+                value={pin}
+                onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Meta requires this 6-digit PIN to register each selected phone number during Embedded Signup.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closePreviewDialog}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCompleteSignup}
+              disabled={!preview || completeSignup.isPending || !selectedPhoneIds.length}
+            >
+              {completeSignup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Register selected numbers
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -3,10 +3,25 @@
 const { z } = require('zod');
 
 /**
- * Schema for embedded signup — the frontend SDK returns a code to exchange.
+ * Schema for the preview step of embedded signup — exchanges the Meta code and
+ * returns discovered phone numbers without persisting them yet.
  */
-const embeddedSignupSchema = z.object({
+const embeddedSignupPreviewSchema = z.object({
   code: z.string().min(1, 'Authorization code is required'),
+});
+
+/**
+ * Schema for the completion step of embedded signup — selects phone numbers to
+ * register and stores the connected accounts.
+ */
+const embeddedSignupCompleteSchema = z.object({
+  signup_session_id: z.string().uuid('Invalid signup session ID'),
+  phone_number_ids: z
+    .array(z.string().min(1, 'Phone number ID is required'))
+    .min(1, 'Select at least one phone number'),
+  pin: z
+    .string()
+    .regex(/^\d{6}$/, 'PIN must be a 6-digit code'),
 });
 
 /**
@@ -115,7 +130,8 @@ const webhookVerifySchema = z.object({
 const flowDataExchangeSchema = z.object({}).passthrough();
 
 module.exports = {
-  embeddedSignupSchema,
+  embeddedSignupPreviewSchema,
+  embeddedSignupCompleteSchema,
   sendMessageSchema,
   sendTemplateSchema,
   sendFlowSchema,

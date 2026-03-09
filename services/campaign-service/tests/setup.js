@@ -3,7 +3,7 @@
 jest.mock('../src/models', () => ({
   Campaign: { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn(), update: jest.fn(), findByPk: jest.fn() },
   CampaignMessage: { bulkCreate: jest.fn(), findAll: jest.fn(), findOne: jest.fn(), findAndCountAll: jest.fn(), update: jest.fn(), count: jest.fn() },
-  sequelize: { fn: jest.fn((...args) => args), col: jest.fn((c) => c), literal: jest.fn((s) => s), QueryTypes: { SELECT: 'SELECT' }, transaction: jest.fn((cb) => cb({ LOCK: { UPDATE: 'UPDATE' } })) },
+  sequelize: { fn: jest.fn((...args) => args), col: jest.fn((c) => c), literal: jest.fn((s) => s), query: jest.fn(), QueryTypes: { SELECT: 'SELECT' }, transaction: jest.fn((cb) => cb({ LOCK: { UPDATE: 'UPDATE' } })) },
 }));
 
 jest.mock('@nyife/shared-utils', () => {
@@ -32,7 +32,10 @@ jest.mock('@nyife/shared-events', () => ({
   publishEvent: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock('axios');
+jest.mock('axios', () => ({
+  get: jest.fn(),
+  post: jest.fn(),
+}), { virtual: true });
 
 jest.mock('../src/config', () => ({
   subscriptionServiceUrl: 'http://subscription:3003',

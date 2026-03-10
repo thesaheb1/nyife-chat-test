@@ -22,6 +22,8 @@ const campaignExecuteSchema = z.object({
   textContent: z.string().optional(),
 });
 
+
+
 /**
  * Schema for campaign.status events.
  * Producer: whatsapp-service | Consumer: campaign-service

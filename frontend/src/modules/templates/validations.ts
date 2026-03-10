@@ -20,16 +20,7 @@ const buttonSchema = z.object({
   text: z.string().trim().max(25).optional(),
   url: z.string().trim().url().max(2000).optional(),
   phone_number: optionalPhoneSchema,
-  type: z.enum(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'OTP', 'FLOW', 'CATALOG', 'MPM']),
-  text: z.string().trim().max(25).optional(),
-  url: z.string().trim().url().max(2000).optional(),
-  phone_number: optionalPhoneSchema,
   example: z.union([z.string(), z.array(z.string())]).optional(),
-  flow_id: z.string().trim().optional(),
-  flow_name: z.string().trim().optional(),
-  flow_action: z.enum(['navigate', 'data_exchange']).optional(),
-  flow_json: z.string().trim().optional(),
-  navigate_screen: z.string().trim().optional(),
   flow_id: z.string().trim().optional(),
   flow_name: z.string().trim().optional(),
   flow_action: z.enum(['navigate', 'data_exchange']).optional(),
@@ -39,201 +30,8 @@ const buttonSchema = z.object({
   autofill_text: z.string().trim().max(25).optional(),
   package_name: z.string().trim().max(255).optional(),
   signature_hash: z.string().trim().max(255).optional(),
-  autofill_text: z.string().trim().max(25).optional(),
-  package_name: z.string().trim().max(255).optional(),
-  signature_hash: z.string().trim().max(255).optional(),
 });
 
-type TemplateButton = z.infer<typeof buttonSchema>;
-
-const mediaAssetSchema = z.object({
-  file_id: z.string().trim().optional(),
-  original_name: z.string().trim().optional(),
-  mime_type: z.string().trim().optional(),
-  size: z.number().nonnegative().optional(),
-  type: z.enum(['image', 'video', 'audio', 'document', 'other']).optional(),
-  preview_url: z.string().trim().optional(),
-  header_handle: z.string().trim().optional().nullable(),
-});
-
-const componentSchema: z.ZodType<{
-  type: 'HEADER' | 'BODY' | 'FOOTER' | 'BUTTONS' | 'CAROUSEL' | 'LIMITED_TIME_OFFER';
-  format?: 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'LOCATION';
-  text?: string;
-  example?: {
-    header_text?: string[];
-    body_text?: string[][];
-    header_handle?: string[];
-  };
-  media_asset?: z.infer<typeof mediaAssetSchema>;
-  buttons?: TemplateButton[];
-  cards?: Array<{ components?: Array<z.infer<typeof componentSchema>> }>;
-  add_security_recommendation?: boolean;
-  code_expiration_minutes?: number;
-}> = z.lazy(() =>
-  z.object({
-    type: z.enum(['HEADER', 'BODY', 'FOOTER', 'BUTTONS', 'CAROUSEL', 'LIMITED_TIME_OFFER']),
-    format: z.enum(['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT', 'LOCATION']).optional(),
-    text: z.string().trim().max(1024).optional(),
-    example: z.object({
-      header_text: z.array(z.string()).optional(),
-      body_text: z.array(z.array(z.string())).optional(),
-      header_handle: z.array(z.string()).optional(),
-    }).optional(),
-    media_asset: mediaAssetSchema.optional(),
-    buttons: z.array(buttonSchema).optional(),
-    cards: z.array(z.object({
-      components: z.array(componentSchema).optional(),
-    })).optional(),
-    add_security_recommendation: z.boolean().optional(),
-    code_expiration_minutes: z.number().int().min(1).max(90).optional(),
-  })
-);
-
-function getComponent(components: Array<z.infer<typeof componentSchema>>, type: string) {
-  return components.find((component) => component.type === type) || null;
-}
-
-function textValue(value: unknown) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function pushIssue(ctx: z.RefinementCtx, path: Array<string | number>, message: string) {
-  ctx.addIssue({
-    code: z.ZodIssueCode.custom,
-    path,
-    message,
-  });
-}
-
-function hasHeaderMedia(component: z.infer<typeof componentSchema> | null | undefined) {
-  return Boolean(
-    component?.media_asset?.file_id
-    || component?.media_asset?.header_handle
-    || component?.example?.header_handle?.length
-  );
-}
-
-function validateHeaderMedia(
-  component: z.infer<typeof componentSchema> | null | undefined,
-  ctx: z.RefinementCtx,
-  path: Array<string | number>
-) {
-  if (!component?.format || !['IMAGE', 'VIDEO', 'DOCUMENT'].includes(component.format)) {
-    return;
-  }
-
-  const rule = getTemplateMediaRule(component.format);
-  if (!rule || !component.media_asset) {
-    return;
-  }
-
-  if (component.media_asset.mime_type && !rule.mimeTypes.includes(component.media_asset.mime_type)) {
-    pushIssue(ctx, [...path, 'media_asset', 'mime_type'], `${rule.label} headers support ${rule.mimeTypes.join(', ')} only.`);
-  }
-
-  if (component.media_asset.size && component.media_asset.size > rule.maxSizeBytes) {
-    pushIssue(ctx, [...path, 'media_asset', 'size'], `${rule.label} headers must be ${Math.round(rule.maxSizeBytes / (1024 * 1024))} MB or smaller.`);
-  }
-}
-
-function validateButtons(
-  buttons: TemplateButton[] | undefined,
-  ctx: z.RefinementCtx,
-  basePath: Array<string | number>,
-  allowedTypes: TemplateButton['type'][],
-  options: { exact?: number; max?: number; require?: boolean } = {}
-) {
-  const list = buttons || [];
-
-  if (options.require && list.length === 0) {
-    pushIssue(ctx, basePath, 'At least one button is required.');
-    return;
-  }
-
-  if (typeof options.exact === 'number' && list.length !== options.exact) {
-    pushIssue(ctx, basePath, `Exactly ${options.exact} button(s) are required.`);
-  }
-
-  if (typeof options.max === 'number' && list.length > options.max) {
-    pushIssue(ctx, basePath, `No more than ${options.max} button(s) are allowed.`);
-  }
-
-  let urlPhoneCount = 0;
-
-  list.forEach((button, index) => {
-    if (!allowedTypes.includes(button.type)) {
-      pushIssue(ctx, [...basePath, index, 'type'], `Button type ${button.type} is not allowed for this template type.`);
-    }
-
-    if (!textValue(button.text)) {
-      pushIssue(ctx, [...basePath, index, 'text'], 'Button text is required.');
-    }
-
-    if (button.type === 'URL') {
-      urlPhoneCount += 1;
-      if (!textValue(button.url)) {
-        pushIssue(ctx, [...basePath, index, 'url'], 'URL buttons require a destination URL.');
-      }
-    }
-
-    if (button.type === 'PHONE_NUMBER') {
-      urlPhoneCount += 1;
-      if (!textValue(button.phone_number)) {
-        pushIssue(ctx, [...basePath, index, 'phone_number'], 'Phone buttons require a phone number.');
-      }
-    }
-
-    if (button.type === 'FLOW') {
-      const flowReferences = [textValue(button.flow_id), textValue(button.flow_name), textValue(button.flow_json)].filter(Boolean);
-
-      if (flowReferences.length === 0) {
-        pushIssue(ctx, [...basePath, index], 'Flow buttons require a linked flow, flow name, or flow JSON.');
-      }
-
-      if (flowReferences.length > 1) {
-        pushIssue(ctx, [...basePath, index], 'Provide only one flow reference: flow_id, flow_name, or flow_json.');
-      }
-
-      if (textValue(button.flow_json)) {
-        try {
-          const parsed = JSON.parse(button.flow_json!);
-          if (parsed && typeof parsed !== 'object') {
-            pushIssue(ctx, [...basePath, index, 'flow_json'], 'Flow payload must be a JSON object.');
-          }
-        } catch {
-          pushIssue(ctx, [...basePath, index, 'flow_json'], 'Flow payload must be valid JSON.');
-        }
-      }
-    }
-
-    if (button.type === 'OTP') {
-      if (!button.otp_type) {
-        pushIssue(ctx, [...basePath, index, 'otp_type'], 'OTP button type is required.');
-      }
-
-      if (button.otp_type && button.otp_type !== 'COPY_CODE') {
-        if (!textValue(button.package_name)) {
-          pushIssue(ctx, [...basePath, index, 'package_name'], 'Package name is required for one-tap and zero-tap OTP buttons.');
-        }
-        if (!textValue(button.signature_hash)) {
-          pushIssue(ctx, [...basePath, index, 'signature_hash'], 'Signature hash is required for one-tap and zero-tap OTP buttons.');
-        }
-      }
-    }
-  });
-
-  if (urlPhoneCount > 2) {
-    pushIssue(ctx, basePath, 'A template can include at most two URL or phone CTA buttons.');
-  }
-}
-
-const baseTemplateSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(512).regex(/^[a-z][a-z0-9_]*$/, 'Use lowercase letters, numbers, and underscores only.'),
-  display_name: z.string().trim().max(512).optional(),
-  language: metaLanguageSchema,
-  category: z.enum(TEMPLATE_CATEGORIES),
-  type: z.enum(TEMPLATE_TYPES),
 type TemplateButton = z.infer<typeof buttonSchema>;
 
 const mediaAssetSchema = z.object({
@@ -535,7 +333,6 @@ function templateBusinessRules(schema: typeof baseTemplateSchema) {
 export const createTemplateSchema = templateBusinessRules(baseTemplateSchema);
 export type CreateTemplateFormData = z.infer<typeof createTemplateSchema>;
 
-export const updateTemplateSchema = createTemplateSchema;
 export const updateTemplateSchema = createTemplateSchema;
 export type UpdateTemplateFormData = z.infer<typeof updateTemplateSchema>;
 

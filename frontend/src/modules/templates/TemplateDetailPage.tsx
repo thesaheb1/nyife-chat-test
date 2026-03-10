@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -13,25 +12,11 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import {
-  ArrowLeft,
-  Eye,
-  Loader2,
-  MoreHorizontal,
-  Pencil,
-  RefreshCw,
-  Send,
-  Trash2,
-} from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -55,19 +40,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  findWhatsAppAccount,
-} from '@/modules/whatsapp/accountOptions';
+import { findWhatsAppAccount } from '@/modules/whatsapp/accountOptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { TemplateOptionSelect } from './TemplateOptionSelect';
 import { WhatsAppTemplatePreview } from './WhatsAppTemplatePreview';
@@ -89,9 +64,6 @@ export function TemplateDetailPage() {
   const publishTemplate = usePublishTemplate();
   const syncTemplates = useSyncTemplates();
   const deleteTemplate = useDeleteTemplate();
-  const publishTemplate = usePublishTemplate();
-  const syncTemplates = useSyncTemplates();
-  const deleteTemplate = useDeleteTemplate();
 
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishWabaId, setPublishWabaId] = useState('');
@@ -103,12 +75,6 @@ export function TemplateDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-14 w-72" />
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <Skeleton className="h-[780px] w-full rounded-3xl" />
-          <Skeleton className="h-[620px] w-full rounded-3xl" />
-        </div>
       <div className="space-y-6">
         <Skeleton className="h-14 w-72" />
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -209,30 +175,7 @@ export function TemplateDetailPage() {
               {template.name} / {TEMPLATE_TYPE_LABELS[template.type]} / {getTemplateLanguageLabel(template.language)}
             </p>
           </div>
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-3">
-          <Button variant="outline" size="icon" onClick={() => navigate('/templates')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-semibold tracking-tight">
-                {template.display_name || template.name}
-              </h1>
-              <Badge variant="outline" className={TEMPLATE_STATUS_CLASSES[template.status]}>
-                {TEMPLATE_STATUS_LABELS[template.status]}
-              </Badge>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {template.name} / {TEMPLATE_TYPE_LABELS[template.type]} / {getTemplateLanguageLabel(template.language)}
-            </p>
-          </div>
         </div>
-
-        <div className="flex gap-3">
-          {actions.includes('edit') ? (
-            <Button variant="outline" onClick={() => navigate(`/templates/${template.id}/edit`)}>
 
         <div className="flex gap-3">
           {actions.includes('edit') ? (
@@ -318,17 +261,6 @@ export function TemplateDetailPage() {
                   <div className="mt-2 font-semibold">
                     {template.last_synced_at ? new Date(template.last_synced_at).toLocaleString() : 'Not synced'}
                   </div>
-                </div>
-                <div className="rounded-2xl border p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Created</div>
-                  <div className="mt-2 font-semibold">{new Date(template.created_at).toLocaleString()}</div>
-                </div>
-                <div className="rounded-2xl border p-4">
-                  <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Updated</div>
-                  <div className="mt-2 font-semibold">{new Date(template.updated_at).toLocaleString()}</div>
-                </div>
-              </CardContent>
-            </Card>
                 </div>
                 <div className="rounded-2xl border p-4">
                   <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Created</div>
@@ -486,16 +418,12 @@ export function TemplateDetailPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this template?</AlertDialogTitle>
-            <AlertDialogTitle>Delete this template?</AlertDialogTitle>
             <AlertDialogDescription>
-              {template.display_name || template.name} will be removed from Nyife, and the backend will attempt the matching Meta cleanup where supported.
               {template.display_name || template.name} will be removed from Nyife, and the backend will attempt the matching Meta cleanup where supported.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleDelete}>
-              Delete template
             <AlertDialogAction variant="destructive" onClick={handleDelete}>
               Delete template
             </AlertDialogAction>

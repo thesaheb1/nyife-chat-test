@@ -32,33 +32,6 @@ const TEMPLATE_MEDIA_RULES = {
     maxSizeBytes: 100 * 1024 * 1024,
   },
 };
-const { assertTemplateBusinessRules, getTemplateAvailableActions } = require('../helpers/templateRules');
-const TEMPLATE_MEDIA_RULES = {
-  IMAGE: {
-    label: 'Image',
-    mimeTypes: ['image/jpeg', 'image/png'],
-    maxSizeBytes: 5 * 1024 * 1024,
-  },
-  VIDEO: {
-    label: 'Video',
-    mimeTypes: ['video/mp4', 'video/3gpp', 'video/3gp'],
-    maxSizeBytes: 16 * 1024 * 1024,
-  },
-  DOCUMENT: {
-    label: 'Document',
-    mimeTypes: [
-      'text/plain',
-      'application/pdf',
-      'application/vnd.ms-powerpoint',
-      'application/msword',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    ],
-    maxSizeBytes: 100 * 1024 * 1024,
-  },
-};
 
 // ─── Helper: check subscription limit ──────────────────────────────────────
 
@@ -82,10 +55,7 @@ async function checkSubscriptionLimit(userId) {
       const limits = response.data.data;
       if (limits && limits.allowed === false) {
         if (limits.message === 'No active subscription') {
-      if (limits && limits.allowed === false) {
-        if (limits.message === 'No active subscription') {
           throw AppError.forbidden(
-            'No active subscription found. Please subscribe to a plan before creating templates.'
             'No active subscription found. Please subscribe to a plan before creating templates.'
           );
         }
@@ -94,19 +64,10 @@ async function checkSubscriptionLimit(userId) {
         throw AppError.forbidden(
           `Template limit reached. Your plan allows a maximum of ${limitLabel} templates. Please upgrade your plan.`
         );
-
-        const limitLabel = limits.limit === 'unlimited' ? 'your plan limit' : limits.limit;
-        throw AppError.forbidden(
-          `Template limit reached. Your plan allows a maximum of ${limitLabel} templates. Please upgrade your plan.`
-        );
       }
 
       return;
-
-      return;
     }
-
-    throw AppError.internal('Invalid response received while validating your template subscription limit.');
 
     throw AppError.internal('Invalid response received while validating your template subscription limit.');
   } catch (err) {
@@ -114,9 +75,6 @@ async function checkSubscriptionLimit(userId) {
     if (err instanceof AppError) {
       throw err;
     }
-    throw AppError.internal(
-      'Unable to validate your template subscription limit right now. Please try again in a moment.'
-    );
     throw AppError.internal(
       'Unable to validate your template subscription limit right now. Please try again in a moment.'
     );
@@ -700,12 +658,6 @@ async function resolveTemplateFlowButtons(userId, wabaId, components) {
         );
       }
 
-      if (wabaId && linkedFlow.waba_id && String(linkedFlow.waba_id) !== String(wabaId)) {
-        throw AppError.badRequest(
-          `Linked flow "${linkedFlow.name}" belongs to WABA ${linkedFlow.waba_id}, but the template is being published for WABA ${wabaId}.`
-        );
-      }
-
       if (!linkedFlow.meta_flow_id) {
         throw AppError.badRequest(
           `Linked flow "${linkedFlow.name}" must be saved to Meta before this template can be published.`
@@ -719,8 +671,6 @@ async function resolveTemplateFlowButtons(userId, wabaId, components) {
         flow_id: linkedFlow.meta_flow_id,
         flow_action: button.flow_action || 'navigate',
         navigate_screen: button.navigate_screen || firstScreenId,
-        flow_name: undefined,
-        flow_json: undefined,
         flow_name: undefined,
         flow_json: undefined,
       });
@@ -737,14 +687,6 @@ async function resolveTemplateFlowButtons(userId, wabaId, components) {
 
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
-}
-
-function serializeTemplate(template) {
-  const record = typeof template.toJSON === 'function' ? template.toJSON() : { ...template };
-  return {
-    ...record,
-    available_actions: getTemplateAvailableActions(record),
-  };
 }
 
 function serializeTemplate(template) {
@@ -800,7 +742,6 @@ async function createTemplate(userId, data) {
     type: data.type || 'standard',
     status: 'draft',
     source: 'nyife',
-    source: 'nyife',
     components: data.components,
     example_values: data.example_values || null,
   });
@@ -808,7 +749,6 @@ async function createTemplate(userId, data) {
   // Notify subscription service (best-effort)
   notifySubscriptionUsage(userId, 'increment');
 
-  return serializeTemplate(template);
   return serializeTemplate(template);
 }
 
@@ -862,10 +802,6 @@ async function listTemplates(userId, filters) {
     templates: rows.map(serializeTemplate),
     meta,
   };
-  return {
-    templates: rows.map(serializeTemplate),
-    meta,
-  };
 }
 
 // ─── Get Template ──────────────────────────────────────────────────────────
@@ -886,7 +822,6 @@ async function getTemplate(userId, templateId) {
     throw AppError.notFound('Template not found');
   }
 
-  return serializeTemplate(template);
   return serializeTemplate(template);
 }
 
@@ -938,11 +873,8 @@ async function updateTemplate(userId, templateId, data) {
     const whereClause = {
       user_id: userId,
       name: nextName,
-      name: nextName,
       id: { [Op.ne]: templateId },
     };
-    if (nextWabaId) {
-      whereClause.waba_id = nextWabaId;
     if (nextWabaId) {
       whereClause.waba_id = nextWabaId;
     } else {
@@ -952,7 +884,6 @@ async function updateTemplate(userId, templateId, data) {
     const existing = await Template.findOne({ where: whereClause });
     if (existing) {
       throw AppError.conflict(
-        `A template with the name "${nextName}" already exists${nextWabaId ? ` for WABA ${nextWabaId}` : ''}`
         `A template with the name "${nextName}" already exists${nextWabaId ? ` for WABA ${nextWabaId}` : ''}`
       );
     }
@@ -991,7 +922,6 @@ async function updateTemplate(userId, templateId, data) {
 
   await template.update(updateFields);
 
-  return serializeTemplate(template);
   return serializeTemplate(template);
 }
 
@@ -1038,10 +968,6 @@ async function deleteTemplate(userId, templateId, accessToken) {
             ['name', template.name],
             ['hsm_id', template.meta_template_id],
           ]),
-          params: pickDefinedEntries([
-            ['name', template.name],
-            ['hsm_id', template.meta_template_id],
-          ]),
           headers: {
             Authorization: `Bearer ${accountContext.access_token}`,
           },
@@ -1067,10 +993,6 @@ async function deleteTemplate(userId, templateId, accessToken) {
   // Soft delete locally
   await template.destroy();
 
-  if (didTemplateConsumeQuota(template)) {
-    // Notify subscription service (best-effort)
-    notifySubscriptionUsage(userId, 'decrement');
-  }
   if (didTemplateConsumeQuota(template)) {
     // Notify subscription service (best-effort)
     notifySubscriptionUsage(userId, 'decrement');
@@ -1191,7 +1113,6 @@ async function publishTemplate(userId, templateId, accessToken, waAccountIdOverr
   await template.update(updateData);
 
   return serializeTemplate(template);
-  return serializeTemplate(template);
 }
 
 // ─── Sync Templates ────────────────────────────────────────────────────────
@@ -1298,25 +1219,16 @@ async function syncTemplates(userId, waAccountId, accessToken) {
     if (localTemplate) {
       // Update existing template with Meta's current state
       const updateData = {
-      const updateData = {
         status: metaStatus,
         meta_template_id: metaId,
         components: metaComponents,
         category: metaCategory,
         language: metaLanguage,
         type: detectTemplateType(metaComponents),
-        type: detectTemplateType(metaComponents),
         rejection_reason: rejectionReason,
         waba_id: wabaId,
         wa_account_id: accountContext.wa_account_id,
         last_synced_at: new Date(),
-      };
-
-      if (!localTemplate.source && !localTemplate.meta_template_id) {
-        updateData.source = 'meta_sync';
-      }
-
-      await localTemplate.update(updateData);
       };
 
       if (!localTemplate.source && !localTemplate.meta_template_id) {
@@ -1337,7 +1249,6 @@ async function syncTemplates(userId, waAccountId, accessToken) {
         category: metaCategory,
         type: detectTemplateType(metaComponents),
         status: metaStatus,
-        source: 'meta_sync',
         source: 'meta_sync',
         components: metaComponents,
         meta_template_id: metaId,

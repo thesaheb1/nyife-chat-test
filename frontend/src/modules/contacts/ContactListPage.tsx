@@ -667,22 +667,22 @@ export function ContactListPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={openTagsDialog}>
-          <Tags className="mr-2 h-4 w-4" />
-          Manage Tags
-        </Button>
-        <Button variant="outline" size="sm" onClick={openImportDialog}>
-          <Upload className="mr-2 h-4 w-4" />
-          CSV Import
-        </Button>
+          <Button variant="outline" size="sm" onClick={openTagsDialog}>
+            <Tags className="mr-2 h-4 w-4" />
+            Manage Tags
+          </Button>
+          <Button variant="outline" size="sm" onClick={openImportDialog}>
+            <Upload className="mr-2 h-4 w-4" />
+            CSV Import
+          </Button>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setQueryState(searchParams, setSearchParams, { tab: value })} className="space-y-4">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <TabsList className="grid w-full max-w-sm grid-cols-2">
-          <TabsTrigger value="contacts">Contacts</TabsTrigger>
-          <TabsTrigger value="groups">Groups</TabsTrigger>
+            <TabsTrigger value="contacts">Contacts</TabsTrigger>
+            <TabsTrigger value="groups">Groups</TabsTrigger>
           </TabsList>
         </div>
 
@@ -690,12 +690,6 @@ export function ContactListPage() {
           <Card className="border-border/60 shadow-sm">
             <CardHeader className="space-y-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div>
-                  <h2 className="text-base font-semibold">Contact Directory</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Phone is the only required field. Use tags and groups to keep campaign targeting precise.
-                  </p>
-                </div>
                 <div className="flex flex-wrap gap-2">
                   <Input
                     placeholder="Search name, phone, or email"
@@ -786,27 +780,20 @@ export function ContactListPage() {
           <Card className="border-border/60 shadow-sm">
             <CardHeader className="space-y-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div>
-                  <h2 className="text-base font-semibold">Groups</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Create reusable audience buckets and manage their members from the modal detail view.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Input
-                    placeholder="Search groups"
-                    value={groupSearch}
-                    onChange={(event) => {
-                      setGroupSearch(event.target.value);
-                      setGroupPage(1);
-                    }}
-                    className="w-full sm:w-56"
-                  />
-                  <Button size="sm" onClick={openCreateGroupDialog}>
-                    <FolderPlus className="mr-2 h-4 w-4" />
-                    New Group
-                  </Button>
-                </div>
+
+                <Input
+                  placeholder="Search groups"
+                  value={groupSearch}
+                  onChange={(event) => {
+                    setGroupSearch(event.target.value);
+                    setGroupPage(1);
+                  }}
+                  className="w-full sm:w-56"
+                />
+                <Button size="sm" onClick={openCreateGroupDialog}>
+                  <FolderPlus className="mr-2 h-4 w-4" />
+                  New Group
+                </Button>
               </div>
 
               {selectedGroups.length > 0 && (

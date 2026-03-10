@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpRight, Loader2, Trash2 } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
-import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector, useDispatch } from 'react-redux';
@@ -27,8 +26,6 @@ import { profileSchema, preferencesSchema, changePasswordSchema } from './valida
 import type { ProfileFormData, PreferencesFormData, ChangePasswordFormData } from './validations';
 import { useWhatsAppAccounts, useDisconnectWhatsAppAccount } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
-
-
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -60,12 +57,10 @@ export function SettingsPage() {
   );
 }
 
-// --- Profile Tab ---
 function ProfileTab() {
   const dispatch = useDispatch();
   const user = useSelector((state: RootState) => state.auth.user);
 
-  const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<ProfileFormData>({
   const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
     defaultValues: { first_name: user?.first_name ?? '', last_name: user?.last_name ?? '', phone: user?.phone ?? '' },
@@ -82,7 +77,9 @@ function ProfileTab() {
       });
       dispatch(setUser(res.data));
       toast.success('Profile updated');
-    } catch { toast.error('Failed to update profile'); }
+    } catch {
+      toast.error('Failed to update profile');
+    }
   };
 
   return (
@@ -118,29 +115,18 @@ function ProfileTab() {
                 />
               )}
             />
-            <Controller
-              control={control}
-              name="phone"
-              render={({ field }) => (
-                <PhoneNumberInput
-                  autoComplete="tel"
-                  value={field.value || ''}
-                  onChange={field.onChange}
-                  onBlur={field.onBlur}
-                  invalid={Boolean(errors.phone)}
-                />
-              )}
-            />
             {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
           </div>
-          <Button type="submit" disabled={isSubmitting}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Changes</Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Changes
+          </Button>
         </form>
       </CardContent>
     </Card>
   );
 }
 
-// --- Preferences Tab ---
 function PreferencesTab() {
   const dispatch = useDispatch();
   const theme = useSelector((state: RootState) => state.ui.theme);
@@ -148,7 +134,10 @@ function PreferencesTab() {
 
   const { data: settings } = useQuery<UserSettings>({
     queryKey: ['settings'],
-    queryFn: async () => { const { data } = await apiClient.get<ApiResponse<UserSettings>>(ENDPOINTS.USERS.SETTINGS); return data.data; },
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<UserSettings>>(ENDPOINTS.USERS.SETTINGS);
+      return data.data;
+    },
   });
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<PreferencesFormData>({
@@ -161,8 +150,13 @@ function PreferencesTab() {
   }, [settings, reset]);
 
   const save = useMutation({
-    mutationFn: async (data: PreferencesFormData) => { await apiClient.put(ENDPOINTS.USERS.SETTINGS, { language: data.language, timezone: data.timezone, theme }); },
-    onSuccess: () => { toast.success('Preferences saved'); qc.invalidateQueries({ queryKey: ['settings'] }); },
+    mutationFn: async (data: PreferencesFormData) => {
+      await apiClient.put(ENDPOINTS.USERS.SETTINGS, { language: data.language, timezone: data.timezone, theme });
+    },
+    onSuccess: () => {
+      toast.success('Preferences saved');
+      qc.invalidateQueries({ queryKey: ['settings'] });
+    },
   });
 
   return (
@@ -172,7 +166,7 @@ function PreferencesTab() {
         <form onSubmit={handleSubmit((data) => save.mutate(data))} className="space-y-4">
           <div className="space-y-2">
             <Label>Theme</Label>
-            <Select value={theme} onValueChange={(v) => dispatch(setTheme(v as 'light' | 'dark' | 'system'))}>
+            <Select value={theme} onValueChange={(value) => dispatch(setTheme(value as 'light' | 'dark' | 'system'))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="light">Light</SelectItem>
@@ -191,27 +185,35 @@ function PreferencesTab() {
             <Input {...register('timezone')} placeholder="Asia/Kolkata" />
             {errors.timezone && <p className="text-xs text-destructive">{errors.timezone.message}</p>}
           </div>
-          <Button type="submit" disabled={save.isPending}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save</Button>
+          <Button type="submit" disabled={save.isPending}>
+            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save
+          </Button>
         </form>
       </CardContent>
     </Card>
   );
 }
 
-// --- Notifications Tab ---
 function NotificationsTab() {
   const qc = useQueryClient();
   const { data: settings } = useQuery<UserSettings>({
     queryKey: ['settings'],
-    queryFn: async () => { const { data } = await apiClient.get<ApiResponse<UserSettings>>(ENDPOINTS.USERS.SETTINGS); return data.data; },
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<UserSettings>>(ENDPOINTS.USERS.SETTINGS);
+      return data.data;
+    },
   });
 
   const update = useMutation({
     mutationFn: async (field: keyof Pick<UserSettings, 'notification_email' | 'notification_push' | 'notification_in_app'>) => {
-      const val = !settings?.[field];
-      await apiClient.put(ENDPOINTS.USERS.SETTINGS, { [field]: val });
+      const value = !settings?.[field];
+      await apiClient.put(ENDPOINTS.USERS.SETTINGS, { [field]: value });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); toast.success('Updated'); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      toast.success('Updated');
+    },
   });
 
   return (
@@ -224,7 +226,10 @@ function NotificationsTab() {
           { key: 'notification_in_app' as const, label: 'In-App Notifications', desc: 'Show notifications in the app' },
         ]).map((item) => (
           <div key={item.key} className="flex items-center justify-between">
-            <div><p className="text-sm font-medium">{item.label}</p><p className="text-xs text-muted-foreground">{item.desc}</p></div>
+            <div>
+              <p className="text-sm font-medium">{item.label}</p>
+              <p className="text-xs text-muted-foreground">{item.desc}</p>
+            </div>
             <Switch
               checked={settings?.[item.key] ?? true}
               onCheckedChange={() => update.mutate(item.key)}
@@ -236,7 +241,6 @@ function NotificationsTab() {
   );
 }
 
-// --- Password Tab ---
 function PasswordTab() {
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ChangePasswordFormData>({
     resolver: zodResolver(changePasswordSchema),
@@ -273,14 +277,16 @@ function PasswordTab() {
             <Input type="password" {...register('confirm_password')} />
             {errors.confirm_password && <p className="text-xs text-destructive">{errors.confirm_password.message}</p>}
           </div>
-          <Button type="submit" disabled={isSubmitting}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Change Password</Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Change Password
+          </Button>
         </form>
       </CardContent>
     </Card>
   );
 }
 
-// --- WhatsApp Tab ---
 function WhatsAppTab() {
   const navigate = useNavigate();
   const { data: accounts, isLoading } = useWhatsAppAccounts();
@@ -304,18 +310,18 @@ function WhatsAppTab() {
       <CardContent className="space-y-4">
         {isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
         {accounts && accounts.length === 0 && <p className="text-sm text-muted-foreground">No accounts connected. Use the Embedded Signup to connect.</p>}
-        {accounts?.map((a) => (
-          <div key={a.id} className="flex items-center justify-between rounded border p-3">
+        {accounts?.map((account) => (
+          <div key={account.id} className="flex items-center justify-between rounded border p-3">
             <div>
-              <p className="text-sm font-medium">{a.verified_name || a.display_phone}</p>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs text-muted-foreground">{a.display_phone}</span>
-                <Badge variant="secondary" className="text-[10px] capitalize">{a.status}</Badge>
-                {a.quality_rating && <Badge variant="outline" className="text-[10px]">{a.quality_rating}</Badge>}
+              <p className="text-sm font-medium">{account.verified_name || account.display_phone}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{account.display_phone}</span>
+                <Badge variant="secondary" className="text-[10px] capitalize">{account.status}</Badge>
+                {account.quality_rating && <Badge variant="outline" className="text-[10px]">{account.quality_rating}</Badge>}
               </div>
             </div>
-            {a.status === 'active' ? (
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void handleDisconnect(a.id)}>
+            {account.status === 'active' ? (
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void handleDisconnect(account.id)}>
                 <Trash2 className="h-4 w-4" />
               </Button>
             ) : null}

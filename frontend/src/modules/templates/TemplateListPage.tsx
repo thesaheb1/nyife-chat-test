@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from 'react';
-import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Eye, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
@@ -133,9 +132,7 @@ export function TemplateListPage() {
   });
 
   const publishTemplate = usePublishTemplate();
-  const publishTemplate = usePublishTemplate();
   const syncTemplates = useSyncTemplates();
-  const deleteTemplate = useDeleteTemplate();
   const deleteTemplate = useDeleteTemplate();
 
   const templates = data?.data?.templates ?? [];
@@ -247,7 +244,7 @@ export function TemplateListPage() {
         cell: ({ row }) => {
           const template = row.original;
           return (
-            <div className="min-w-[220px]">
+            <div className="min-w-55">
               <button
                 className="text-left font-semibold hover:text-primary hover:underline"
                 onClick={(event) => {
@@ -304,23 +301,12 @@ export function TemplateListPage() {
             <span className="text-xs text-muted-foreground">Not assigned</span>
           );
         },
-        accessorKey: 'waba_id',
-        header: 'WABA ID',
-        cell: ({ getValue }) => {
-          const value = getValue() as string | null;
-          return value ? (
-            <span className="font-mono text-xs">{value}</span>
-          ) : (
-            <span className="text-xs text-muted-foreground">Not assigned</span>
-          );
-        },
       },
       {
         accessorKey: 'language',
         header: 'Language',
         cell: ({ getValue }) => (
-          <div className="min-w-[130px] text-sm">{getTemplateLanguageLabel(getValue() as string)}</div>
-          <div className="min-w-[130px] text-sm">{getTemplateLanguageLabel(getValue() as string)}</div>
+          <div className="min-w-32.5 text-sm">{getTemplateLanguageLabel(getValue() as string)}</div>
         ),
       },
       {
@@ -424,7 +410,7 @@ export function TemplateListPage() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-none bg-gradient-to-r from-[#0f766e] via-[#115e59] to-[#134e4a] text-white shadow-lg">
+      <Card className="overflow-hidden border-none bg-linear-to-r from-[#0f766e] via-[#115e59] to-[#134e4a] text-white shadow-lg">
         <CardHeader className="border-none pb-0">
           <CardTitle className="text-2xl">WhatsApp Templates</CardTitle>
           <CardDescription className="text-emerald-50/80">
@@ -534,7 +520,7 @@ export function TemplateListPage() {
               ))}
             </SelectContent>
           </Select>
-            <TemplateOptionSelect
+          <TemplateOptionSelect
             value={wabaFilterId || null}
             options={wabaOptions}
             placeholder="Filter by WABA"
@@ -560,8 +546,6 @@ export function TemplateListPage() {
         totalPages={meta?.totalPages ?? 1}
         total={meta?.total}
         onPageChange={setPage}
-        onRowClick={(template) => navigate(`/templates/${template.id}`)}
-        emptyMessage="No templates found for the selected filters."
         onRowClick={(template) => navigate(`/templates/${template.id}`)}
         emptyMessage="No templates found for the selected filters."
       />

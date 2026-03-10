@@ -30,6 +30,9 @@ router.get('/invoices/:id', authenticate, asyncHandler(walletController.getInvoi
 // Debit a user's wallet (internal service-to-service)
 router.post('/debit', asyncHandler(walletController.debit));
 
+// Credit/refund a user's wallet (internal service-to-service)
+router.post('/credit', asyncHandler(walletController.credit));
+
 // Get a user's balance by userId (internal service-to-service)
 router.get('/balance/:userId', asyncHandler(walletController.getBalanceInternal));
 

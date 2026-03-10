@@ -17,6 +17,8 @@ export const createPlanSchema = z.object({
   marketing_message_price: z.number().min(0),
   utility_message_price: z.number().min(0),
   auth_message_price: z.number().min(0),
+  service_message_price: z.number().min(0),
+  referral_conversion_message_price: z.number().min(0),
   sort_order: z.number().int().optional(),
   is_active: z.boolean().optional(),
 });

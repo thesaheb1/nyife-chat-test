@@ -20,6 +20,7 @@ router.get('/history', authenticate, asyncHandler(controller.getHistory));
 
 // Internal routes (called by other services via internal network)
 router.get('/check-limit/:userId/:resource', asyncHandler(controller.checkLimit));
+router.get('/internal/active/:userId', asyncHandler(controller.getCurrentSubscriptionInternal));
 router.post('/increment-usage/:userId', asyncHandler(controller.incrementUsage));
 
 module.exports = router;

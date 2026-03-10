@@ -479,6 +479,9 @@ async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, 
     pricingInfo = {
       pricing_model: statusUpdate.pricing.pricing_model || null,
       category: statusUpdate.pricing.category || null,
+      billable: typeof statusUpdate.pricing.billable === 'boolean'
+        ? statusUpdate.pricing.billable
+        : null,
     };
   }
 

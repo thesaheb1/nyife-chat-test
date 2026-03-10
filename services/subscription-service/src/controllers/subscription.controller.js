@@ -9,6 +9,7 @@ const {
   cancelSchema,
   validateCouponSchema,
   checkLimitParamsSchema,
+  internalSubscriptionParamsSchema,
   incrementUsageSchema,
   paginationSchema,
 } = require('../validations/subscription.validation');
@@ -44,6 +45,16 @@ async function verifyPayment(req, res) {
 async function getCurrentSubscription(req, res) {
   const subscription = await subscriptionService.getCurrentSubscription(req.user.id);
   return successResponse(res, { subscription }, subscription ? 'Current subscription retrieved' : 'No active subscription');
+}
+
+async function getCurrentSubscriptionInternal(req, res) {
+  const { userId } = internalSubscriptionParamsSchema.parse(req.params);
+  const subscription = await subscriptionService.getCurrentSubscription(userId);
+  return successResponse(
+    res,
+    { subscription },
+    subscription ? 'Current subscription retrieved' : 'No active subscription'
+  );
 }
 
 async function cancelSubscription(req, res) {
@@ -89,5 +100,6 @@ module.exports = {
   validateCoupon,
   getHistory,
   checkLimit,
+  getCurrentSubscriptionInternal,
   incrementUsage,
 };

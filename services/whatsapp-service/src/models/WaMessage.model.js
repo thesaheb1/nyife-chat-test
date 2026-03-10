@@ -68,6 +68,48 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING(50),
         allowNull: true,
       },
+      pricing_billable: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+      },
+      billing_category_estimated: {
+        type: DataTypes.STRING(50),
+        allowNull: true,
+      },
+      billing_category_actual: {
+        type: DataTypes.STRING(50),
+        allowNull: true,
+      },
+      billing_amount_estimated: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      billing_amount_actual: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      billing_status: {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+        defaultValue: 'pending',
+      },
+      wallet_debit_transaction_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+      },
+      wallet_adjustment_transaction_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+      },
+      usage_applied_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      billing_reconciled_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: 'wa_messages',

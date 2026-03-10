@@ -2,7 +2,16 @@
 
 const { z } = require('zod');
 
-const TRANSACTION_SOURCES = ['recharge', 'message_debit', 'admin_credit', 'admin_debit', 'refund', 'subscription_payment'];
+const TRANSACTION_SOURCES = [
+  'recharge',
+  'message_debit',
+  'message_refund',
+  'message_adjustment',
+  'admin_credit',
+  'admin_debit',
+  'refund',
+  'subscription_payment',
+];
 
 /**
  * Schema for initiating a wallet recharge.
@@ -33,6 +42,20 @@ const debitSchema = z.object({
   reference_type: z.string().max(50).optional(),
   reference_id: z.string().max(100).optional(),
   description: z.string().min(1, 'Description is required'),
+  meta: z.record(z.any()).optional(),
+});
+
+const creditSchema = z.object({
+  user_id: z.string().uuid('Invalid user ID'),
+  amount: z.number().int('Amount must be a whole number').positive('Amount must be positive'),
+  source: z.enum(TRANSACTION_SOURCES, {
+    errorMap: () => ({ message: `Source must be one of: ${TRANSACTION_SOURCES.join(', ')}` }),
+  }),
+  description: z.string().min(1, 'Description is required'),
+  reference_type: z.string().max(50).optional(),
+  reference_id: z.string().max(100).optional(),
+  remarks: z.string().max(1000).optional(),
+  meta: z.record(z.any()).optional(),
 });
 
 /**
@@ -68,6 +91,7 @@ module.exports = {
   rechargeSchema,
   verifyPaymentSchema,
   debitSchema,
+  creditSchema,
   adminCreditDebitSchema,
   transactionFilterSchema,
   invoiceListSchema,

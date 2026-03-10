@@ -7,6 +7,7 @@ const {
   rechargeSchema,
   verifyPaymentSchema,
   debitSchema,
+  creditSchema,
   adminCreditDebitSchema,
   transactionFilterSchema,
   invoiceListSchema,
@@ -90,9 +91,32 @@ async function debit(req, res) {
     data.reference_type || null,
     data.reference_id || null,
     data.description,
-    req.app.locals.redis
+    req.app.locals.redis,
+    req.app.locals.kafkaProducer,
+    data.meta || null
   );
   return successResponse(res, result, 'Wallet debited successfully');
+}
+
+/**
+ * POST /api/v1/wallet/credit
+ * Internal endpoint for other services to credit/refund a user's wallet.
+ */
+async function credit(req, res) {
+  const data = creditSchema.parse(req.body);
+  const result = await walletService.creditWallet(
+    data.user_id,
+    data.amount,
+    data.source,
+    data.description,
+    data.reference_type || null,
+    data.reference_id || null,
+    data.remarks || null,
+    req.app.locals.kafkaProducer,
+    req.app.locals.redis,
+    data.meta || null
+  );
+  return successResponse(res, result, 'Wallet credited successfully');
 }
 
 /**
@@ -140,7 +164,8 @@ async function adminDebit(req, res) {
     data.user_id,
     data.amount,
     data.remarks,
-    req.app.locals.redis
+    req.app.locals.redis,
+    req.app.locals.kafkaProducer
   );
   return successResponse(res, result, 'Wallet debited successfully');
 }
@@ -153,6 +178,7 @@ module.exports = {
   listInvoices,
   getInvoice,
   debit,
+  credit,
   getBalanceInternal,
   adminCredit,
   adminDebit,

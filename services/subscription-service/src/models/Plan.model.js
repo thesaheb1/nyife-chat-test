@@ -92,6 +92,16 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 0,
       },
+      service_message_price: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      referral_conversion_message_price: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
       features: {
         type: DataTypes.JSON,
         allowNull: true,

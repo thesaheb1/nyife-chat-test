@@ -788,7 +788,8 @@ async function createPlan(data) {
     'max_contacts', 'max_templates', 'max_campaigns_per_month', 'max_messages_per_month',
     'max_team_members', 'max_organizations', 'max_whatsapp_numbers',
     'has_priority_support', 'marketing_message_price', 'utility_message_price',
-    'auth_message_price', 'features', 'sort_order', 'is_active',
+    'auth_message_price', 'service_message_price', 'referral_conversion_message_price',
+    'features', 'sort_order', 'is_active',
     'created_at', 'updated_at',
   ];
 
@@ -811,6 +812,8 @@ async function createPlan(data) {
     marketing_message_price: data.marketing_message_price || 0,
     utility_message_price: data.utility_message_price || 0,
     auth_message_price: data.auth_message_price || 0,
+    service_message_price: data.service_message_price || 0,
+    referral_conversion_message_price: data.referral_conversion_message_price || 0,
     features: data.features ? JSON.stringify(data.features) : null,
     sort_order: data.sort_order || 0,
     is_active: data.is_active ?? true,
@@ -851,7 +854,8 @@ async function listPlans(filters) {
               max_contacts, max_templates, max_campaigns_per_month, max_messages_per_month,
               max_team_members, max_organizations, max_whatsapp_numbers,
               has_priority_support, marketing_message_price, utility_message_price,
-              auth_message_price, features, sort_order, is_active, created_at, updated_at
+              auth_message_price, service_message_price, referral_conversion_message_price,
+              features, sort_order, is_active, created_at, updated_at
        FROM sub_plans
        WHERE deleted_at IS NULL
        ORDER BY sort_order ASC, created_at DESC
@@ -887,7 +891,8 @@ async function getPlan(planId) {
             max_contacts, max_templates, max_campaigns_per_month, max_messages_per_month,
             max_team_members, max_organizations, max_whatsapp_numbers,
             has_priority_support, marketing_message_price, utility_message_price,
-            auth_message_price, features, sort_order, is_active, created_at, updated_at
+            auth_message_price, service_message_price, referral_conversion_message_price,
+            features, sort_order, is_active, created_at, updated_at
      FROM sub_plans
      WHERE id = :planId AND deleted_at IS NULL`,
     { replacements: { planId }, type: QueryTypes.SELECT }
@@ -926,7 +931,8 @@ async function updatePlan(planId, data) {
     'max_contacts', 'max_templates', 'max_campaigns_per_month', 'max_messages_per_month',
     'max_team_members', 'max_organizations', 'max_whatsapp_numbers',
     'has_priority_support', 'marketing_message_price', 'utility_message_price',
-    'auth_message_price', 'sort_order', 'is_active',
+    'auth_message_price', 'service_message_price', 'referral_conversion_message_price',
+    'sort_order', 'is_active',
   ];
 
   if (data.slug !== undefined) {

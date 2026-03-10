@@ -63,6 +63,8 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
       marketing_message_price: 0,
       utility_message_price: 0,
       auth_message_price: 0,
+      service_message_price: 0,
+      referral_conversion_message_price: 0,
     },
   });
 
@@ -85,6 +87,8 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
         marketing_message_price: existingPlan.marketing_message_price,
         utility_message_price: existingPlan.utility_message_price,
         auth_message_price: existingPlan.auth_message_price,
+        service_message_price: existingPlan.service_message_price,
+        referral_conversion_message_price: existingPlan.referral_conversion_message_price,
         sort_order: existingPlan.sort_order,
         is_active: existingPlan.is_active,
       });
@@ -171,6 +175,8 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
               {numField('marketing_message_price', 'Marketing')}
               {numField('utility_message_price', 'Utility')}
               {numField('auth_message_price', 'Authentication')}
+              {numField('service_message_price', 'Service')}
+              {numField('referral_conversion_message_price', 'Referral conversion')}
             </div>
 
             <div className="flex items-center gap-4 pt-2">

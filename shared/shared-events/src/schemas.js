@@ -17,6 +17,7 @@ const campaignExecuteSchema = z.object({
   phoneNumber: z.string(),
   templateName: z.string(),
   templateLanguage: z.string(),
+  templateCategory: z.string().optional(),
   components: z.array(z.any()).optional(),
   messageType: z.enum(['template', 'text']).default('template'),
   textContent: z.string().optional(),
@@ -185,9 +186,16 @@ const walletTransactionSchema = z.object({
   userId: uuidField,
   amount: z.number().int(),
   type: z.enum(['credit', 'debit']),
+  source: z.string(),
+  balanceAfter: z.number().int().optional(),
+  transactionId: z.string().optional(),
+  invoiceId: z.string().optional(),
+  paymentId: z.string().optional(),
   description: z.string(),
   referenceId: z.string().optional(),
   referenceType: z.string().optional(),
+  meta: z.record(z.any()).optional(),
+  timestamp: timestampField.optional(),
 });
 
 /**

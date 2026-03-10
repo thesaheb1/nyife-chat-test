@@ -487,6 +487,8 @@ export interface Plan {
   marketing_message_price: number;
   utility_message_price: number;
   auth_message_price: number;
+  service_message_price: number;
+  referral_conversion_message_price: number;
   features: Record<string, unknown> | null;
   is_active: boolean;
   sort_order: number;

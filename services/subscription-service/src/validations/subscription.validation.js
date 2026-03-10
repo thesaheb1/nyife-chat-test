@@ -40,6 +40,10 @@ const checkLimitParamsSchema = z.object({
   ]),
 });
 
+const internalSubscriptionParamsSchema = z.object({
+  userId: z.string().uuid('Invalid user ID'),
+});
+
 const incrementUsageSchema = z.object({
   resource: z.enum([
     'contacts',
@@ -69,6 +73,7 @@ module.exports = {
   cancelSchema,
   validateCouponSchema,
   checkLimitParamsSchema,
+  internalSubscriptionParamsSchema,
   incrementUsageSchema,
   paginationSchema,
 };

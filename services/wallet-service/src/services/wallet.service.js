@@ -10,6 +10,19 @@ const config = require('../config');
 // Initialize Razorpay instance
 let razorpayInstance = null;
 
+async function publishWalletTransactionEvent(kafkaProducer, payload) {
+  if (!kafkaProducer) {
+    return;
+  }
+
+  try {
+    const { publishEvent, TOPICS } = require('@nyife/shared-events');
+    await publishEvent(kafkaProducer, TOPICS.WALLET_TRANSACTION, payload.userId, payload);
+  } catch (err) {
+    console.error('[wallet-service] Failed to publish wallet transaction event:', err.message);
+  }
+}
+
 /**
  * Returns the Razorpay instance, creating it lazily on first use.
  * This avoids errors at startup if keys are not yet configured.
@@ -279,15 +292,18 @@ async function verifyRechargePayment(userId, paymentData, kafkaProducer, redis) 
   if (kafkaProducer) {
     try {
       const { publishEvent, TOPICS } = require('@nyife/shared-events');
-      await publishEvent(kafkaProducer, TOPICS.WALLET_TRANSACTION, userId, {
-        user_id: userId,
+      await publishWalletTransactionEvent(kafkaProducer, {
+        userId,
+        amount: baseAmount,
         type: 'credit',
         source: 'recharge',
-        amount: baseAmount,
-        balance_after: result.balance,
-        transaction_id: result.transaction_id,
-        invoice_id: result.invoice_id,
-        payment_id: razorpay_payment_id,
+        balanceAfter: result.balance,
+        transactionId: result.transaction_id,
+        invoiceId: result.invoice_id,
+        paymentId: razorpay_payment_id,
+        description: `Wallet recharge of ${formatCurrency(baseAmount)}`,
+        referenceType: 'razorpay_order',
+        referenceId: razorpay_order_id,
         timestamp: new Date().toISOString(),
       });
     } catch (err) {
@@ -311,7 +327,7 @@ async function verifyRechargePayment(userId, paymentData, kafkaProducer, redis) 
  * @param {object|null} redis - Redis client instance (optional)
  * @returns {Promise<object>} Debit result with new balance and transaction ID
  */
-async function debitWallet(userId, amount, source, referenceType, referenceId, description, redis) {
+async function debitWallet(userId, amount, source, referenceType, referenceId, description, redis, kafkaProducer, meta = null) {
   const result = await sequelize.transaction(async (t) => {
     // Lock the wallet row for update
     const wallet = await Wallet.findOne({
@@ -343,6 +359,7 @@ async function debitWallet(userId, amount, source, referenceType, referenceId, d
       reference_id: referenceId || null,
       description,
       payment_status: 'completed',
+      meta,
     }, { transaction: t });
 
     return {
@@ -362,6 +379,20 @@ async function debitWallet(userId, amount, source, referenceType, referenceId, d
     }
   }
 
+  await publishWalletTransactionEvent(kafkaProducer, {
+    userId,
+    amount,
+    type: 'debit',
+    source,
+    balanceAfter: result.balance_after,
+    transactionId: result.transaction_id,
+    description,
+    referenceType: referenceType || undefined,
+    referenceId: referenceId || undefined,
+    meta: meta || undefined,
+    timestamp: new Date().toISOString(),
+  });
+
   return result;
 }
 
@@ -379,7 +410,7 @@ async function debitWallet(userId, amount, source, referenceType, referenceId, d
  * @param {object|null} redis - Redis client instance (optional)
  * @returns {Promise<object>} Credit result with new balance and transaction ID
  */
-async function creditWallet(userId, amount, source, description, referenceType, referenceId, remarks, kafkaProducer, redis) {
+async function creditWallet(userId, amount, source, description, referenceType, referenceId, remarks, kafkaProducer, redis, meta = null) {
   const result = await sequelize.transaction(async (t) => {
     // Lock the wallet row for update
     const wallet = await Wallet.findOne({
@@ -408,6 +439,7 @@ async function creditWallet(userId, amount, source, description, referenceType, 
       description,
       remarks: remarks || null,
       payment_status: 'completed',
+      meta,
     }, { transaction: t });
 
     return {
@@ -431,13 +463,17 @@ async function creditWallet(userId, amount, source, description, referenceType, 
   if (kafkaProducer) {
     try {
       const { publishEvent, TOPICS } = require('@nyife/shared-events');
-      await publishEvent(kafkaProducer, TOPICS.WALLET_TRANSACTION, userId, {
-        user_id: userId,
+      await publishWalletTransactionEvent(kafkaProducer, {
+        userId,
+        amount,
         type: 'credit',
         source,
-        amount,
-        balance_after: result.balance_after,
-        transaction_id: result.transaction_id,
+        balanceAfter: result.balance_after,
+        transactionId: result.transaction_id,
+        description,
+        referenceType: referenceType || undefined,
+        referenceId: referenceId || undefined,
+        meta: meta || undefined,
         timestamp: new Date().toISOString(),
       });
     } catch (err) {
@@ -624,9 +660,10 @@ async function adminCredit(userId, amount, remarks, kafkaProducer, redis) {
  * @param {number} amount - Amount to debit in paise
  * @param {string} remarks - Admin's reason for the debit
  * @param {object|null} redis - Redis client instance (optional)
+ * @param {object|null} kafkaProducer - Kafka producer instance (optional)
  * @returns {Promise<object>} Debit result
  */
-async function adminDebit(userId, amount, remarks, redis) {
+async function adminDebit(userId, amount, remarks, redis, kafkaProducer) {
   const description = `Admin debit: ${remarks}`;
 
   return debitWallet(
@@ -636,7 +673,8 @@ async function adminDebit(userId, amount, remarks, redis) {
     'admin_action',
     null,
     description,
-    redis
+    redis,
+    kafkaProducer
   );
 }
 

@@ -198,6 +198,343 @@ function buildMessagePayload(type, to, messageData, context) {
   return payload;
 }
 
+function normalizeBillingCategory(category, fallbackCategory = null) {
+  if (!category && fallbackCategory) {
+    return normalizeBillingCategory(fallbackCategory);
+  }
+
+  const normalized = String(category || '').trim().toLowerCase();
+  switch (normalized) {
+    case 'marketing':
+      return 'marketing';
+    case 'utility':
+      return 'utility';
+    case 'authentication':
+    case 'auth':
+      return 'authentication';
+    case 'service':
+    case 'user_initiated':
+      return 'service';
+    case 'referral_conversion':
+    case 'referral':
+      return 'referral_conversion';
+    case 'business_initiated':
+      return fallbackCategory ? normalizeBillingCategory(fallbackCategory) : null;
+    default:
+      return fallbackCategory ? normalizeBillingCategory(fallbackCategory) : null;
+  }
+}
+
+function getPlanPriceForCategory(plan, category) {
+  const normalizedCategory = normalizeBillingCategory(category);
+  if (!plan || !normalizedCategory) {
+    return 0;
+  }
+
+  switch (normalizedCategory) {
+    case 'marketing':
+      return Number(plan.marketing_message_price || 0);
+    case 'utility':
+      return Number(plan.utility_message_price || 0);
+    case 'authentication':
+      return Number(plan.auth_message_price || 0);
+    case 'service':
+      return Number(plan.service_message_price || 0);
+    case 'referral_conversion':
+      return Number(plan.referral_conversion_message_price || 0);
+    default:
+      return 0;
+  }
+}
+
+function serializeMessageRecord(messageRecord) {
+  return {
+    id: messageRecord.id,
+    user_id: messageRecord.user_id,
+    wa_account_id: messageRecord.wa_account_id,
+    contact_phone: messageRecord.contact_phone,
+    direction: messageRecord.direction,
+    type: messageRecord.type,
+    content: messageRecord.content,
+    meta_message_id: messageRecord.meta_message_id,
+    status: messageRecord.status,
+    template_id: messageRecord.template_id,
+    campaign_id: messageRecord.campaign_id,
+    billing_status: messageRecord.billing_status,
+    billing_category_estimated: messageRecord.billing_category_estimated,
+    billing_category_actual: messageRecord.billing_category_actual,
+    billing_amount_estimated: messageRecord.billing_amount_estimated,
+    billing_amount_actual: messageRecord.billing_amount_actual,
+    created_at: messageRecord.created_at,
+  };
+}
+
+async function fetchActiveSubscription(userId) {
+  try {
+    const response = await axios.get(
+      `${config.subscriptionServiceUrl}/api/v1/subscriptions/internal/active/${userId}`,
+      {
+        timeout: 10000,
+      }
+    );
+
+    return response.data?.data?.subscription || null;
+  } catch (err) {
+    const message = err.response?.data?.message || err.message;
+    throw AppError.badRequest(`Unable to load active subscription: ${message}`);
+  }
+}
+
+function getMessageLimitState(subscription) {
+  const limit = Number(subscription?.plan?.max_messages_per_month || 0);
+  const used = Number(subscription?.usage?.messages_this_month || 0);
+  if (!subscription) {
+    return { limit: 0, used: 0, remaining: 0, allowed: false };
+  }
+  if (limit === 0) {
+    return { limit: Infinity, used, remaining: Infinity, allowed: true };
+  }
+
+  return {
+    limit,
+    used,
+    remaining: Math.max(0, limit - used),
+    allowed: used < limit,
+  };
+}
+
+async function getWalletBalance(userId) {
+  try {
+    const response = await axios.get(
+      `${config.walletServiceUrl}/api/v1/wallet/balance/${userId}`,
+      { timeout: 10000 }
+    );
+    return response.data?.data || { balance: 0 };
+  } catch (err) {
+    const message = err.response?.data?.message || err.message;
+    throw AppError.badRequest(`Unable to verify wallet balance: ${message}`);
+  }
+}
+
+async function debitWalletForMessage(userId, amount, messageRecord, description, category) {
+  if (!amount) {
+    return null;
+  }
+
+  const response = await axios.post(
+    `${config.walletServiceUrl}/api/v1/wallet/debit`,
+    {
+      user_id: userId,
+      amount,
+      source: 'message_debit',
+      reference_type: 'wa_message',
+      reference_id: messageRecord.id,
+      description,
+      meta: {
+        wa_message_id: messageRecord.id,
+        wa_account_id: messageRecord.wa_account_id,
+        billing_category: category,
+      },
+    },
+    {
+      headers: { 'x-user-id': userId, 'Content-Type': 'application/json' },
+      timeout: 10000,
+    }
+  );
+
+  return response.data?.data || null;
+}
+
+async function creditWalletForMessage(userId, amount, messageRecord, source, description, meta = {}) {
+  if (!amount) {
+    return null;
+  }
+
+  const response = await axios.post(
+    `${config.walletServiceUrl}/api/v1/wallet/credit`,
+    {
+      user_id: userId,
+      amount,
+      source,
+      reference_type: 'wa_message',
+      reference_id: messageRecord.id,
+      description,
+      meta: {
+        wa_message_id: messageRecord.id,
+        wa_account_id: messageRecord.wa_account_id,
+        ...meta,
+      },
+    },
+    {
+      headers: { 'x-user-id': userId, 'Content-Type': 'application/json' },
+      timeout: 10000,
+    }
+  );
+
+  return response.data?.data || null;
+}
+
+async function incrementMessageUsage(userId, messageRecord) {
+  if (messageRecord.usage_applied_at) {
+    return messageRecord;
+  }
+
+  await axios.post(
+    `${config.subscriptionServiceUrl}/api/v1/subscriptions/increment-usage/${userId}`,
+    {
+      resource: 'messages',
+      count: 1,
+    },
+    {
+      timeout: 10000,
+    }
+  );
+
+  await messageRecord.update({
+    usage_applied_at: new Date(),
+  });
+
+  return messageRecord;
+}
+
+async function sendMetaPayload(account, payload, credential) {
+  return axios.post(
+    `${config.meta.baseUrl}/${account.phone_number_id}/messages`,
+    payload,
+    {
+      headers: {
+        Authorization: `Bearer ${credential.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+}
+
+async function performAccountedSend({
+  userId,
+  account,
+  type,
+  content,
+  payload,
+  to,
+  estimatedCategory,
+  description,
+  templateId = null,
+  campaignId = null,
+}) {
+  const credential = requireResolvedMetaCredential(account);
+  const subscription = await fetchActiveSubscription(userId);
+  if (!subscription || !subscription.plan) {
+    throw AppError.forbidden('An active subscription is required to send WhatsApp messages.');
+  }
+
+  const messageLimit = getMessageLimitState(subscription);
+  if (!messageLimit.allowed) {
+    throw AppError.forbidden('Monthly message limit reached. Please upgrade your plan.');
+  }
+
+  const normalizedEstimatedCategory = normalizeBillingCategory(estimatedCategory);
+  const estimatedAmount = getPlanPriceForCategory(subscription.plan, normalizedEstimatedCategory);
+  const walletBalance = await getWalletBalance(userId);
+  if (estimatedAmount > Number(walletBalance.balance || 0)) {
+    throw AppError.badRequest(
+      `Insufficient wallet balance. Required: ${estimatedAmount} paise, Available: ${walletBalance.balance || 0} paise.`
+    );
+  }
+
+  const messageRecord = await WaMessage.create({
+    user_id: userId,
+    wa_account_id: account.id,
+    contact_phone: to,
+    direction: 'outbound',
+    type,
+    content,
+    status: 'pending',
+    template_id: templateId,
+    campaign_id: campaignId,
+    billing_category_estimated: normalizedEstimatedCategory,
+    billing_amount_estimated: estimatedAmount,
+    billing_status: estimatedAmount > 0 ? 'pending_debit' : 'pending_reconcile',
+  });
+
+  let debitResult = null;
+  try {
+    debitResult = await debitWalletForMessage(
+      userId,
+      estimatedAmount,
+      messageRecord,
+      description,
+      normalizedEstimatedCategory
+    );
+  } catch (err) {
+    await messageRecord.update({
+      status: 'failed',
+      error_message: err.response?.data?.message || err.message,
+      billing_status: 'debit_failed',
+    });
+    throw AppError.badRequest(err.response?.data?.message || err.message);
+  }
+
+  if (debitResult?.transaction_id) {
+    await messageRecord.update({
+      wallet_debit_transaction_id: debitResult.transaction_id,
+      billing_status: estimatedAmount > 0 ? 'debited' : 'pending_reconcile',
+    });
+  }
+
+  try {
+    const metaResponse = await sendMetaPayload(account, payload, credential);
+    const metaMessageId = metaResponse.data?.messages?.[0]?.id || null;
+
+    await messageRecord.update({
+      meta_message_id: metaMessageId,
+      status: 'sent',
+      billing_status: estimatedAmount > 0 ? 'debited_pending_reconcile' : 'pending_reconcile',
+    });
+
+    await incrementMessageUsage(userId, messageRecord);
+    await messageRecord.reload();
+
+    return messageRecord;
+  } catch (err) {
+    const errData = err.response?.data?.error || {};
+    const errorCode = String(errData.code || err.response?.status || 'UNKNOWN');
+    const errorMessage = errData.message || err.message || 'Unknown Meta API error';
+
+    let refundTransactionId = null;
+    if (estimatedAmount > 0 && messageRecord.wallet_debit_transaction_id) {
+      try {
+        const refundResult = await creditWalletForMessage(
+          userId,
+          estimatedAmount,
+          messageRecord,
+          'message_refund',
+          `Refund for failed WhatsApp ${type} message to ${to}`,
+          { reason: 'meta_send_failed' }
+        );
+        refundTransactionId = refundResult?.transaction_id || null;
+      } catch (refundErr) {
+        console.error(
+          '[whatsapp-service] Failed to refund wallet after message send failure:',
+          refundErr.response?.data?.message || refundErr.message
+        );
+      }
+    }
+
+    await messageRecord.update({
+      status: 'failed',
+      error_code: errorCode,
+      error_message: errorMessage,
+      billing_status: refundTransactionId ? 'refunded_failed_send' : 'refund_pending',
+      wallet_adjustment_transaction_id: refundTransactionId,
+      billing_amount_actual: 0,
+      billing_reconciled_at: refundTransactionId ? new Date() : null,
+    });
+
+    throw AppError.badRequest(`Failed to send ${type === 'template' ? 'template message' : 'message'}: ${errorMessage}`);
+  }
+}
+
 /**
  * Sends a message via Meta WhatsApp Cloud API.
  *
@@ -231,95 +568,20 @@ async function sendMessage(userId, data) {
     throw AppError.forbidden('WhatsApp account is not active');
   }
 
-  const credential = requireResolvedMetaCredential(account);
-
-  // Build payload
   const payload = buildMessagePayload(type, to, message, context);
 
-  // Create pending message record
-  const messageRecord = await WaMessage.create({
-    user_id: userId,
-    wa_account_id: account.id,
-    contact_phone: to,
-    direction: 'outbound',
+  const messageRecord = await performAccountedSend({
+    userId,
+    account,
     type,
     content: message,
-    status: 'pending',
+    payload,
+    to,
+    estimatedCategory: 'service',
+    description: `WhatsApp ${type} message to ${to}`,
   });
 
-  // Send via Meta API
-  let metaResponse;
-  try {
-    metaResponse = await axios.post(
-      `${config.meta.baseUrl}/${account.phone_number_id}/messages`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${credential.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-  } catch (err) {
-    const errData = err.response?.data?.error || {};
-    const errorCode = String(errData.code || err.response?.status || 'UNKNOWN');
-    const errorMessage = errData.message || err.message || 'Unknown Meta API error';
-
-    // Update message record with failure info
-    await messageRecord.update({
-      status: 'failed',
-      error_code: errorCode,
-      error_message: errorMessage,
-    });
-
-    throw AppError.badRequest(`Failed to send message: ${errorMessage}`);
-  }
-
-  // Extract Meta message ID
-  const metaMessageId =
-    metaResponse.data?.messages?.[0]?.id || null;
-
-  // Update message record with Meta response
-  await messageRecord.update({
-    meta_message_id: metaMessageId,
-    status: 'sent',
-  });
-
-  // Debit wallet (best-effort — do not fail the message send if wallet debit fails)
-  try {
-    await axios.post(
-      `${config.walletServiceUrl}/api/v1/wallet/debit`,
-      {
-        user_id: userId,
-        amount: 100, // 1.00 in paise — actual pricing should come from subscription plan
-        source: 'message_send',
-        reference_type: 'wa_message',
-        reference_id: messageRecord.id,
-        description: `WhatsApp ${type} message to ${to}`,
-      },
-      {
-        headers: { 'x-user-id': userId, 'Content-Type': 'application/json' },
-      }
-    );
-  } catch (err) {
-    console.warn(
-      '[whatsapp-service] Could not debit wallet for message:',
-      err.response?.data?.message || err.message
-    );
-  }
-
-  return {
-    id: messageRecord.id,
-    user_id: messageRecord.user_id,
-    wa_account_id: messageRecord.wa_account_id,
-    contact_phone: messageRecord.contact_phone,
-    direction: messageRecord.direction,
-    type: messageRecord.type,
-    content: messageRecord.content,
-    meta_message_id: metaMessageId,
-    status: messageRecord.status,
-    created_at: messageRecord.created_at,
-  };
+  return serializeMessageRecord(messageRecord);
 }
 
 /**
@@ -353,8 +615,6 @@ async function sendTemplateMessage(userId, data) {
   if (account.status !== 'active') {
     throw AppError.forbidden('WhatsApp account is not active');
   }
-
-  const credential = requireResolvedMetaCredential(account);
 
   // Fetch template from template-service
   let template;
@@ -414,91 +674,22 @@ async function sendTemplateMessage(userId, data) {
     template: templatePayload,
   };
 
-  // Create pending message record
-  const messageRecord = await WaMessage.create({
-    user_id: userId,
-    wa_account_id: account.id,
-    contact_phone: to,
-    direction: 'outbound',
+  const messageRecord = await performAccountedSend({
+    userId,
+    account,
     type: 'template',
     content: {
       ...templatePayload,
       linked_flows: linkedFlows,
     },
-    template_id,
-    status: 'pending',
+    payload: fullPayload,
+    to,
+    estimatedCategory: template.category,
+    description: `WhatsApp template "${template.name}" to ${to}`,
+    templateId: template_id,
   });
 
-  // Send via Meta API
-  let metaResponse;
-  try {
-    metaResponse = await axios.post(
-      `${config.meta.baseUrl}/${account.phone_number_id}/messages`,
-      fullPayload,
-      {
-        headers: {
-          Authorization: `Bearer ${credential.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-  } catch (err) {
-    const errData = err.response?.data?.error || {};
-    const errorCode = String(errData.code || err.response?.status || 'UNKNOWN');
-    const errorMessage = errData.message || err.message || 'Unknown Meta API error';
-
-    await messageRecord.update({
-      status: 'failed',
-      error_code: errorCode,
-      error_message: errorMessage,
-    });
-
-    throw AppError.badRequest(`Failed to send template message: ${errorMessage}`);
-  }
-
-  const metaMessageId = metaResponse.data?.messages?.[0]?.id || null;
-
-  await messageRecord.update({
-    meta_message_id: metaMessageId,
-    status: 'sent',
-  });
-
-  // Debit wallet (best-effort)
-  try {
-    await axios.post(
-      `${config.walletServiceUrl}/api/v1/wallet/debit`,
-      {
-        user_id: userId,
-        amount: 100,
-        source: 'template_send',
-        reference_type: 'wa_message',
-        reference_id: messageRecord.id,
-        description: `WhatsApp template "${template.name}" to ${to}`,
-      },
-      {
-        headers: { 'x-user-id': userId, 'Content-Type': 'application/json' },
-      }
-    );
-  } catch (err) {
-    console.warn(
-      '[whatsapp-service] Could not debit wallet for template message:',
-      err.response?.data?.message || err.message
-    );
-  }
-
-  return {
-    id: messageRecord.id,
-    user_id: messageRecord.user_id,
-    wa_account_id: messageRecord.wa_account_id,
-    contact_phone: messageRecord.contact_phone,
-    direction: messageRecord.direction,
-    type: messageRecord.type,
-    content: messageRecord.content,
-    meta_message_id: metaMessageId,
-    status: messageRecord.status,
-    template_id: messageRecord.template_id,
-    created_at: messageRecord.created_at,
-  };
+  return serializeMessageRecord(messageRecord);
 }
 
 /**
@@ -806,6 +997,99 @@ async function getConversation(userId, waAccountId, contactPhone) {
   return messages;
 }
 
+async function reconcileMessageBilling(message, pricingInfo) {
+  if (!message || message.direction !== 'outbound' || !pricingInfo) {
+    return message;
+  }
+
+  const actualCategory = normalizeBillingCategory(
+    pricingInfo.category,
+    message.billing_category_estimated || message.pricing_category
+  );
+  const billable = typeof pricingInfo.billable === 'boolean'
+    ? pricingInfo.billable
+    : message.pricing_billable !== null
+      ? Boolean(message.pricing_billable)
+      : true;
+
+  const currentActualAmount = message.billing_amount_actual === null
+    ? null
+    : Number(message.billing_amount_actual);
+  const currentActualCategory = normalizeBillingCategory(
+    message.billing_category_actual,
+    message.billing_category_estimated
+  );
+
+  if (
+    message.billing_reconciled_at
+    && currentActualAmount !== null
+    && currentActualAmount === (billable ? currentActualAmount : 0)
+    && currentActualCategory === actualCategory
+    && message.pricing_billable === billable
+  ) {
+    return message;
+  }
+
+  const subscription = await fetchActiveSubscription(message.user_id);
+  if (!subscription?.plan) {
+    throw AppError.badRequest('Unable to reconcile message billing without an active subscription.');
+  }
+
+  const actualAmount = billable
+    ? getPlanPriceForCategory(subscription.plan, actualCategory)
+    : 0;
+  const estimatedAmount = Number(message.billing_amount_estimated || 0);
+  const delta = estimatedAmount - actualAmount;
+
+  let adjustmentTransactionId = message.wallet_adjustment_transaction_id || null;
+  let billingStatus = 'reconciled';
+
+  if (delta > 0) {
+    const adjustment = await creditWalletForMessage(
+      message.user_id,
+      delta,
+      message,
+      'message_refund',
+      `Billing reconciliation refund for WhatsApp message ${message.id}`,
+      {
+        estimated_amount: estimatedAmount,
+        actual_amount: actualAmount,
+        pricing_category: actualCategory,
+      }
+    );
+    adjustmentTransactionId = adjustment?.transaction_id || adjustmentTransactionId;
+  } else if (delta < 0) {
+    try {
+      const adjustment = await debitWalletForMessage(
+        message.user_id,
+        Math.abs(delta),
+        message,
+        `Billing reconciliation adjustment for WhatsApp message ${message.id}`,
+        actualCategory
+      );
+      adjustmentTransactionId = adjustment?.transaction_id || adjustmentTransactionId;
+      billingStatus = 'adjusted';
+    } catch (err) {
+      console.error(
+        '[whatsapp-service] Failed to apply billing adjustment:',
+        err.response?.data?.message || err.message
+      );
+      billingStatus = 'adjustment_failed';
+    }
+  }
+
+  await message.update({
+    billing_category_actual: actualCategory,
+    billing_amount_actual: actualAmount,
+    billing_status: billingStatus,
+    pricing_billable: billable,
+    wallet_adjustment_transaction_id: adjustmentTransactionId,
+    billing_reconciled_at: billingStatus === 'adjustment_failed' ? null : new Date(),
+  });
+
+  return message;
+}
+
 /**
  * Updates a message status by Meta message ID (used by webhook processing).
  *
@@ -836,12 +1120,8 @@ async function updateMessageStatus(metaMessageId, status, errorInfo, pricingInfo
   const currentOrder = statusOrder[message.status] || 0;
   const newOrder = statusOrder[status] || 0;
 
-  // Allow update if: moving forward in lifecycle, or transitioning to failed
-  if (newOrder <= currentOrder && status !== 'failed') {
-    return message;
-  }
-
-  const updateData = { status };
+  const shouldUpdateLifecycle = newOrder > currentOrder || status === 'failed';
+  const updateData = shouldUpdateLifecycle ? { status } : {};
 
   if (status === 'failed' && errorInfo) {
     updateData.error_code = String(errorInfo.code || '');
@@ -855,9 +1135,20 @@ async function updateMessageStatus(metaMessageId, status, errorInfo, pricingInfo
     if (pricingInfo.category) {
       updateData.pricing_category = pricingInfo.category;
     }
+    if (typeof pricingInfo.billable === 'boolean') {
+      updateData.pricing_billable = pricingInfo.billable;
+    }
   }
 
-  await message.update(updateData);
+  if (Object.keys(updateData).length > 0) {
+    await message.update(updateData);
+  }
+
+  if (pricingInfo) {
+    await reconcileMessageBilling(message, pricingInfo);
+  }
+
+  await message.reload();
 
   return message;
 }
@@ -886,6 +1177,7 @@ async function sendCampaignMessage(params) {
     campaignId,
     templateName,
     templateLanguage,
+    templateCategory,
     components,
     messageType,
     textContent,
@@ -900,15 +1192,15 @@ async function sendCampaignMessage(params) {
     throw AppError.badRequest('WhatsApp account not available for campaign');
   }
 
-  const credential = requireResolvedMetaCredential(account);
-
   let payload;
   let msgType;
   let msgContent;
+  let estimatedCategory;
 
   if (messageType === 'text' && textContent) {
     msgType = 'text';
     msgContent = { body: textContent };
+    estimatedCategory = 'service';
     payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -918,6 +1210,7 @@ async function sendCampaignMessage(params) {
     };
   } else {
     msgType = 'template';
+    estimatedCategory = templateCategory || 'marketing';
     const templatePayload = {
       name: templateName,
       language: { code: templateLanguage || 'en_US' },
@@ -935,52 +1228,24 @@ async function sendCampaignMessage(params) {
     };
   }
 
-  // Create pending message record
-  const messageRecord = await WaMessage.create({
-    user_id: userId,
-    wa_account_id: account.id,
-    contact_phone: phoneNumber,
-    direction: 'outbound',
+  const messageRecord = await performAccountedSend({
+    userId,
+    account,
     type: msgType,
     content: msgContent,
-    status: 'pending',
-    campaign_id: campaignId,
-  });
-
-  // Send via Meta API
-  let metaResponse;
-  try {
-    metaResponse = await axios.post(
-      `${config.meta.baseUrl}/${account.phone_number_id}/messages`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${credential.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-  } catch (err) {
-    const errData = err.response?.data?.error || {};
-    await messageRecord.update({
-      status: 'failed',
-      error_code: String(errData.code || 'UNKNOWN'),
-      error_message: errData.message || err.message,
-    });
-    throw err;
-  }
-
-  const metaMessageId = metaResponse.data?.messages?.[0]?.id || null;
-
-  await messageRecord.update({
-    meta_message_id: metaMessageId,
-    status: 'sent',
+    payload,
+    to: phoneNumber,
+    estimatedCategory,
+    description: campaignId
+      ? `Campaign ${campaignId} ${msgType} message to ${phoneNumber}`
+      : `Campaign ${msgType} message to ${phoneNumber}`,
+    campaignId,
   });
 
   return {
     id: messageRecord.id,
-    meta_message_id: metaMessageId,
-    status: 'sent',
+    meta_message_id: messageRecord.meta_message_id,
+    status: messageRecord.status,
     campaign_id: campaignId,
   };
 }

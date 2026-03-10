@@ -32,7 +32,16 @@ module.exports = (sequelize) => {
         allowNull: false,
       },
       source: {
-        type: DataTypes.ENUM('recharge', 'message_debit', 'admin_credit', 'admin_debit', 'refund', 'subscription_payment'),
+        type: DataTypes.ENUM(
+          'recharge',
+          'message_debit',
+          'message_refund',
+          'message_adjustment',
+          'admin_credit',
+          'admin_debit',
+          'refund',
+          'subscription_payment'
+        ),
         allowNull: false,
       },
       reference_type: {

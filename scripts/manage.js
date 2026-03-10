@@ -3,6 +3,7 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { ALL_TOPICS } = require('../shared/shared-events/src/topics');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const COMPOSE_FILE = 'docker-compose.dev.yml';
@@ -49,16 +50,7 @@ const MIGRATION_SERVICES = [
   'media-service',
 ];
 const ALL_COMPOSE_SERVICES = [...INFRA_SERVICES, ...BACKEND_SERVICES];
-const KAFKA_TOPICS = [
-  'campaign.execute',
-  'campaign.status',
-  'campaign.analytics',
-  'notification.send',
-  'email.send',
-  'webhook.inbound',
-  'wallet.transaction',
-  'user.events',
-];
+const KAFKA_TOPICS = ALL_TOPICS;
 
 function dockerCompose(args) {
   return runCommand('docker', ['compose', '-f', COMPOSE_FILE, ...args], ROOT_DIR);

@@ -4,8 +4,9 @@ const axios = require('axios');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { WaAccount, WaMessage } = require('../models');
-const { AppError, decrypt, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
+const { AppError, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
 const config = require('../config');
+const { requireResolvedMetaCredential } = require('./metaAccess.service');
 
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
@@ -230,8 +231,7 @@ async function sendMessage(userId, data) {
     throw AppError.forbidden('WhatsApp account is not active');
   }
 
-  // Decrypt access token
-  const accessToken = decrypt(account.access_token);
+  const credential = requireResolvedMetaCredential(account);
 
   // Build payload
   const payload = buildMessagePayload(type, to, message, context);
@@ -255,7 +255,7 @@ async function sendMessage(userId, data) {
       payload,
       {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${credential.accessToken}`,
           'Content-Type': 'application/json',
         },
       }
@@ -354,8 +354,7 @@ async function sendTemplateMessage(userId, data) {
     throw AppError.forbidden('WhatsApp account is not active');
   }
 
-  // Decrypt access token
-  const accessToken = decrypt(account.access_token);
+  const credential = requireResolvedMetaCredential(account);
 
   // Fetch template from template-service
   let template;
@@ -378,6 +377,16 @@ async function sendTemplateMessage(userId, data) {
 
   if (!template || !template.name) {
     throw AppError.notFound('Template not found or missing name');
+  }
+
+  if (template.status && template.status !== 'APPROVED' && template.status !== 'approved') {
+    throw AppError.badRequest(`Template is not approved. Current status: ${template.status}`);
+  }
+
+  if (template.waba_id && String(template.waba_id) !== String(account.waba_id)) {
+    throw AppError.badRequest(
+      `Template belongs to WABA ${template.waba_id}, but the selected WhatsApp account belongs to WABA ${account.waba_id}.`
+    );
   }
 
   const linkedFlows = await extractTemplateLinkedFlows(userId, template);
@@ -428,7 +437,7 @@ async function sendTemplateMessage(userId, data) {
       fullPayload,
       {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${credential.accessToken}`,
           'Content-Type': 'application/json',
         },
       }
@@ -891,7 +900,7 @@ async function sendCampaignMessage(params) {
     throw AppError.badRequest('WhatsApp account not available for campaign');
   }
 
-  const accessToken = decrypt(account.access_token);
+  const credential = requireResolvedMetaCredential(account);
 
   let payload;
   let msgType;
@@ -946,7 +955,7 @@ async function sendCampaignMessage(params) {
       payload,
       {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${credential.accessToken}`,
           'Content-Type': 'application/json',
         },
       }

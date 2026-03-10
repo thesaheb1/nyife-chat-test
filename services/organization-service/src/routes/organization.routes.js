@@ -45,4 +45,7 @@ router.put('/:id/members/:memberId', asyncHandler(controller.updateTeamMember));
 // DELETE /api/v1/organizations/:id/members/:memberId — Remove a team member
 router.delete('/:id/members/:memberId', asyncHandler(controller.removeTeamMember));
 
+// POST /api/v1/organizations/internal/team-members/validate — Internal chat assignment guard
+router.post('/internal/team-members/validate', asyncHandler(controller.validateTeamMemberAccess));
+
 module.exports = router;

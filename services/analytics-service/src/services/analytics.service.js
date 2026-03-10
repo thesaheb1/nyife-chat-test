@@ -141,18 +141,18 @@ async function processUserEvent(payload, sequelize, redis) {
 
 /**
  * Process webhook.inbound events from whatsapp-service.
- * Payload: { wabaId, phoneNumberId, event, eventType, timestamp }
+ * Payload: { userId, waAccountId, wabaId, phoneNumberId, message, contacts, eventType, timestamp }
  */
 async function processWebhookInbound(payload, sequelize, redis) {
   if (payload.eventType === 'message') {
     await incrementDailyStat(sequelize, null, 'inbound_messages');
     await incrementRedisCounter(redis, null, 'inbound_messages');
   }
+}
 
-  if (payload.eventType === 'status') {
-    await incrementDailyStat(sequelize, null, 'status_webhooks');
-    await incrementRedisCounter(redis, null, 'status_webhooks');
-  }
+async function processWhatsAppMessageStatus(_payload, sequelize, redis) {
+  await incrementDailyStat(sequelize, null, 'status_webhooks');
+  await incrementRedisCounter(redis, null, 'status_webhooks');
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -619,6 +619,7 @@ module.exports = {
   processWalletTransaction,
   processUserEvent,
   processWebhookInbound,
+  processWhatsAppMessageStatus,
   getUserDashboard,
   getAdminDashboard,
   getMetrics,

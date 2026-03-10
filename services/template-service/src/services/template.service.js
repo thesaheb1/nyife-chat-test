@@ -3,7 +3,12 @@
 const { Op, QueryTypes } = require('sequelize');
 const axios = require('axios');
 const { Template, Flow, sequelize } = require('../models');
-const { AppError, decrypt, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
+const {
+  AppError,
+  getPagination,
+  getPaginationMeta,
+  resolveMetaAccessCredential,
+} = require('@nyife/shared-utils');
 const config = require('../config');
 const { assertTemplateBusinessRules, getTemplateAvailableActions } = require('../helpers/templateRules');
 const TEMPLATE_MEDIA_RULES = {
@@ -128,7 +133,7 @@ async function fetchActiveWaAccountById(userId, waAccountId) {
 
   try {
     const accounts = await sequelize.query(
-      `SELECT id, user_id, waba_id, access_token, status, display_phone, verified_name
+      `SELECT id, user_id, waba_id, access_token, status, onboarding_status, display_phone, verified_name
        FROM wa_accounts
        WHERE id = :waAccountId
          AND user_id = :userId
@@ -159,7 +164,7 @@ async function fetchLatestActiveWaAccountByWaba(userId, wabaId) {
 
   try {
     const accounts = await sequelize.query(
-      `SELECT id, user_id, waba_id, access_token, status, display_phone, verified_name
+      `SELECT id, user_id, waba_id, access_token, status, onboarding_status, display_phone, verified_name
        FROM wa_accounts
        WHERE user_id = :userId
          AND waba_id = :wabaId
@@ -215,30 +220,64 @@ async function resolveAccountContext(userId, options = {}) {
     };
   }
 
-  if (account?.access_token) {
-    try {
-      return {
-        wa_account_id: account.id,
-        waba_id: String(account.waba_id),
-        access_token: decrypt(account.access_token),
-        account,
-      };
-    } catch (err) {
-      console.warn('[template-service] Failed to decrypt stored WhatsApp access token:', err.message);
-      return null;
-    }
-  }
+  const credential = resolveMetaAccessCredential({
+    systemUserAccessToken: config.meta.systemUserAccessToken,
+    encryptedAccessToken: account?.access_token || null,
+    allowLegacyAccountTokenFallback: config.meta.allowLegacyAccountTokenFallback,
+  });
 
-  if (config.meta.systemUserAccessToken && resolvedWabaId) {
+  if (credential && resolvedWabaId) {
     return {
       wa_account_id: account?.id || waAccountId || null,
       waba_id: resolvedWabaId,
-      access_token: config.meta.systemUserAccessToken,
+      access_token: credential.accessToken,
       account,
     };
   }
 
   return null;
+}
+
+async function applyTemplateStatusEvent(event) {
+  const metaTemplateId = event.messageTemplateId || event.message_template_id || null;
+  const templateName = event.messageTemplateName || event.message_template_name;
+  const wabaId = event.wabaId || event.waba_id;
+  const normalizedStatus = String(event.status || event.event || '').toUpperCase();
+
+  if (!templateName || !wabaId || !normalizedStatus) {
+    throw AppError.badRequest('Template status event is missing required identifiers.');
+  }
+
+  const statusMap = {
+    APPROVED: 'approved',
+    REJECTED: 'rejected',
+    PENDING: 'pending',
+    PENDING_DELETION: 'pending',
+    PAUSED: 'paused',
+    DISABLED: 'disabled',
+  };
+
+  const nextStatus = statusMap[normalizedStatus] || 'pending';
+  const where = metaTemplateId
+    ? { meta_template_id: metaTemplateId }
+    : {
+        waba_id: String(wabaId),
+        name: templateName,
+      };
+
+  const template = await Template.findOne({ where });
+  if (!template) {
+    return null;
+  }
+
+  await template.update({
+    status: nextStatus,
+    rejection_reason: nextStatus === 'rejected' ? event.reason || event.rejection_reason || null : null,
+    meta_template_id: metaTemplateId || template.meta_template_id,
+    last_synced_at: new Date(),
+  });
+
+  return template;
 }
 
 async function requireActiveWaAccount(userId, waAccountId) {
@@ -1323,4 +1362,5 @@ module.exports = {
   publishTemplate,
   syncTemplates,
   resolveAccountContext,
+  applyTemplateStatusEvent,
 };

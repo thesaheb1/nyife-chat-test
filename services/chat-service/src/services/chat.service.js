@@ -11,6 +11,10 @@ function normalizeInboundPayload(event) {
     return { message: null, contacts: [] };
   }
 
+  if (event.event && typeof event.event === 'object') {
+    return normalizeInboundPayload(event.event);
+  }
+
   if (event.message && typeof event.message === 'object') {
     return {
       message: event.message,
@@ -27,6 +31,27 @@ function normalizeInboundPayload(event) {
 function normalizeStatusPayload(event) {
   if (!event || typeof event !== 'object') {
     return null;
+  }
+
+  if (event.event && typeof event.event === 'object') {
+    return normalizeStatusPayload(event.event);
+  }
+
+  if (event.metaMessageId && event.status) {
+    return {
+      id: event.metaMessageId,
+      status: event.status,
+      recipient_id: event.contactPhone || null,
+      pricing: event.pricingCategory || event.pricingModel
+        ? {
+            category: event.pricingCategory || null,
+            pricing_model: event.pricingModel || null,
+          }
+        : null,
+      errors: event.errorCode || event.errorMessage
+        ? [{ code: event.errorCode || null, message: event.errorMessage || null }]
+        : [],
+    };
   }
 
   if (event.status && typeof event.status === 'object') {
@@ -46,7 +71,7 @@ async function findWaAccountById(userId, waAccountId, requireActive = false) {
   }
 
   const accounts = await sequelize.query(
-    `SELECT id, user_id, waba_id, phone_number_id, display_phone, verified_name, status
+    `SELECT id, user_id, waba_id, phone_number_id, display_phone, verified_name, status, onboarding_status
      FROM wa_accounts
      WHERE ${conditions.join(' AND ')}
      LIMIT 1`,
@@ -57,6 +82,31 @@ async function findWaAccountById(userId, waAccountId, requireActive = false) {
   );
 
   return accounts[0] || null;
+}
+
+async function validateAssignableMember(userId, memberUserId) {
+  try {
+    const response = await axios.post(
+      `${config.organizationServiceUrl}/api/v1/organizations/internal/team-members/validate`,
+      {
+        member_user_id: memberUserId,
+        resource: 'chat',
+        permission: 'update',
+      },
+      {
+        headers: {
+          'x-user-id': userId,
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000,
+      }
+    );
+
+    return response.data?.data?.member || response.data?.data || null;
+  } catch (err) {
+    const message = err.response?.data?.message || err.message;
+    throw AppError.forbidden(`Cannot assign this conversation to the selected team member. ${message}`);
+  }
 }
 
 // ────────────────────────────────────────────────
@@ -315,6 +365,8 @@ async function assignConversation(userId, conversationId, memberUserId) {
     throw AppError.notFound('Conversation not found');
   }
 
+  await validateAssignableMember(userId, memberUserId);
+
   await conversation.update({
     assigned_to: memberUserId,
     assigned_at: new Date(),
@@ -393,8 +445,8 @@ async function markAsRead(userId, conversationId) {
  * @returns {Promise<{ conversation: Conversation, message: ChatMessage }|null>}
  */
 async function handleInboundMessage(eventData, io) {
-  const { phoneNumberId, event } = eventData;
-  const { message: inboundMessage, contacts } = normalizeInboundPayload(event);
+  const phoneNumberId = eventData.phoneNumberId || eventData.phone_number_id;
+  const { message: inboundMessage, contacts } = normalizeInboundPayload(eventData);
 
   if (!inboundMessage) {
     console.warn('[chat-service] Inbound payload is missing a message body');
@@ -528,8 +580,7 @@ async function handleInboundMessage(eventData, io) {
  * @returns {Promise<void>}
  */
 async function handleStatusUpdate(eventData, io) {
-  const { event } = eventData;
-  const statusUpdate = normalizeStatusPayload(event);
+  const statusUpdate = normalizeStatusPayload(eventData);
 
   if (!statusUpdate) {
     console.warn('[chat-service] Status update payload is missing a status body');

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
+  Activity,
   ArrowLeft,
   CheckCircle2,
   Loader2,
-  MessageSquare,
   ShieldCheck,
   Trash2,
 } from 'lucide-react';
@@ -23,14 +23,21 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import type {
+  EmbeddedSignupCompleteResult,
   EmbeddedSignupPreviewAccount,
   EmbeddedSignupPreviewResult,
+  WaAccount,
 } from '@/core/types';
-import { buildActiveWhatsAppAccountOptions, getActiveWhatsAppAccounts } from './accountOptions';
+import {
+  getActiveWhatsAppAccounts,
+  getWhatsAppAccountConnectionLabel,
+  getWhatsAppAccountConnectionVariant,
+} from './accountOptions';
 import {
   useDisconnectWhatsAppAccount,
   useEmbeddedSignupComplete,
   useEmbeddedSignupPreview,
+  useRefreshWhatsAppAccountHealth,
   useWhatsAppAccounts,
 } from './useWhatsAppAccounts';
 import { loadFacebookSdk, type FacebookSDK } from './loadFacebookSdk';
@@ -52,6 +59,22 @@ function getAccountLabel(account: {
 
 function getRemainingSlotsLabel(remainingSlots: number | null) {
   return remainingSlots === null ? 'Unlimited by plan' : `${remainingSlots} slot(s) left`;
+}
+
+function getMessagingLimitLabel(account: Pick<WaAccount, 'messaging_limit'>) {
+  return account.messaging_limit || 'N/A';
+}
+
+function getAccountRefreshMessage(account: WaAccount) {
+  if (account.last_onboarding_error) {
+    return account.last_onboarding_error;
+  }
+
+  if (account.app_subscription_status === 'not_subscribed') {
+    return 'Connected, but inbound sync should be checked.';
+  }
+
+  return 'Connection details refreshed.';
 }
 
 function getMetaEmbeddedSignupOriginError() {
@@ -86,10 +109,12 @@ export function WhatsAppOnboardingPage() {
   const previewSignup = useEmbeddedSignupPreview();
   const completeSignup = useEmbeddedSignupComplete();
   const disconnectMutation = useDisconnectWhatsAppAccount();
+  const refreshHealthMutation = useRefreshWhatsAppAccountHealth();
   const [sdkReady, setSdkReady] = useState(false);
   const [sdkError, setSdkError] = useState<string | null>(null);
   const [preview, setPreview] = useState<EmbeddedSignupPreviewResult | null>(null);
   const [selectedPhoneIds, setSelectedPhoneIds] = useState<string[]>([]);
+  const [completionResult, setCompletionResult] = useState<EmbeddedSignupCompleteResult | null>(null);
 
   const configReady = Boolean(META_APP_ID && META_EMBEDDED_SIGNUP_CONFIG_ID);
   const originError = getMetaEmbeddedSignupOriginError();
@@ -126,10 +151,6 @@ export function WhatsAppOnboardingPage() {
 
   const allAccounts = useMemo(() => accounts ?? [], [accounts]);
   const activeAccounts = useMemo(() => getActiveWhatsAppAccounts(accounts), [accounts]);
-  const activeAccountOptions = useMemo(
-    () => buildActiveWhatsAppAccountOptions(accounts),
-    [accounts]
-  );
   const effectiveSdkError = configError || originError || sdkError;
   const accountSummary = useMemo(() => {
     const wabas = new Set(activeAccounts.map((account) => account.waba_id));
@@ -149,11 +170,13 @@ export function WhatsAppOnboardingPage() {
   const closePreviewDialog = () => {
     setPreview(null);
     setSelectedPhoneIds([]);
+    setCompletionResult(null);
   };
 
   const openPreviewDialog = (result: EmbeddedSignupPreviewResult) => {
     setPreview(result);
     setSelectedPhoneIds(preselectPhoneNumbers(result));
+    setCompletionResult(null);
   };
 
   const handleEmbeddedSignupResponse = (response: { authResponse?: { code?: string }; status?: string }) => {
@@ -256,7 +279,7 @@ export function WhatsAppOnboardingPage() {
         : '';
 
       toast.success(`Connected ${result.connected_count} WhatsApp number(s).${skippedText}`);
-      closePreviewDialog();
+      setCompletionResult(result);
     } catch (error) {
       const message =
         (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
@@ -273,6 +296,18 @@ export function WhatsAppOnboardingPage() {
       const message =
         (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
         'Failed to disconnect account.';
+      toast.error(message);
+    }
+  };
+
+  const handleRefreshHealth = async (id: string) => {
+    try {
+      const result = await refreshHealthMutation.mutateAsync(id);
+      toast.success(getAccountRefreshMessage(result.account));
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to refresh account details.';
       toast.error(message);
     }
   };
@@ -325,7 +360,7 @@ export function WhatsAppOnboardingPage() {
                 <div className="space-y-1">
                   <p className="font-medium">What this flow configures</p>
                   <p className="text-muted-foreground">
-                    Nyife exchanges the Meta code server-side, stores the signup session in Redis for 10 minutes, lets you choose which phone numbers to activate, registers each selection automatically, subscribes the WABA to webhooks, and enforces your plan’s WhatsApp-number limit.
+                    Connect with Meta, choose the phone numbers you want in Nyife, and start using those connected accounts across templates, chat, campaigns, flows, and automations.
                   </p>
                 </div>
               </div>
@@ -347,28 +382,22 @@ export function WhatsAppOnboardingPage() {
               <div className="rounded-lg border p-4">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                  <p className="font-medium">Account-driven template routing</p>
+                  <p className="font-medium">Templates use WABA</p>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Template create, publish, and sync flows now resolve the WABA from the active account you pick instead of asking for a raw WABA ID.
+                  Create and sync templates with the connected WABA you select. You do not need to manage raw Meta tokens or setup details here.
                 </p>
               </div>
               <div className="rounded-lg border p-4">
                 <div className="flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-primary" />
-                  <p className="font-medium">Campaign and chat account pinning</p>
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                  <p className="font-medium">Chat and campaigns use numbers</p>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Campaigns and conversations stay bound to one connected account, while inactive accounts remain visible for history but cannot be used for new sends.
+                  Chat, sends, and campaigns stay tied to the connected number you pick, so each workflow uses the right business phone automatically.
                 </p>
               </div>
             </div>
-
-            {activeAccountOptions.length > 0 ? (
-              <div className="rounded-lg border p-4 text-sm text-muted-foreground">
-                Active account labels are reused across template, campaign, and chat selectors so the same connected number is shown consistently everywhere.
-              </div>
-            ) : null}
           </CardContent>
         </Card>
 
@@ -396,31 +425,53 @@ export function WhatsAppOnboardingPage() {
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium">{getAccountLabel(account)}</p>
-                      <Badge variant="secondary" className="capitalize">
-                        {account.status}
+                      <Badge variant={getWhatsAppAccountConnectionVariant(account)}>
+                        {getWhatsAppAccountConnectionLabel(account)}
                       </Badge>
                       {account.quality_rating ? (
                         <Badge variant="outline">{account.quality_rating}</Badge>
                       ) : null}
                     </div>
-                    <div className="space-y-1 text-xs text-muted-foreground">
-                      <p>Display phone: {account.display_phone || 'Unknown'}</p>
+                    <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                      <p>Connected number: {account.display_phone || 'Unknown'}</p>
                       <p>WABA ID: {account.waba_id}</p>
-                      <p>Phone number ID: {account.phone_number_id}</p>
+                      <p>Message limits: {getMessagingLimitLabel(account)}</p>
+                      <p>Number status: {account.number_status || account.status}</p>
+                      {account.code_verification_status ? (
+                        <p>Phone verification: {account.code_verification_status}</p>
+                      ) : null}
+                      {account.account_review_status ? (
+                        <p>Account review: {account.account_review_status}</p>
+                      ) : null}
+                      {account.last_onboarding_error ? (
+                        <p className="text-destructive sm:col-span-2">Last update: {account.last_onboarding_error}</p>
+                      ) : null}
                     </div>
                   </div>
-                  {account.status === 'active' ? (
+                  <div className="flex flex-col items-end gap-2">
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => handleDisconnect(account.id)}
-                      disabled={disconnectMutation.isPending}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleRefreshHealth(account.id)}
+                      disabled={refreshHealthMutation.isPending}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Activity className="mr-2 h-4 w-4" />
+                      Refresh
                     </Button>
-                  ) : null}
+                    {account.status === 'active' ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => handleDisconnect(account.id)}
+                        disabled={disconnectMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             ))}
@@ -437,7 +488,7 @@ export function WhatsAppOnboardingPage() {
           <DialogHeader>
             <DialogTitle>Review discovered WhatsApp numbers</DialogTitle>
             <DialogDescription>
-              Select the phone numbers to activate for this tenant. Nyife will complete registration automatically after you confirm. {preview ? getRemainingSlotsLabel(preview.remaining_slots) : ''}
+              Select the phone numbers you want to connect in Nyife. {preview ? getRemainingSlotsLabel(preview.remaining_slots) : ''}
             </DialogDescription>
           </DialogHeader>
 
@@ -458,6 +509,19 @@ export function WhatsAppOnboardingPage() {
                 <div className="rounded-lg border p-3">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Plan capacity</p>
                   <p className="mt-1 text-sm font-medium">{getRemainingSlotsLabel(preview.remaining_slots)}</p>
+                </div>
+              </div>
+            ) : null}
+
+            {preview?.wabas.length ? (
+              <div className="rounded-lg border p-3 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Shared WABAs</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {preview.wabas.map((waba) => (
+                    <Badge key={waba.waba_id} variant="outline">
+                      {waba.name || waba.waba_id} · {waba.phone_count}
+                    </Badge>
+                  ))}
                 </div>
               </div>
             ) : null}
@@ -496,7 +560,7 @@ export function WhatsAppOnboardingPage() {
                     <div className="min-w-0 flex-1 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-medium">
-                          {account.verified_name || account.display_phone || account.phone_number_id}
+                          {account.verified_name || account.display_phone || account.waba_id}
                         </p>
                         <Badge variant="outline">{account.waba_id}</Badge>
                         {account.already_connected ? (
@@ -508,7 +572,6 @@ export function WhatsAppOnboardingPage() {
                       </div>
                       <div className="space-y-1 text-xs text-muted-foreground">
                         <p>Display phone: {account.display_phone || 'Unknown'}</p>
-                        <p>Phone number ID: {account.phone_number_id}</p>
                       </div>
                     </div>
                   </label>
@@ -519,19 +582,56 @@ export function WhatsAppOnboardingPage() {
             <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
               Nyife will handle the Meta registration step for each selected phone number during connect.
             </div>
+
+            {completionResult ? (
+              <div className="space-y-3 rounded-lg border p-4">
+                <p className="font-medium">Latest onboarding result</p>
+                {completionResult.warnings.length ? (
+                  <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 p-3 text-xs text-amber-900">
+                    {completionResult.warnings.map((warning) => (
+                      <p key={warning}>{warning}</p>
+                    ))}
+                  </div>
+                ) : null}
+                {completionResult.results.map((result) => (
+                  <div key={`${result.waba_id}:${result.phone_number_id}`} className="rounded-lg border p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">{result.account?.verified_name || result.account?.display_phone || result.phone_number_id}</p>
+                      <Badge variant="secondary" className="capitalize">{result.status.replace(/_/g, ' ')}</Badge>
+                      <Badge variant="outline">{result.waba_id}</Badge>
+                    </div>
+                    {result.error ? (
+                      <p className="mt-2 text-xs text-destructive">{result.error}</p>
+                    ) : null}
+                    <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                      <p>Connected number: {result.account?.display_phone || 'Unknown'}</p>
+                      <p>WABA ID: {result.waba_id}</p>
+                      {result.account?.quality_rating ? (
+                        <p>Quality rating: {result.account.quality_rating}</p>
+                      ) : null}
+                      {result.warnings[0] ? (
+                        <p>{result.warnings[0]}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={closePreviewDialog}>
-              Cancel
+              {completionResult ? 'Done' : 'Cancel'}
             </Button>
-            <Button
-              onClick={handleCompleteSignup}
-              disabled={!preview || completeSignup.isPending || !selectedPhoneIds.length}
-            >
-              {completeSignup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Connect selected numbers
-            </Button>
+            {!completionResult ? (
+              <Button
+                onClick={handleCompleteSignup}
+                disabled={!preview || completeSignup.isPending || !selectedPhoneIds.length}
+              >
+                {completeSignup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Connect selected numbers
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

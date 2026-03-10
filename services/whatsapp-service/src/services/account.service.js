@@ -2,12 +2,86 @@
 
 const crypto = require('crypto');
 const axios = require('axios');
-const { WaAccount } = require('../models');
-const { AppError, encrypt, decrypt } = require('@nyife/shared-utils');
+const { publishEvent, TOPICS } = require('@nyife/shared-events');
+const { WaAccount, WaOnboardingAttempt } = require('../models');
+const {
+  AppError,
+  encrypt,
+  decrypt,
+  META_CREDENTIAL_SOURCES,
+} = require('@nyife/shared-utils');
 const config = require('../config');
+const {
+  requireResolvedMetaCredential,
+  hasProviderManagementConfig,
+} = require('./metaAccess.service');
 
 const SIGNUP_SESSION_TTL_SECONDS = 10 * 60;
 const signupSessionFallbackStore = new Map();
+const ONBOARDING_STEP_SKIPPED = 'skipped';
+const ONBOARDING_STEP_COMPLETED = 'completed';
+const ONBOARDING_STEP_FAILED = 'failed';
+
+function createStep(name, status, message, extra = {}) {
+  return {
+    name,
+    status,
+    message,
+    timestamp: new Date().toISOString(),
+    ...extra,
+  };
+}
+
+function buildProviderReadiness(redisAvailable) {
+  const configured = hasProviderManagementConfig();
+  const partialProviderConfig = Boolean(
+    config.meta.systemUserAccessToken
+    || config.meta.systemUserId
+    || config.meta.providerBusinessId
+    || config.meta.overrideCallbackUrl
+    || config.meta.creditLineId
+    || config.meta.enableCreditSharing
+  );
+  const warnings = [];
+
+  if (partialProviderConfig && !configured) {
+    warnings.push(
+      'Some optional provider-mode Meta credentials are incomplete. Nyife will continue in the standard Embedded Signup mode.'
+    );
+  }
+
+  if (!redisAvailable && config.redis.requiredForSignup) {
+    warnings.push('Redis is required for Embedded Signup sessions in this environment.');
+  }
+
+  if (config.meta.enableCreditSharing && !config.meta.creditLineId) {
+    warnings.push(
+      'Credit sharing is enabled, but META_CREDIT_LINE_ID is not configured. The credit attachment step will be skipped.'
+    );
+  }
+
+  return {
+    provider_configured: configured,
+    system_user_id: config.meta.systemUserId || null,
+    provider_business_id: config.meta.providerBusinessId || null,
+    legacy_token_fallback_enabled: Boolean(config.meta.allowLegacyAccountTokenFallback),
+    redis_backed_session: Boolean(redisAvailable),
+    credit_sharing_enabled: Boolean(config.meta.enableCreditSharing),
+    override_callback_url_configured: Boolean(config.meta.overrideCallbackUrl),
+    warnings,
+  };
+}
+
+function ensureSignupSessionStoreAvailable(redis) {
+  if (redis || !config.redis.requiredForSignup) {
+    return;
+  }
+
+  throw new AppError(
+    'Redis is required for Embedded Signup sessions in this environment. Restore Redis and retry the Meta connection flow.',
+    503
+  );
+}
 
 function getMetaErrorMessage(err, fallbackMessage) {
   const metaMessage = err.response?.data?.error?.message;
@@ -65,7 +139,26 @@ function serializeDiscoveredPhone(phone, existingAccount) {
     already_connected: alreadyConnected,
     eligible: !alreadyConnected,
     existing_account_id: existingAccount?.id || null,
+    onboarding_status: existingAccount?.onboarding_status || null,
+    credential_source: existingAccount?.credential_source || null,
   };
+}
+
+function summarizeWabas(discoveredPhones) {
+  const summary = new Map();
+
+  for (const phone of discoveredPhones || []) {
+    const key = String(phone.waba_id);
+    const current = summary.get(key) || {
+      waba_id: key,
+      name: phone.waba_name || phone.verified_name || null,
+      phone_count: 0,
+    };
+    current.phone_count += 1;
+    summary.set(key, current);
+  }
+
+  return Array.from(summary.values());
 }
 
 function getSignupSessionKey(signupSessionId) {
@@ -82,6 +175,7 @@ function pruneExpiredFallbackSessions() {
 }
 
 async function saveSignupSession(redis, payload) {
+  ensureSignupSessionStoreAvailable(redis);
   const signupSessionId = crypto.randomUUID();
   const key = getSignupSessionKey(signupSessionId);
   const serialized = JSON.stringify({
@@ -103,6 +197,7 @@ async function saveSignupSession(redis, payload) {
 }
 
 async function loadSignupSession(redis, signupSessionId) {
+  ensureSignupSessionStoreAvailable(redis);
   const key = getSignupSessionKey(signupSessionId);
 
   if (redis) {
@@ -123,6 +218,7 @@ async function loadSignupSession(redis, signupSessionId) {
 }
 
 async function deleteSignupSession(redis, signupSessionId) {
+  ensureSignupSessionStoreAvailable(redis);
   const key = getSignupSessionKey(signupSessionId);
 
   if (redis) {
@@ -399,6 +495,7 @@ async function discoverEmbeddedSignupAccounts(accessToken) {
 
   return {
     businessId,
+    wabas,
     discoveredPhones,
   };
 }
@@ -421,17 +518,22 @@ async function previewEmbeddedSignup(userId, code, redis) {
   const phoneNumberIds = discovery.discoveredPhones.map((phone) => phone.phone_number_id);
   const existingAccounts = await getExistingAccountsByPhoneNumber(userId, phoneNumberIds);
   const slotStatus = await getRemainingWhatsAppSlots(userId);
+  const providerReadiness = buildProviderReadiness(Boolean(redis));
 
   const signupSessionId = await saveSignupSession(redis, {
     userId,
     businessId: discovery.businessId,
     accessToken,
+    wabas: discovery.wabas,
     discoveredPhones: discovery.discoveredPhones,
   });
 
   return {
     signup_session_id: signupSessionId,
+    business_id: discovery.businessId,
     remaining_slots: slotStatus.remainingSlots,
+    wabas: summarizeWabas(discovery.discoveredPhones),
+    provider_readiness: providerReadiness,
     accounts: discovery.discoveredPhones.map((phone) =>
       serializeDiscoveredPhone(phone, existingAccounts.get(String(phone.phone_number_id)))
     ),
@@ -439,21 +541,274 @@ async function previewEmbeddedSignup(userId, code, redis) {
 }
 
 async function subscribeAppToWaba(accessToken, wabaId) {
+  const subscribedApps = await fetchSubscribedApps(accessToken, wabaId);
+  const existingApp = subscribedApps.find((app) => String(app.id || '') === String(config.meta.appId));
+
+  if (existingApp) {
+    return {
+      status: 'already_subscribed',
+      raw: existingApp,
+      callback_override_applied: Boolean(config.meta.overrideCallbackUrl),
+    };
+  }
+
+  const payload = config.meta.overrideCallbackUrl
+    ? {
+        override_callback_uri: config.meta.overrideCallbackUrl,
+        verify_token: config.meta.webhookVerifyToken,
+      }
+    : {};
+
   try {
-    await axios.post(
+    const response = await axios.post(
       `${config.meta.baseUrl}/${wabaId}/subscribed_apps`,
-      {},
+      payload,
       {
         headers: buildMetaHeaders(accessToken),
         timeout: 10000,
       }
     );
+
+    return {
+      status: 'subscribed',
+      raw: response.data || null,
+      callback_override_applied: Boolean(config.meta.overrideCallbackUrl),
+    };
   } catch (err) {
-    console.warn(
-      `[whatsapp-service] Could not subscribe app to WABA ${wabaId}:`,
-      getMetaErrorMessage(err, err.message)
+    throw AppError.badRequest(
+      `Failed to subscribe the Nyife app to WABA ${wabaId}. ${getMetaErrorMessage(err, 'App subscription failed.')}`
     );
   }
+}
+
+async function fetchSubscribedApps(accessToken, wabaId) {
+  try {
+    const response = await axios.get(
+      `${config.meta.baseUrl}/${wabaId}/subscribed_apps`,
+      {
+        headers: buildMetaHeaders(accessToken),
+        timeout: 10000,
+      }
+    );
+
+    return Array.isArray(response.data?.data) ? response.data.data : [];
+  } catch (err) {
+    throw AppError.badRequest(
+      `Failed to fetch app subscriptions for WABA ${wabaId}. ${getMetaErrorMessage(err, 'Subscription lookup failed.')}`
+    );
+  }
+}
+
+async function fetchProviderSystemUsers() {
+  const response = await axios.get(
+    `${config.meta.baseUrl}/${config.meta.providerBusinessId}/system_users`,
+    {
+      headers: buildMetaHeaders(config.meta.systemUserAccessToken),
+      timeout: 15000,
+    }
+  );
+
+  return Array.isArray(response.data?.data) ? response.data.data : [];
+}
+
+async function ensureProviderSystemUserConfigured() {
+  if (!hasProviderManagementConfig()) {
+    throw new AppError(
+      'Provider-managed Meta credentials are incomplete. Configure META_SYSTEM_USER_ACCESS_TOKEN, META_SYSTEM_USER_ID, and META_PROVIDER_BUSINESS_ID.',
+      503
+    );
+  }
+
+  const users = await fetchProviderSystemUsers();
+  const found = users.find((user) => String(user.id) === String(config.meta.systemUserId));
+  if (!found) {
+    throw AppError.badRequest(
+      `Configured Meta system user ${config.meta.systemUserId} was not found under provider business ${config.meta.providerBusinessId}.`
+    );
+  }
+
+  return found;
+}
+
+async function assignSystemUserToWaba(wabaId) {
+  const existingAssignment = await verifyAssignedSystemUser(wabaId).catch(() => null);
+  if (existingAssignment) {
+    return {
+      status: 'already_assigned',
+      assigned_user_id: String(existingAssignment.id),
+    };
+  }
+
+  try {
+    await axios.post(
+      `${config.meta.baseUrl}/${wabaId}/assigned_users`,
+      null,
+      {
+        params: {
+          user: config.meta.systemUserId,
+          tasks: "['MANAGE']",
+        },
+        headers: buildMetaHeaders(config.meta.systemUserAccessToken),
+        timeout: 15000,
+      }
+    );
+    return {
+      status: 'assigned',
+      assigned_user_id: String(config.meta.systemUserId),
+    };
+  } catch (err) {
+    throw AppError.badRequest(
+      `Failed to assign Nyife's Meta system user to WABA ${wabaId}. ${getMetaErrorMessage(err, 'System user assignment failed.')}`
+    );
+  }
+}
+
+async function verifyAssignedSystemUser(wabaId) {
+  try {
+    const response = await axios.get(
+      `${config.meta.baseUrl}/${wabaId}/assigned_users`,
+      {
+        params: {
+          business: config.meta.providerBusinessId,
+        },
+        headers: buildMetaHeaders(config.meta.systemUserAccessToken),
+        timeout: 15000,
+      }
+    );
+
+    const assignedUsers = Array.isArray(response.data?.data) ? response.data.data : [];
+    const found = assignedUsers.find((user) => String(user.id) === String(config.meta.systemUserId));
+    if (!found) {
+      throw AppError.badRequest(
+        `Meta did not report Nyife's configured system user as assigned to WABA ${wabaId}.`
+      );
+    }
+
+    return found;
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+
+    throw AppError.badRequest(
+      `Failed to verify system user assignment for WABA ${wabaId}. ${getMetaErrorMessage(err, 'Assigned user lookup failed.')}`
+    );
+  }
+}
+
+async function attachCreditLineToWaba(wabaId) {
+  if (!config.meta.enableCreditSharing) {
+    return {
+      status: 'not_required',
+      warning: null,
+    };
+  }
+
+  if (!config.meta.creditLineId) {
+    return {
+      status: 'failed',
+      warning: 'META_CREDIT_LINE_ID is not configured, so credit sharing was skipped.',
+    };
+  }
+
+  try {
+    await axios.post(
+      `${config.meta.baseUrl}/${config.meta.creditLineId}/whatsapp_credit_sharing_and_attach`,
+      null,
+      {
+        params: {
+          waba_id: String(wabaId),
+          waba_currency: config.meta.creditLineCurrency,
+        },
+        headers: buildMetaHeaders(config.meta.systemUserAccessToken),
+        timeout: 15000,
+      }
+    );
+
+    return {
+      status: 'attached',
+      warning: null,
+    };
+  } catch (err) {
+    return {
+      status: 'failed',
+      warning: `Credit line attachment failed for WABA ${wabaId}. ${getMetaErrorMessage(err, 'Credit sharing failed.')}`,
+    };
+  }
+}
+
+async function createOnboardingAttempt({
+  userId,
+  waAccountId = null,
+  signupSessionId = null,
+  businessId = null,
+  wabaId,
+  phoneNumberId,
+  status = 'pending',
+}) {
+  return WaOnboardingAttempt.create({
+    user_id: userId,
+    wa_account_id: waAccountId,
+    signup_session_id: signupSessionId,
+    business_id: businessId,
+    waba_id: String(wabaId),
+    phone_number_id: String(phoneNumberId),
+    status,
+    step_details: [],
+    warnings: [],
+  });
+}
+
+async function updateOnboardingAttempt(attempt, fields) {
+  if (!attempt) {
+    return;
+  }
+
+  await attempt.update(fields);
+}
+
+async function fetchPhoneNumberHealth(accessToken, phoneNumberId) {
+  const response = await axios.get(
+    `${config.meta.baseUrl}/${phoneNumberId}`,
+    {
+      params: {
+        fields: 'verified_name,display_phone_number,quality_rating,name_status,status,code_verification_status,messaging_limit_tier',
+      },
+      headers: buildMetaHeaders(accessToken),
+      timeout: 15000,
+    }
+  );
+
+  return response.data || null;
+}
+
+async function fetchAccountReviewStatus(accessToken, wabaId) {
+  const response = await axios.get(
+    `${config.meta.baseUrl}/${wabaId}`,
+    {
+      params: {
+        fields: 'account_review_status',
+      },
+      headers: buildMetaHeaders(accessToken),
+      timeout: 15000,
+    }
+  );
+
+  return response.data?.account_review_status || null;
+}
+
+function applyResolvedPhoneMetadata(phone, phoneDetails, accountReviewStatus) {
+  return {
+    ...phone,
+    display_phone: phoneDetails?.display_phone_number || phone.display_phone || null,
+    verified_name: phoneDetails?.verified_name || phone.verified_name || null,
+    quality_rating: phoneDetails?.quality_rating || phone.quality_rating || null,
+    name_status: phoneDetails?.name_status || null,
+    number_status: phoneDetails?.status || null,
+    code_verification_status: phoneDetails?.code_verification_status || null,
+    account_review_status: accountReviewStatus || null,
+    messaging_limit: phoneDetails?.messaging_limit_tier || phone.messaging_limit || null,
+  };
 }
 
 async function setTwoStepVerificationPin(accessToken, phoneNumberId, pin) {
@@ -522,32 +877,46 @@ async function upsertConnectedAccount(
   businessId,
   phone,
   existingAccount,
-  registrationPin
+  registrationPin,
+  metadata = {}
 ) {
-  const encryptedToken = encrypt(accessToken);
+  const encryptedToken = accessToken ? encrypt(accessToken) : null;
   const encryptedRegistrationPin = encrypt(registrationPin);
   const webhookSecret = existingAccount?.webhook_secret || crypto.randomBytes(32).toString('hex');
   const shouldIncrementUsage = !existingAccount || existingAccount.deleted_at || existingAccount.status !== 'active';
+  const updatePayload = {
+    access_token: encryptedToken,
+    registration_pin: encryptedRegistrationPin,
+    waba_id: String(phone.waba_id),
+    phone_number_id: String(phone.phone_number_id),
+    display_phone: phone.display_phone || null,
+    verified_name: phone.verified_name || null,
+    business_id: businessId ? String(businessId) : null,
+    quality_rating: phone.quality_rating || null,
+    name_status: phone.name_status || null,
+    number_status: phone.number_status || null,
+    code_verification_status: phone.code_verification_status || null,
+    account_review_status: phone.account_review_status || null,
+    messaging_limit: phone.messaging_limit || null,
+    platform_type: phone.platform_type || 'CLOUD_API',
+    status: 'active',
+    credential_source: metadata.credential_source || META_CREDENTIAL_SOURCES.LEGACY_EMBEDDED_USER_TOKEN,
+    assigned_system_user_id: metadata.assigned_system_user_id || null,
+    app_subscription_status: metadata.app_subscription_status || 'unknown',
+    credit_sharing_status: metadata.credit_sharing_status || 'unknown',
+    onboarding_status: metadata.onboarding_status || 'active',
+    last_health_checked_at: metadata.last_health_checked_at || null,
+    last_onboarded_at: metadata.last_onboarded_at || new Date(),
+    last_onboarding_error: metadata.last_onboarding_error || null,
+    webhook_secret: webhookSecret,
+  };
 
   if (existingAccount) {
     if (existingAccount.deleted_at) {
       await existingAccount.restore();
     }
 
-    await existingAccount.update({
-      access_token: encryptedToken,
-      registration_pin: encryptedRegistrationPin,
-      waba_id: String(phone.waba_id),
-      phone_number_id: String(phone.phone_number_id),
-      display_phone: phone.display_phone || null,
-      verified_name: phone.verified_name || null,
-      business_id: businessId ? String(businessId) : null,
-      quality_rating: phone.quality_rating || null,
-      messaging_limit: phone.messaging_limit || null,
-      platform_type: phone.platform_type || 'CLOUD_API',
-      status: 'active',
-      webhook_secret: webhookSecret,
-    });
+    await existingAccount.update(updatePayload);
 
     return {
       account: existingAccount,
@@ -557,18 +926,7 @@ async function upsertConnectedAccount(
 
   const account = await WaAccount.create({
     user_id: userId,
-    waba_id: String(phone.waba_id),
-    phone_number_id: String(phone.phone_number_id),
-    display_phone: phone.display_phone || null,
-    verified_name: phone.verified_name || null,
-    business_id: businessId ? String(businessId) : null,
-    access_token: encryptedToken,
-    registration_pin: encryptedRegistrationPin,
-    quality_rating: phone.quality_rating || null,
-    messaging_limit: phone.messaging_limit || null,
-    platform_type: phone.platform_type || 'CLOUD_API',
-    status: 'active',
-    webhook_secret: webhookSecret,
+    ...updatePayload,
   });
 
   return {
@@ -577,7 +935,46 @@ async function upsertConnectedAccount(
   };
 }
 
-async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, redis) {
+function buildAttemptResult(phone, account, status, steps, warnings, extra = {}) {
+  return {
+    waba_id: String(phone.waba_id),
+    phone_number_id: String(phone.phone_number_id),
+    status,
+    steps,
+    warnings,
+    account: sanitizeConnectedAccount(account),
+    ...extra,
+  };
+}
+
+async function publishAccountLifecycle(kafkaProducer, account, lifecycleType, extra = {}) {
+  if (!kafkaProducer || !account) {
+    return;
+  }
+
+  try {
+    await publishEvent(kafkaProducer, TOPICS.WHATSAPP_ACCOUNT_LIFECYCLE, account.id, {
+      userId: account.user_id,
+      waAccountId: account.id,
+      wabaId: String(account.waba_id),
+      phoneNumberId: String(account.phone_number_id),
+      lifecycleType,
+      accountStatus: account.status,
+      onboardingStatus: account.onboarding_status,
+      qualityRating: account.quality_rating || null,
+      messagingLimit: account.messaging_limit || null,
+      appSubscriptionStatus: account.app_subscription_status || null,
+      creditSharingStatus: account.credit_sharing_status || null,
+      steps: extra.steps,
+      error: extra.error || null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[whatsapp-service] Failed to publish account lifecycle event:', err.message);
+  }
+}
+
+async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, redis, kafkaProducer = null) {
   const session = await loadSignupSession(redis, signupSessionId);
 
   if (session.userId !== userId) {
@@ -604,6 +1001,8 @@ async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, r
 
   const existingAccounts = await getExistingAccountsByPhoneNumber(userId, uniquePhoneNumberIds);
   const slotStatus = await getRemainingWhatsAppSlots(userId);
+  const providerReadiness = buildProviderReadiness(Boolean(redis));
+  const providerConfigured = providerReadiness.provider_configured;
 
   if (!slotStatus.hasActiveSubscription) {
     throw AppError.forbidden('An active subscription is required before connecting WhatsApp numbers.');
@@ -623,11 +1022,21 @@ async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, r
     );
   }
 
-  const uniqueWabaIds = [...new Set(selectedPhones.map((phone) => String(phone.waba_id)))];
-  await Promise.all(uniqueWabaIds.map((wabaId) => subscribeAppToWaba(session.accessToken, wabaId)));
+  if (!providerConfigured && !config.meta.allowLegacyAccountTokenFallback) {
+    throw new AppError(
+      'Provider-managed Meta credentials are required before Nyife can complete Embedded Signup in this environment.',
+      503
+    );
+  }
+
+  if (providerConfigured) {
+    await ensureProviderSystemUserConfigured();
+  }
 
   const connectedAccounts = [];
   const skipped = [];
+  const results = [];
+  const warnings = [...providerReadiness.warnings];
   let usageDelta = 0;
 
   for (const phone of selectedPhones) {
@@ -644,28 +1053,181 @@ async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, r
         reason: 'already_connected',
       });
       connectedAccounts.push(sanitizeConnectedAccount(existingAccount));
+      results.push(buildAttemptResult(phone, existingAccount, 'already_connected', [
+        createStep('onboarding', ONBOARDING_STEP_SKIPPED, 'This phone number is already connected for this tenant.'),
+      ], []));
       continue;
     }
 
     const registrationPin = resolveRegistrationPin(existingAccount);
-
-    await registerPhoneNumber(
-      session.accessToken,
-      String(phone.phone_number_id),
-      registrationPin
-    );
-
-    const result = await upsertConnectedAccount(
+    const attempt = await createOnboardingAttempt({
       userId,
-      session.accessToken,
-      session.businessId,
-      phone,
-      existingAccount,
-      registrationPin
-    );
+      waAccountId: existingAccount?.id || null,
+      signupSessionId,
+      businessId: session.businessId || null,
+      wabaId: phone.waba_id,
+      phoneNumberId: phone.phone_number_id,
+      status: 'in_progress',
+    });
 
-    usageDelta += result.usageDelta;
-    connectedAccounts.push(sanitizeConnectedAccount(result.account));
+    const stepDetails = [];
+    const localWarnings = [];
+
+    try {
+      if (providerConfigured) {
+        const assignmentResult = await assignSystemUserToWaba(phone.waba_id);
+        stepDetails.push(
+          createStep(
+            'assign_system_user',
+            assignmentResult.status === 'already_assigned' ? ONBOARDING_STEP_SKIPPED : ONBOARDING_STEP_COMPLETED,
+            assignmentResult.status === 'already_assigned'
+              ? 'Nyife system user was already assigned to the WABA.'
+              : 'Nyife system user assigned to the WABA.',
+            assignmentResult
+          )
+        );
+        await updateOnboardingAttempt(attempt, { step_details: stepDetails });
+
+        await verifyAssignedSystemUser(phone.waba_id);
+        stepDetails.push(
+          createStep('verify_system_user_assignment', ONBOARDING_STEP_COMPLETED, 'Meta confirmed the system user assignment.')
+        );
+        await updateOnboardingAttempt(attempt, { step_details: stepDetails });
+      } else {
+        stepDetails.push(
+          createStep(
+            'assign_system_user',
+            ONBOARDING_STEP_SKIPPED,
+            'Nyife is using the standard Embedded Signup connection flow for this account.'
+          )
+        );
+      }
+
+      const managementToken = providerConfigured ? config.meta.systemUserAccessToken : session.accessToken;
+
+      const subscriptionResult = await subscribeAppToWaba(managementToken, phone.waba_id);
+      stepDetails.push(
+        createStep(
+          'subscribe_app',
+          subscriptionResult.status === 'already_subscribed' ? ONBOARDING_STEP_SKIPPED : ONBOARDING_STEP_COMPLETED,
+          subscriptionResult.status === 'already_subscribed'
+            ? 'Nyife app was already subscribed to the WABA.'
+            : 'Nyife app subscribed to the WABA.',
+          subscriptionResult
+        )
+      );
+      await updateOnboardingAttempt(attempt, { step_details: stepDetails });
+
+      const creditResult = providerConfigured
+        ? await attachCreditLineToWaba(phone.waba_id)
+        : { status: 'not_required', warning: null };
+
+      if (creditResult.warning) {
+        localWarnings.push(creditResult.warning);
+      }
+      stepDetails.push(
+        createStep(
+          'attach_credit_line',
+          creditResult.status === 'failed' ? ONBOARDING_STEP_FAILED : (creditResult.status === 'not_required' ? ONBOARDING_STEP_SKIPPED : ONBOARDING_STEP_COMPLETED),
+          creditResult.warning || `Credit sharing status: ${creditResult.status}.`,
+          { credit_sharing_status: creditResult.status }
+        )
+      );
+      await updateOnboardingAttempt(attempt, {
+        step_details: stepDetails,
+        warnings: localWarnings,
+      });
+
+      await registerPhoneNumber(
+        managementToken,
+        String(phone.phone_number_id),
+        registrationPin
+      );
+      stepDetails.push(
+        createStep('register_phone', ONBOARDING_STEP_COMPLETED, 'Phone number registered successfully with Meta.')
+      );
+      await updateOnboardingAttempt(attempt, { step_details: stepDetails });
+
+      const [phoneDetailsResult, accountReviewResult] = await Promise.allSettled([
+        fetchPhoneNumberHealth(managementToken, String(phone.phone_number_id)),
+        fetchAccountReviewStatus(managementToken, String(phone.waba_id)),
+      ]);
+
+      const hydratedPhone = applyResolvedPhoneMetadata(
+        phone,
+        phoneDetailsResult.status === 'fulfilled' ? phoneDetailsResult.value : null,
+        accountReviewResult.status === 'fulfilled' ? accountReviewResult.value : null
+      );
+
+      const result = await upsertConnectedAccount(
+        userId,
+        providerConfigured ? null : session.accessToken,
+        session.businessId,
+        hydratedPhone,
+        existingAccount,
+        registrationPin,
+        {
+          credential_source: providerConfigured
+            ? META_CREDENTIAL_SOURCES.PROVIDER_SYSTEM_USER
+            : META_CREDENTIAL_SOURCES.LEGACY_EMBEDDED_USER_TOKEN,
+          assigned_system_user_id: providerConfigured ? config.meta.systemUserId : null,
+          app_subscription_status: 'subscribed',
+          credit_sharing_status: creditResult.status || 'unknown',
+          onboarding_status: 'active',
+          last_onboarded_at: new Date(),
+          last_onboarding_error: null,
+        }
+      );
+
+      stepDetails.push(
+        createStep('activate_account', ONBOARDING_STEP_COMPLETED, 'The WhatsApp account is active in Nyife.')
+      );
+
+      usageDelta += result.usageDelta;
+      connectedAccounts.push(sanitizeConnectedAccount(result.account));
+      await updateOnboardingAttempt(attempt, {
+        wa_account_id: result.account.id,
+        status: 'completed',
+        step_details: stepDetails,
+        warnings: localWarnings,
+        last_error: null,
+        is_retryable: false,
+      });
+      results.push(buildAttemptResult(hydratedPhone, result.account, 'active', stepDetails, localWarnings));
+      await publishAccountLifecycle(kafkaProducer, result.account, 'onboarding_completed', {
+        steps: stepDetails,
+      });
+    } catch (err) {
+      const failureMessage = err instanceof AppError ? err.message : getMetaErrorMessage(err, err.message);
+      stepDetails.push(
+        createStep('onboarding_failed', ONBOARDING_STEP_FAILED, failureMessage)
+      );
+
+      await updateOnboardingAttempt(attempt, {
+        wa_account_id: existingAccount?.id || null,
+        status: 'failed',
+        step_details: stepDetails,
+        warnings: localWarnings,
+        last_error: failureMessage,
+        is_retryable: true,
+      });
+
+      if (existingAccount) {
+        await existingAccount.update({
+          onboarding_status: 'failed',
+          last_onboarding_error: failureMessage,
+        });
+        await publishAccountLifecycle(kafkaProducer, existingAccount, 'onboarding_failed', {
+          steps: stepDetails,
+          error: failureMessage,
+        });
+      }
+
+      warnings.push(failureMessage);
+      results.push(buildAttemptResult(phone, existingAccount, 'failed', stepDetails, localWarnings, {
+        error: failureMessage,
+      }));
+    }
   }
 
   if (usageDelta) {
@@ -678,6 +1240,8 @@ async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, r
     accounts: connectedAccounts.filter(Boolean),
     connected_count: connectedAccounts.length - skipped.length,
     skipped,
+    warnings: [...new Set(warnings)],
+    results,
   };
 }
 
@@ -702,7 +1266,7 @@ async function getAccount(userId, accountId) {
   return account.toSafeJSON();
 }
 
-async function deactivateAccount(userId, accountId) {
+async function deactivateAccount(userId, accountId, kafkaProducer = null) {
   const account = await WaAccount.findOne({
     where: { id: accountId, user_id: userId },
   });
@@ -712,11 +1276,16 @@ async function deactivateAccount(userId, accountId) {
   }
 
   const wasActive = account.status === 'active';
-  await account.update({ status: 'inactive' });
+  await account.update({
+    status: 'inactive',
+    onboarding_status: 'inactive',
+  });
 
   if (wasActive) {
     await adjustWhatsAppNumberUsage(userId, -1);
   }
+
+  await publishAccountLifecycle(kafkaProducer, account, 'disconnected');
 
   return account.toSafeJSON();
 }
@@ -730,13 +1299,13 @@ async function getPhoneNumbers(userId, accountId) {
     throw AppError.notFound('WhatsApp account not found');
   }
 
-  const decryptedToken = decrypt(account.access_token);
+  const credential = requireResolvedMetaCredential(account);
 
   try {
     const response = await axios.get(
       `${config.meta.baseUrl}/${account.waba_id}/phone_numbers`,
       {
-        headers: buildMetaHeaders(decryptedToken),
+        headers: buildMetaHeaders(credential.accessToken),
         timeout: 15000,
       }
     );
@@ -762,7 +1331,8 @@ async function getDecryptedToken(accountId) {
     throw AppError.forbidden('WhatsApp account is not active');
   }
 
-  return decrypt(account.access_token);
+  const credential = requireResolvedMetaCredential(account);
+  return credential.accessToken;
 }
 
 async function findByPhoneNumberId(phoneNumberId) {
@@ -776,7 +1346,10 @@ async function findByPhoneNumberId(phoneNumberId) {
 
 async function updateQualityRating(phoneNumberId, qualityRating) {
   await WaAccount.update(
-    { quality_rating: qualityRating },
+    {
+      quality_rating: qualityRating,
+      last_health_checked_at: new Date(),
+    },
     {
       where: { phone_number_id: String(phoneNumberId) },
     }
@@ -790,11 +1363,240 @@ async function updateAccountStatusByWaba(wabaId, status) {
   }
 
   await WaAccount.update(
-    { status },
+    {
+      status,
+      last_health_checked_at: new Date(),
+    },
     {
       where: { waba_id: String(wabaId) },
     }
   );
+}
+
+async function getAccountHealth(userId, accountId, kafkaProducer = null) {
+  const account = await WaAccount.scope('withToken').findOne({
+    where: { id: accountId, user_id: userId },
+  });
+
+  if (!account) {
+    throw AppError.notFound('WhatsApp account not found');
+  }
+
+  const credential = requireResolvedMetaCredential(account);
+  const [phoneDetails, initialSubscribedApps, assignedUser, accountReviewStatus] = await Promise.all([
+    fetchPhoneNumberHealth(credential.accessToken, account.phone_number_id),
+    fetchSubscribedApps(credential.accessToken, account.waba_id),
+    hasProviderManagementConfig()
+      ? verifyAssignedSystemUser(account.waba_id).catch(() => null)
+      : Promise.resolve(null),
+    fetchAccountReviewStatus(credential.accessToken, account.waba_id).catch(() => null),
+  ]);
+
+  let subscribedApps = initialSubscribedApps;
+  let appSubscribed = subscribedApps.some((app) => String(app.id || '') === String(config.meta.appId));
+  const warnings = [];
+
+  if (!appSubscribed) {
+    try {
+      await subscribeAppToWaba(credential.accessToken, account.waba_id);
+      subscribedApps = await fetchSubscribedApps(credential.accessToken, account.waba_id);
+      appSubscribed = subscribedApps.some((app) => String(app.id || '') === String(config.meta.appId));
+    } catch (err) {
+      warnings.push(
+        `Nyife could not refresh the webhook subscription automatically. ${getMetaErrorMessage(err, 'Reconnect the account if inbound sync stops working.')}`
+      );
+    }
+  }
+
+  if (!appSubscribed) {
+    warnings.push('Webhook subscription could not be confirmed. Inbound chat or message-status sync may be delayed.');
+  }
+
+  if (phoneDetails?.name_status && String(phoneDetails.name_status).toUpperCase() !== 'APPROVED') {
+    warnings.push(`Display name review status is ${phoneDetails.name_status}.`);
+  }
+
+  if (accountReviewStatus && String(accountReviewStatus).toUpperCase() !== 'APPROVED') {
+    warnings.push(`WhatsApp Business account review status is ${accountReviewStatus}.`);
+  }
+
+  const nextAccountStatus = account.status === 'inactive' ? 'inactive' : account.status;
+
+  await account.update({
+    verified_name: phoneDetails?.verified_name || account.verified_name,
+    display_phone: phoneDetails?.display_phone_number || account.display_phone,
+    quality_rating: phoneDetails?.quality_rating || account.quality_rating,
+    name_status: phoneDetails?.name_status || account.name_status,
+    number_status: phoneDetails?.status || account.number_status,
+    code_verification_status: phoneDetails?.code_verification_status || account.code_verification_status,
+    account_review_status: accountReviewStatus || account.account_review_status,
+    messaging_limit: phoneDetails?.messaging_limit_tier || account.messaging_limit,
+    assigned_system_user_id: assignedUser?.id || account.assigned_system_user_id,
+    app_subscription_status: appSubscribed ? 'subscribed' : 'not_subscribed',
+    onboarding_status:
+      nextAccountStatus === 'inactive'
+        ? 'inactive'
+        : 'active',
+    last_health_checked_at: new Date(),
+    last_onboarding_error: warnings[0] || null,
+  });
+  await account.reload();
+
+  await publishAccountLifecycle(kafkaProducer, account, 'health_check');
+
+  return {
+    account: account.toSafeJSON(),
+    health: {
+      provider_configured: hasProviderManagementConfig(),
+      assigned_system_user: assignedUser ? { id: String(assignedUser.id) } : null,
+      app_subscription_status: account.app_subscription_status,
+      name_status: phoneDetails?.name_status || null,
+      quality_rating: account.quality_rating,
+      subscribed_apps_count: subscribedApps.length,
+      warnings,
+    },
+  };
+}
+
+async function reconcileAccount(userId, accountId, kafkaProducer = null) {
+  if (!hasProviderManagementConfig()) {
+    throw new AppError(
+      'Provider-managed Meta credentials are required before Nyife can reconcile this account.',
+      503
+    );
+  }
+
+  await ensureProviderSystemUserConfigured();
+
+  const account = await WaAccount.scope('withAll').findOne({
+    where: { id: accountId, user_id: userId },
+  });
+
+  if (!account) {
+    throw AppError.notFound('WhatsApp account not found');
+  }
+
+  const phone = {
+    waba_id: String(account.waba_id),
+    phone_number_id: String(account.phone_number_id),
+    display_phone: account.display_phone,
+    verified_name: account.verified_name,
+    quality_rating: account.quality_rating,
+    messaging_limit: account.messaging_limit,
+    platform_type: account.platform_type || 'CLOUD_API',
+  };
+
+  const attempt = await createOnboardingAttempt({
+    userId,
+    waAccountId: account.id,
+    businessId: account.business_id,
+    wabaId: account.waba_id,
+    phoneNumberId: account.phone_number_id,
+    status: 'reconcile_pending',
+  });
+
+  const steps = [];
+  const warnings = [];
+  const registrationPin = resolveRegistrationPin(account);
+
+  try {
+    const assignmentResult = await assignSystemUserToWaba(account.waba_id);
+    steps.push(
+      createStep(
+        'assign_system_user',
+        assignmentResult.status === 'already_assigned' ? ONBOARDING_STEP_SKIPPED : ONBOARDING_STEP_COMPLETED,
+        assignmentResult.status === 'already_assigned'
+          ? 'Nyife system user was already assigned to the WABA.'
+          : 'Nyife system user assigned to the WABA.',
+        assignmentResult
+      )
+    );
+    await verifyAssignedSystemUser(account.waba_id);
+    steps.push(createStep('verify_system_user_assignment', ONBOARDING_STEP_COMPLETED, 'Meta confirmed the system user assignment.'));
+
+    const subscriptionResult = await subscribeAppToWaba(config.meta.systemUserAccessToken, account.waba_id);
+    steps.push(
+      createStep(
+        'subscribe_app',
+        subscriptionResult.status === 'already_subscribed' ? ONBOARDING_STEP_SKIPPED : ONBOARDING_STEP_COMPLETED,
+        subscriptionResult.status === 'already_subscribed'
+          ? 'Nyife app was already subscribed to the WABA.'
+          : 'Nyife app subscribed to the WABA.',
+        subscriptionResult
+      )
+    );
+
+    const creditResult = await attachCreditLineToWaba(account.waba_id);
+    if (creditResult.warning) {
+      warnings.push(creditResult.warning);
+    }
+    steps.push(
+      createStep(
+        'attach_credit_line',
+        creditResult.status === 'failed' ? ONBOARDING_STEP_FAILED : (creditResult.status === 'not_required' ? ONBOARDING_STEP_SKIPPED : ONBOARDING_STEP_COMPLETED),
+        creditResult.warning || `Credit sharing status: ${creditResult.status}.`,
+        { credit_sharing_status: creditResult.status }
+      )
+    );
+
+    await registerPhoneNumber(config.meta.systemUserAccessToken, account.phone_number_id, registrationPin);
+    steps.push(createStep('register_phone', ONBOARDING_STEP_COMPLETED, 'Phone number registered successfully with Meta.'));
+
+    const result = await upsertConnectedAccount(
+      userId,
+      null,
+      account.business_id,
+      phone,
+      account,
+      registrationPin,
+      {
+        credential_source: META_CREDENTIAL_SOURCES.PROVIDER_SYSTEM_USER,
+        assigned_system_user_id: config.meta.systemUserId,
+        app_subscription_status: 'subscribed',
+        credit_sharing_status: creditResult.status || 'unknown',
+        onboarding_status: 'active',
+        last_onboarded_at: new Date(),
+        last_onboarding_error: null,
+      }
+    );
+
+    steps.push(createStep('activate_account', ONBOARDING_STEP_COMPLETED, 'The WhatsApp account is active in Nyife.'));
+    await updateOnboardingAttempt(attempt, {
+      wa_account_id: result.account.id,
+      status: 'completed',
+      step_details: steps,
+      warnings,
+      last_error: null,
+      is_retryable: false,
+    });
+    await publishAccountLifecycle(kafkaProducer, result.account, 'reconciled', { steps });
+
+    return {
+      account: result.account.toSafeJSON(),
+      steps,
+      warnings,
+    };
+  } catch (err) {
+    const failureMessage = err instanceof AppError ? err.message : getMetaErrorMessage(err, err.message);
+    steps.push(createStep('reconcile_failed', ONBOARDING_STEP_FAILED, failureMessage));
+    await account.update({
+      onboarding_status: 'failed',
+      last_onboarding_error: failureMessage,
+    });
+    await updateOnboardingAttempt(attempt, {
+      wa_account_id: account.id,
+      status: 'failed',
+      step_details: steps,
+      warnings,
+      last_error: failureMessage,
+      is_retryable: true,
+    });
+    await publishAccountLifecycle(kafkaProducer, account, 'onboarding_failed', {
+      steps,
+      error: failureMessage,
+    });
+    throw AppError.badRequest(failureMessage);
+  }
 }
 
 module.exports = {
@@ -803,6 +1605,8 @@ module.exports = {
   listAccounts,
   getAccount,
   deactivateAccount,
+  getAccountHealth,
+  reconcileAccount,
   getPhoneNumbers,
   getDecryptedToken,
   findByPhoneNumberId,

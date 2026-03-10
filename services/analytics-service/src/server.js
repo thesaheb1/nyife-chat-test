@@ -44,6 +44,7 @@ async function startServer() {
         TOPICS.WALLET_TRANSACTION,
         TOPICS.USER_EVENTS,
         TOPICS.WEBHOOK_INBOUND,
+        TOPICS.WHATSAPP_MESSAGE_STATUS,
       ],
       fromBeginning: false,
     });
@@ -69,6 +70,9 @@ async function startServer() {
             case TOPICS.WEBHOOK_INBOUND:
               await analyticsService.processWebhookInbound(payload, sequelize, redis);
               break;
+            case TOPICS.WHATSAPP_MESSAGE_STATUS:
+              await analyticsService.processWhatsAppMessageStatus(payload, sequelize, redis);
+              break;
             default:
               console.warn(`[analytics-service] Unhandled topic: ${topic}`);
           }
@@ -83,6 +87,7 @@ async function startServer() {
       TOPICS.WALLET_TRANSACTION,
       TOPICS.USER_EVENTS,
       TOPICS.WEBHOOK_INBOUND,
+      TOPICS.WHATSAPP_MESSAGE_STATUS,
     ].join(', '));
   } catch (err) {
     console.warn('[analytics-service] Could not start Kafka consumer:', err.message);

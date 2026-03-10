@@ -17,4 +17,5 @@ module.exports = {
     brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
   },
   whatsappServiceUrl: process.env.WHATSAPP_SERVICE_URL || 'http://localhost:3009',
+  organizationServiceUrl: process.env.ORGANIZATION_SERVICE_URL || 'http://localhost:3011',
 };

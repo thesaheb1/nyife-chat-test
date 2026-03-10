@@ -19,6 +19,14 @@ if (fs.existsSync(rootEnvPath)) {
   }
 }
 
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+}
+
 module.exports = {
   port: parseInt(process.env.TEMPLATE_SERVICE_PORT || '3006', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -30,6 +38,10 @@ module.exports = {
       process.env.META_SYSTEM_USER_ACCESS_TOKEN
       || process.env.META_ACCESS_TOKEN
       || null,
+    allowLegacyAccountTokenFallback: parseBoolean(
+      process.env.META_ALLOW_LEGACY_ACCOUNT_TOKEN_FALLBACK,
+      process.env.NODE_ENV !== 'production'
+    ),
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',

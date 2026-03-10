@@ -87,7 +87,7 @@ async function fetchTemplate(userId, templateId) {
 
 async function findActiveWaAccount(userId, waAccountId) {
   const accounts = await sequelize.query(
-    `SELECT id, user_id, waba_id, status
+    `SELECT id, user_id, waba_id, status, onboarding_status
      FROM wa_accounts
      WHERE id = :waAccountId
        AND user_id = :userId
@@ -104,7 +104,12 @@ async function findActiveWaAccount(userId, waAccountId) {
     }
   );
 
-  return accounts[0] || null;
+  const account = accounts[0] || null;
+  if (!account) {
+    return null;
+  }
+
+  return account;
 }
 
 function assertTemplateMatchesWaAccount(template, account) {

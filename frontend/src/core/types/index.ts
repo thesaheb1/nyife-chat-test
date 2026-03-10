@@ -366,10 +366,22 @@ export interface WaAccount {
   display_phone: string | null;
   verified_name: string | null;
   business_id: string | null;
+  credential_source: 'provider_system_user' | 'legacy_embedded_user_token';
+  assigned_system_user_id: string | null;
   quality_rating: 'GREEN' | 'YELLOW' | 'RED' | null;
+  name_status: string | null;
+  number_status: string | null;
+  code_verification_status: string | null;
+  account_review_status: string | null;
   messaging_limit: string | null;
   platform_type?: string | null;
   status: 'active' | 'inactive' | 'restricted' | 'banned';
+  app_subscription_status: 'unknown' | 'subscribed' | 'not_subscribed' | 'failed';
+  credit_sharing_status: 'unknown' | 'not_required' | 'attached' | 'failed';
+  onboarding_status: 'pending' | 'in_progress' | 'active' | 'failed' | 'needs_reconcile' | 'inactive';
+  last_health_checked_at: string | null;
+  last_onboarded_at: string | null;
+  last_onboarding_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -383,21 +395,76 @@ export interface EmbeddedSignupPreviewAccount {
   already_connected: boolean;
   eligible: boolean;
   existing_account_id: string | null;
+  onboarding_status: WaAccount['onboarding_status'] | null;
+  credential_source: WaAccount['credential_source'] | null;
+}
+
+export interface EmbeddedSignupProviderReadiness {
+  provider_configured: boolean;
+  system_user_id: string | null;
+  provider_business_id: string | null;
+  legacy_token_fallback_enabled: boolean;
+  redis_backed_session: boolean;
+  credit_sharing_enabled: boolean;
+  override_callback_url_configured: boolean;
+  warnings: string[];
+}
+
+export interface EmbeddedSignupPreviewWaba {
+  waba_id: string;
+  name: string | null;
+  phone_count: number;
+}
+
+export interface EmbeddedSignupResultStep {
+  name: string;
+  status: 'skipped' | 'completed' | 'failed';
+  message: string;
+  timestamp: string;
+  [key: string]: unknown;
+}
+
+export interface EmbeddedSignupResultItem {
+  waba_id: string;
+  phone_number_id: string;
+  status: string;
+  steps: EmbeddedSignupResultStep[];
+  warnings: string[];
+  account: WaAccount | null;
+  error?: string;
 }
 
 export interface EmbeddedSignupPreviewResult {
   signup_session_id: string;
+  business_id: string | null;
   remaining_slots: number | null;
+  wabas: EmbeddedSignupPreviewWaba[];
+  provider_readiness: EmbeddedSignupProviderReadiness;
   accounts: EmbeddedSignupPreviewAccount[];
 }
 
 export interface EmbeddedSignupCompleteResult {
   accounts: WaAccount[];
   connected_count: number;
+  warnings: string[];
+  results: EmbeddedSignupResultItem[];
   skipped: Array<{
     phone_number_id: string;
     reason: string;
   }>;
+}
+
+export interface WaAccountHealthResult {
+  account: WaAccount;
+  health: {
+    provider_configured: boolean;
+    assigned_system_user: { id: string } | null;
+    app_subscription_status: WaAccount['app_subscription_status'];
+    name_status: string | null;
+    quality_rating: WaAccount['quality_rating'];
+    subscribed_apps_count: number;
+    warnings: string[];
+  };
 }
 
 // Subscriptions

@@ -27,17 +27,17 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isAuthenticated && accessToken) {
-      // Chat socket
-      const chat = io(`${API_BASE_URL}/chat`, {
+      const chat = io(API_BASE_URL, {
         auth: { token: accessToken },
+        path: '/api/v1/chat/socket.io',
         transports: ['websocket', 'polling'],
       });
       chatRef.current = chat;
       setChatSocket(chat);
 
-      // Notification socket
       const notif = io(`${API_BASE_URL}/notifications`, {
         auth: { token: accessToken },
+        path: '/api/v1/notifications/socket.io',
         transports: ['websocket', 'polling'],
       });
       notifRef.current = notif;

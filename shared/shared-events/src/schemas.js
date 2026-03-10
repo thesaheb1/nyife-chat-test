@@ -79,14 +79,83 @@ const emailSendSchema = z.object({
 });
 
 /**
- * Schema for webhook.inbound events.
- * Producer: whatsapp-service | Consumer: chat-service, automation-service
+ * Schema for inbound WhatsApp message events.
+ * Producer: whatsapp-service | Consumer: chat-service, automation-service, analytics-service
  */
 const webhookInboundSchema = z.object({
+  userId: uuidField,
+  waAccountId: uuidField,
   wabaId: z.string(),
   phoneNumberId: z.string(),
-  event: z.any(),
-  eventType: z.enum(['message', 'status', 'template_status', 'phone_quality', 'account_update']),
+  message: z.any(),
+  contacts: z.array(z.any()).default([]),
+  eventType: z.literal('message'),
+  timestamp: timestampField,
+});
+
+/**
+ * Schema for WhatsApp message status events.
+ * Producer: whatsapp-service | Consumer: chat-service
+ */
+const whatsappMessageStatusSchema = z.object({
+  userId: uuidField,
+  waAccountId: uuidField,
+  wabaId: z.string(),
+  phoneNumberId: z.string(),
+  metaMessageId: z.string(),
+  contactPhone: z.string().optional(),
+  status: z.enum(['sent', 'delivered', 'read', 'failed']),
+  pricingModel: z.string().optional(),
+  pricingCategory: z.string().optional(),
+  errorCode: z.string().optional(),
+  errorMessage: z.string().optional(),
+  campaignId: z.string().optional(),
+  timestamp: timestampField,
+});
+
+/**
+ * Schema for WhatsApp template status events.
+ * Producer: whatsapp-service | Consumer: template-service
+ */
+const whatsappTemplateStatusSchema = z.object({
+  userId: uuidField.nullable().optional(),
+  waAccountId: uuidField.nullable().optional(),
+  wabaId: z.string(),
+  phoneNumberId: z.string().nullable().optional(),
+  messageTemplateId: z.string().nullable().optional(),
+  messageTemplateName: z.string(),
+  messageTemplateLanguage: z.string().nullable().optional(),
+  status: z.string(),
+  reason: z.string().nullable().optional(),
+  timestamp: timestampField,
+});
+
+/**
+ * Schema for WhatsApp account lifecycle events.
+ * Producer: whatsapp-service | Consumer: frontend-facing services, automation-service
+ */
+const whatsappAccountLifecycleSchema = z.object({
+  userId: uuidField,
+  waAccountId: uuidField,
+  wabaId: z.string(),
+  phoneNumberId: z.string(),
+  lifecycleType: z.enum([
+    'quality_update',
+    'account_update',
+    'onboarding_completed',
+    'onboarding_failed',
+    'reconciled',
+    'health_check',
+    'disconnected',
+  ]),
+  accountStatus: z.string().optional(),
+  onboardingStatus: z.string().optional(),
+  qualityRating: z.string().nullable().optional(),
+  messagingLimit: z.string().nullable().optional(),
+  appSubscriptionStatus: z.string().nullable().optional(),
+  creditSharingStatus: z.string().nullable().optional(),
+  steps: z.array(z.any()).optional(),
+  error: z.string().nullable().optional(),
   timestamp: timestampField,
 });
 
@@ -142,6 +211,9 @@ const TOPIC_SCHEMAS = {
   'notification.send': notificationSendSchema,
   'email.send': emailSendSchema,
   'webhook.inbound': webhookInboundSchema,
+  'whatsapp.message.status': whatsappMessageStatusSchema,
+  'whatsapp.template.status': whatsappTemplateStatusSchema,
+  'whatsapp.account.lifecycle': whatsappAccountLifecycleSchema,
   'whatsapp.flow.completed': whatsappFlowCompletedSchema,
   'wallet.transaction': walletTransactionSchema,
   'user.events': userEventsSchema,
@@ -154,6 +226,9 @@ module.exports = {
   notificationSendSchema,
   emailSendSchema,
   webhookInboundSchema,
+  whatsappMessageStatusSchema,
+  whatsappTemplateStatusSchema,
+  whatsappAccountLifecycleSchema,
   whatsappFlowCompletedSchema,
   walletTransactionSchema,
   userEventsSchema,

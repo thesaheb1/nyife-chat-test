@@ -21,7 +21,6 @@ router.post('/flows/data-exchange', asyncHandler(whatsappController.handleFlowDa
 // ────────────────────────────────────────────────
 // Account routes (authenticated)
 // ────────────────────────────────────────────────
-
 router.post(
   '/accounts/embedded-signup/preview',
   authenticate,
@@ -50,6 +49,18 @@ router.delete(
   '/accounts/:id',
   authenticate,
   asyncHandler(whatsappController.deactivateAccount)
+);
+
+router.get(
+  '/accounts/:id/health',
+  authenticate,
+  asyncHandler(whatsappController.getAccountHealth)
+);
+
+router.post(
+  '/accounts/:id/reconcile',
+  authenticate,
+  asyncHandler(whatsappController.reconcileAccount)
 );
 
 router.get(

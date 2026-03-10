@@ -20,11 +20,64 @@ function normalizeInboundMessage(event) {
     return null;
   }
 
+  if (event.event && typeof event.event === 'object') {
+    return normalizeInboundMessage(event.event);
+  }
+
   if (event.message && typeof event.message === 'object') {
     return event.message;
   }
 
   return event;
+}
+
+async function findOperationalWaAccountByPhoneNumberId(phoneNumberId) {
+  const accounts = await sequelize.query(
+    `SELECT id, user_id, waba_id, onboarding_status
+     FROM wa_accounts
+     WHERE phone_number_id = :phoneNumberId
+       AND status = :status
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    {
+      replacements: { phoneNumberId, status: 'active' },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const account = accounts[0] || null;
+  if (!account) {
+    return null;
+  }
+
+  return account;
+}
+
+async function findOperationalWaAccountById(userId, waAccountId) {
+  const accounts = await sequelize.query(
+    `SELECT id, user_id, waba_id, onboarding_status
+     FROM wa_accounts
+     WHERE id = :waAccountId
+       AND user_id = :userId
+       AND status = :status
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    {
+      replacements: {
+        waAccountId,
+        userId,
+        status: 'active',
+      },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const account = accounts[0] || null;
+  if (!account) {
+    return null;
+  }
+
+  return account;
 }
 
 function buildWebhookSignature(secret, payload) {
@@ -271,8 +324,8 @@ async function getAutomationLogs(userId, automationId, filters) {
  * 6. Log result and update stats
  */
 async function processInboundMessage(payload, redis) {
-  const { phoneNumberId, event } = payload;
-  const message = normalizeInboundMessage(event);
+  const phoneNumberId = payload.phoneNumberId || payload.phone_number_id;
+  const message = normalizeInboundMessage(payload);
 
   if (!phoneNumberId || !message) {
     console.warn('[automation-service] Missing phoneNumberId or message event in payload');
@@ -280,28 +333,20 @@ async function processInboundMessage(payload, redis) {
   }
 
   // 1. Find the WhatsApp account by phone_number_id (cross-service raw SQL query)
-  let accounts;
+  let waAccount;
   try {
-    accounts = await sequelize.query(
-      'SELECT id, user_id, waba_id FROM wa_accounts WHERE phone_number_id = :phoneNumberId AND status = :status AND deleted_at IS NULL LIMIT 1',
-      {
-        replacements: { phoneNumberId, status: 'active' },
-        type: QueryTypes.SELECT,
-      }
-    );
+    waAccount = await findOperationalWaAccountByPhoneNumberId(phoneNumberId);
   } catch (err) {
     console.error('[automation-service] Failed to query wa_accounts:', err.message);
     return null;
   }
 
-  if (!accounts || accounts.length === 0) {
+  if (!waAccount) {
     console.warn(
-      `[automation-service] No active wa_account found for phone_number_id=${phoneNumberId}`
+      `[automation-service] No operational wa_account found for phone_number_id=${phoneNumberId}`
     );
     return null;
   }
-
-  const waAccount = accounts[0];
   const userId = waAccount.user_id;
   const waAccountId = waAccount.id;
 
@@ -391,6 +436,12 @@ async function processFlowSubmission(payload, redis) {
 
   if (!userId || !waAccountId || !contactPhone) {
     console.warn('[automation-service] Flow submission payload is missing required identifiers');
+    return null;
+  }
+
+  const waAccount = await findOperationalWaAccountById(userId, waAccountId);
+  if (!waAccount) {
+    console.warn('[automation-service] Flow submission skipped because the WhatsApp account is not operational');
     return null;
   }
 

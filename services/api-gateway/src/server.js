@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('http');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 const app = require('./app');
 const config = require('./config');
 
@@ -8,6 +9,50 @@ const config = require('./config');
 // Create HTTP server
 // ---------------------------------------------------------------------------
 const server = http.createServer(app);
+
+const websocketProxyLogger = {
+  info: (...args) => console.info(...args),
+  warn: (...args) => console.warn(...args),
+  error: (...args) => console.error(...args),
+  debug: (...args) => {
+    if (config.nodeEnv !== 'production') {
+      console.debug(...args);
+    }
+  },
+};
+
+function createSocketUpgradeProxy(target, label) {
+  return createProxyMiddleware({
+    target,
+    changeOrigin: true,
+    ws: true,
+    logLevel: config.nodeEnv === 'production' ? 'warn' : 'debug',
+    logProvider: () => websocketProxyLogger,
+    onError: (err, _req, socket) => {
+      console.error(`[api-gateway] WebSocket proxy error for ${label}: ${err.message}`);
+      if (socket && typeof socket.destroy === 'function') {
+        socket.destroy();
+      }
+    },
+  });
+}
+
+const chatSocketProxy = createSocketUpgradeProxy(config.services.chat, 'chat');
+const notificationSocketProxy = createSocketUpgradeProxy(config.services.notification, 'notification');
+
+server.on('upgrade', (req, socket, head) => {
+  const requestPath = (req.url || '').split('?')[0];
+
+  if (requestPath.startsWith('/api/v1/chat/socket.io')) {
+    chatSocketProxy.upgrade(req, socket, head);
+    return;
+  }
+
+  if (requestPath.startsWith('/api/v1/notifications/socket.io')) {
+    notificationSocketProxy.upgrade(req, socket, head);
+    return;
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Optional Redis connection — used for shared rate-limit state, caching, etc.

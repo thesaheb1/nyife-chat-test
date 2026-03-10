@@ -99,6 +99,25 @@ app.use(
 );
 
 // ---------------------------------------------------------------------------
+// Preserve the exact raw body for signed webhook routes before any JSON/body
+// parser mutates the payload. Meta signs the original bytes, so the gateway
+// must forward them unchanged to downstream services.
+// ---------------------------------------------------------------------------
+app.use(
+  '/api/v1/whatsapp/webhook',
+  express.raw({
+    type: '*/*',
+    limit: '5mb',
+  }),
+  (req, _res, next) => {
+    if (Buffer.isBuffer(req.body)) {
+      req.rawBody = req.body;
+    }
+    next();
+  }
+);
+
+// ---------------------------------------------------------------------------
 // Body parsers — 50 MB limit to accommodate media uploads proxied through
 // the gateway.
 // ---------------------------------------------------------------------------
@@ -234,6 +253,9 @@ routeConfig.forEach((route) => {
         // If the request body was already parsed by express.json(), we need to
         // re-serialize it so the downstream service receives the body correctly.
         const method = String(req.method || 'GET').toUpperCase();
+        const rawBody = Buffer.isBuffer(req.rawBody)
+          ? req.rawBody
+          : (Buffer.isBuffer(req.body) ? req.body : null);
         const hasParsedBody = req.body !== undefined && req.body !== null;
         const shouldForwardBody = hasParsedBody && !['GET', 'HEAD'].includes(method);
         const contentType = String(req.headers['content-type'] || '');
@@ -242,6 +264,15 @@ routeConfig.forEach((route) => {
         const isUrlEncoded = contentType.includes('application/x-www-form-urlencoded');
 
         if (!shouldForwardBody || isMultipart) {
+          return;
+        }
+
+        if (rawBody) {
+          if (contentType) {
+            proxyReq.setHeader('Content-Type', contentType);
+          }
+          proxyReq.setHeader('Content-Length', rawBody.length);
+          proxyReq.write(rawBody);
           return;
         }
 
@@ -261,11 +292,20 @@ routeConfig.forEach((route) => {
       },
       onError: (err, req, res) => {
         logger.error(`Proxy error for ${route.prefix} → ${target}: ${err.message}`);
-        if (!res.headersSent) {
+        if (typeof res?.status === 'function' && !res.headersSent) {
           res.status(502).json({
             success: false,
             message: `Service "${route.service}" is unavailable. Please try again later.`,
           });
+          return;
+        }
+
+        if (typeof res?.end === 'function') {
+          try {
+            res.end();
+          } catch {
+            // Ignore socket close errors on websocket proxy failures.
+          }
         }
       },
       logLevel: config.nodeEnv === 'production' ? 'warn' : 'debug',

@@ -50,26 +50,28 @@ async function startServer() {
       topic: TOPICS.WEBHOOK_INBOUND,
       fromBeginning: false,
     });
+    await kafkaConsumer.subscribe({
+      topic: TOPICS.WHATSAPP_MESSAGE_STATUS,
+      fromBeginning: false,
+    });
 
     await kafkaConsumer.run({
-      eachMessage: async ({ message }) => {
+      eachMessage: async ({ topic, message }) => {
         try {
           const payload = JSON.parse(message.value.toString());
 
-          if (payload.eventType === 'message') {
+          if (topic === TOPICS.WEBHOOK_INBOUND) {
             await chatService.handleInboundMessage(payload, io);
-          } else if (payload.eventType === 'status') {
+          } else if (topic === TOPICS.WHATSAPP_MESSAGE_STATUS) {
             await chatService.handleStatusUpdate(payload, io);
           }
-          // Other event types (template_status, phone_quality, account_update)
-          // are not handled by chat-service — they are consumed by other services
         } catch (err) {
-          console.error('[chat-service] Failed to process webhook.inbound:', err.message);
+          console.error('[chat-service] Failed to process Kafka event:', err.message);
         }
       },
     });
 
-    console.log('[chat-service] Kafka consumer subscribed to webhook.inbound');
+    console.log('[chat-service] Kafka consumer subscribed to webhook.inbound and whatsapp.message.status');
   } catch (err) {
     console.warn('[chat-service] Could not start Kafka consumer:', err.message);
   }
@@ -78,7 +80,7 @@ async function startServer() {
   server.listen(config.port, () => {
     console.log(`[chat-service] Server running on port ${config.port} (${config.nodeEnv})`);
     console.log(`[chat-service] Health check: http://localhost:${config.port}/health`);
-    console.log(`[chat-service] Socket.IO path: /socket.io`);
+    console.log(`[chat-service] Socket.IO path: /api/v1/chat/socket.io`);
   });
 }
 

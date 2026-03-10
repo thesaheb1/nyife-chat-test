@@ -13,6 +13,7 @@ const {
   listMessagesSchema,
   contactPhoneParamSchema,
   accountIdParamSchema,
+  reconcileAccountSchema,
   webhookVerifySchema,
   flowDataExchangeSchema,
 } = require('../validations/whatsapp.validation');
@@ -49,12 +50,14 @@ async function handleEmbeddedSignup(req, res) {
   const userId = req.headers['x-user-id'];
   const data = embeddedSignupCompleteSchema.parse(req.body);
   const redis = req.app.locals.redis || null;
+  const kafkaProducer = req.app.locals.kafkaProducer || null;
 
   const result = await accountService.completeEmbeddedSignup(
     userId,
     data.signup_session_id,
     data.phone_number_ids,
-    redis
+    redis,
+    kafkaProducer
   );
 
   return successResponse(
@@ -94,9 +97,29 @@ async function getAccount(req, res) {
 async function deactivateAccount(req, res) {
   const userId = req.headers['x-user-id'];
   const { id } = accountIdParamSchema.parse(req.params);
+  const kafkaProducer = req.app.locals.kafkaProducer || null;
 
-  const account = await accountService.deactivateAccount(userId, id);
+  const account = await accountService.deactivateAccount(userId, id, kafkaProducer);
   return successResponse(res, { account }, 'WhatsApp account deactivated');
+}
+
+async function getAccountHealth(req, res) {
+  const userId = req.headers['x-user-id'];
+  const { id } = accountIdParamSchema.parse(req.params);
+  const kafkaProducer = req.app.locals.kafkaProducer || null;
+
+  const result = await accountService.getAccountHealth(userId, id, kafkaProducer);
+  return successResponse(res, result, 'WhatsApp account health retrieved');
+}
+
+async function reconcileAccount(req, res) {
+  const userId = req.headers['x-user-id'];
+  const { id } = accountIdParamSchema.parse(req.params);
+  reconcileAccountSchema.parse(req.body ?? {});
+  const kafkaProducer = req.app.locals.kafkaProducer || null;
+
+  const result = await accountService.reconcileAccount(userId, id, kafkaProducer);
+  return successResponse(res, result, 'WhatsApp account reconciled successfully');
 }
 
 /**
@@ -197,6 +220,17 @@ async function getConversation(req, res) {
  * Public — no auth required.
  */
 async function verifyWebhook(req, res) {
+  if (
+    req.query['hub.mode'] === undefined &&
+    req.query['hub.verify_token'] === undefined &&
+    req.query['hub.challenge'] === undefined
+  ) {
+    return res.status(200).json({
+      success: true,
+      message: 'WhatsApp webhook endpoint is ready',
+    });
+  }
+
   const query = webhookVerifySchema.parse(req.query);
   const challenge = webhookService.verifyWebhook(query);
 
@@ -259,6 +293,8 @@ module.exports = {
   listAccounts,
   getAccount,
   deactivateAccount,
+  getAccountHealth,
+  reconcileAccount,
   getPhoneNumbers,
   sendMessage,
   sendTemplateMessage,

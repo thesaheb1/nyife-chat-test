@@ -91,11 +91,11 @@ async function processWebhook(body, kafkaProducer) {
             break;
 
           case 'phone_number_quality_update':
-            await handlePhoneQualityUpdate(wabaId, value);
+            await handlePhoneQualityUpdate(wabaId, value, kafkaProducer);
             break;
 
           case 'account_update':
-            await handleAccountUpdate(wabaId, value);
+            await handleAccountUpdate(wabaId, value, kafkaProducer);
             break;
 
           default:
@@ -197,18 +197,15 @@ async function handleIncomingMessage(account, wabaId, phoneNumberId, displayPhon
   }
 
   // Publish to Kafka for chat-service and automation-service
-  if (kafkaProducer) {
+  if (kafkaProducer && account?.id && account?.user_id) {
     try {
       await publishEvent(kafkaProducer, TOPICS.WEBHOOK_INBOUND, wabaId, {
+        userId: account.user_id,
+        waAccountId: account.id,
         wabaId: String(wabaId),
         phoneNumberId: String(phoneNumberId),
-        event: {
-          type: 'message',
-          message: msg,
-          contacts: contacts || [],
-          account_id: account?.id || null,
-          user_id: account?.user_id || null,
-        },
+        message: msg,
+        contacts: contacts || [],
         eventType: 'message',
         timestamp: timestamp
           ? new Date(parseInt(timestamp, 10) * 1000).toISOString()
@@ -540,19 +537,21 @@ async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, 
     }
   }
 
-  // Publish generic webhook inbound event for chat-service
-  if (kafkaProducer) {
+  if (kafkaProducer && account?.id && account?.user_id) {
     try {
-      await publishEvent(kafkaProducer, TOPICS.WEBHOOK_INBOUND, wabaId, {
+      await publishEvent(kafkaProducer, TOPICS.WHATSAPP_MESSAGE_STATUS, messageId, {
+        userId: account.user_id,
+        waAccountId: account.id,
         wabaId: String(wabaId),
         phoneNumberId: String(phoneNumberId),
-        event: {
-          type: 'status',
-          status: statusUpdate,
-          account_id: account?.id || null,
-          user_id: account?.user_id || null,
-        },
-        eventType: 'status',
+        metaMessageId: messageId,
+        contactPhone: recipientId || updatedMessage?.contact_phone || undefined,
+        status,
+        pricingModel: pricingInfo?.pricing_model || undefined,
+        pricingCategory: pricingInfo?.category || undefined,
+        errorCode: errorInfo ? String(errorInfo.code || '') : undefined,
+        errorMessage: errorInfo?.message || undefined,
+        campaignId: updatedMessage?.campaign_id || undefined,
         timestamp: timestamp
           ? new Date(parseInt(timestamp, 10) * 1000).toISOString()
           : new Date().toISOString(),
@@ -574,6 +573,10 @@ async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, 
  * @param {object|null} kafkaProducer - Kafka producer
  */
 async function handleTemplateStatusUpdate(wabaId, value, kafkaProducer) {
+  const account = await WaAccount.findOne({
+    where: { waba_id: String(wabaId) },
+    order: [['updated_at', 'DESC']],
+  });
   const templateEvent = {
     message_template_id: value.message_template_id,
     message_template_name: value.message_template_name,
@@ -590,14 +593,16 @@ async function handleTemplateStatusUpdate(wabaId, value, kafkaProducer) {
   // Publish to Kafka for template-service or notification-service
   if (kafkaProducer) {
     try {
-      await publishEvent(kafkaProducer, TOPICS.WEBHOOK_INBOUND, wabaId, {
+      await publishEvent(kafkaProducer, TOPICS.WHATSAPP_TEMPLATE_STATUS, wabaId, {
+        userId: account?.user_id || null,
+        waAccountId: account?.id || null,
         wabaId: String(wabaId),
-        phoneNumberId: '', // Not applicable for template events
-        event: {
-          type: 'template_status',
-          ...templateEvent,
-        },
-        eventType: 'template_status',
+        phoneNumberId: account?.phone_number_id || null,
+        messageTemplateId: templateEvent.message_template_id || null,
+        messageTemplateName: templateEvent.message_template_name,
+        messageTemplateLanguage: templateEvent.message_template_language || null,
+        status: templateEvent.event,
+        reason: templateEvent.reason,
         timestamp: new Date().toISOString(),
       });
     } catch (err) {
@@ -615,7 +620,33 @@ async function handleTemplateStatusUpdate(wabaId, value, kafkaProducer) {
  * @param {string} wabaId - WABA ID
  * @param {object} value - The change value containing quality info
  */
-async function handlePhoneQualityUpdate(wabaId, value) {
+async function publishAccountLifecycleEvent(kafkaProducer, account, lifecycleType, extra = {}) {
+  if (!kafkaProducer || !account) {
+    return;
+  }
+
+  try {
+    await publishEvent(kafkaProducer, TOPICS.WHATSAPP_ACCOUNT_LIFECYCLE, account.id, {
+      userId: account.user_id,
+      waAccountId: account.id,
+      wabaId: String(account.waba_id),
+      phoneNumberId: String(account.phone_number_id),
+      lifecycleType,
+      accountStatus: account.status,
+      onboardingStatus: account.onboarding_status,
+      qualityRating: account.quality_rating || null,
+      messagingLimit: account.messaging_limit || null,
+      appSubscriptionStatus: account.app_subscription_status || null,
+      creditSharingStatus: account.credit_sharing_status || null,
+      error: extra.error || null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[whatsapp-service] Failed to publish account lifecycle update:', err.message);
+  }
+}
+
+async function handlePhoneQualityUpdate(wabaId, value, kafkaProducer) {
   const displayPhone = value.display_phone_number;
   const currentLimit = value.current_limit;
   const qualityRating = value.event; // GREEN, YELLOW, RED
@@ -642,7 +673,9 @@ async function handlePhoneQualityUpdate(wabaId, value) {
           await account.update({
             quality_rating: rating,
             messaging_limit: currentLimit || account.messaging_limit,
+            last_health_checked_at: new Date(),
           });
+          await publishAccountLifecycleEvent(kafkaProducer, account, 'quality_update');
         }
       }
     }
@@ -655,7 +688,7 @@ async function handlePhoneQualityUpdate(wabaId, value) {
  * @param {string} wabaId - WABA ID
  * @param {object} value - The change value containing account status info
  */
-async function handleAccountUpdate(wabaId, value) {
+async function handleAccountUpdate(wabaId, value, kafkaProducer) {
   const event = value.event;
 
   console.log(
@@ -673,7 +706,23 @@ async function handleAccountUpdate(wabaId, value) {
   }
 
   if (newStatus) {
-    await accountService.updateAccountStatusByWaba(wabaId, newStatus);
+    const accounts = await WaAccount.findAll({
+      where: { waba_id: String(wabaId) },
+    });
+
+    for (const account of accounts) {
+      await account.update({
+        status: newStatus,
+        onboarding_status:
+          newStatus === 'active'
+            ? (account.onboarding_status === 'failed' ? 'failed' : 'active')
+            : 'needs_reconcile',
+        last_health_checked_at: new Date(),
+      });
+      await publishAccountLifecycleEvent(kafkaProducer, account, 'account_update', {
+        error: event || null,
+      });
+    }
   }
 }
 

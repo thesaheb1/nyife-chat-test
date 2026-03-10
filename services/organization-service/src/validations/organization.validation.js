@@ -121,6 +121,12 @@ const memberIdParamSchema = z.object({
   memberId: z.string().uuid('Invalid member ID format'),
 });
 
+const internalValidateTeamMemberSchema = z.object({
+  member_user_id: z.string().uuid('Invalid member user ID format'),
+  resource: z.string().min(1).default('chat'),
+  permission: z.enum(['read', 'update']).default('update'),
+});
+
 module.exports = {
   createOrgSchema,
   updateOrgSchema,
@@ -128,6 +134,7 @@ module.exports = {
   updateMemberSchema,
   orgIdParamSchema,
   memberIdParamSchema,
+  internalValidateTeamMemberSchema,
   permissionsSchema,
   resourcePermissionSchema,
 };

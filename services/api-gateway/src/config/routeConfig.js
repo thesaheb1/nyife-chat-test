@@ -72,7 +72,7 @@ const routeConfig = [
     service: 'chat',
     auth: true,
     rateLimit: 'global',
-    ws: true,
+    publicPaths: ['/api/v1/chat/socket.io'],
   },
   {
     prefix: '/api/v1/whatsapp',
@@ -98,7 +98,7 @@ const routeConfig = [
     service: 'notification',
     auth: true,
     rateLimit: 'global',
-    ws: true,
+    publicPaths: ['/api/v1/notifications/socket.io'],
   },
   {
     prefix: '/api/v1/emails',

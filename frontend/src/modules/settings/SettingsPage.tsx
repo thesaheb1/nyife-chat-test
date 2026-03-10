@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { ArrowUpRight, Loader2, Trash2 } from 'lucide-react';
+import { Activity, ArrowUpRight, Loader2, Trash2 } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -24,7 +24,15 @@ import type { RootState } from '@/core/store';
 import type { User, UserSettings, ApiResponse } from '@/core/types';
 import { profileSchema, preferencesSchema, changePasswordSchema } from './validations';
 import type { ProfileFormData, PreferencesFormData, ChangePasswordFormData } from './validations';
-import { useWhatsAppAccounts, useDisconnectWhatsAppAccount } from '@/modules/whatsapp/useWhatsAppAccounts';
+import {
+  useWhatsAppAccounts,
+  useDisconnectWhatsAppAccount,
+  useRefreshWhatsAppAccountHealth,
+} from '@/modules/whatsapp/useWhatsAppAccounts';
+import {
+  getWhatsAppAccountConnectionLabel,
+  getWhatsAppAccountConnectionVariant,
+} from '@/modules/whatsapp/accountOptions';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 
 export function SettingsPage() {
@@ -160,7 +168,7 @@ function PreferencesTab() {
   });
 
   return (
-    <Card className="max-w-lg">
+    <Card className="max-w-3xl">
       <CardHeader><CardTitle className="text-lg">Preferences</CardTitle></CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit((data) => save.mutate(data))} className="space-y-4">
@@ -291,6 +299,7 @@ function WhatsAppTab() {
   const navigate = useNavigate();
   const { data: accounts, isLoading } = useWhatsAppAccounts();
   const disconnect = useDisconnectWhatsAppAccount();
+  const refreshHealth = useRefreshWhatsAppAccountHealth();
 
   const handleDisconnect = async (id: string) => {
     try {
@@ -304,6 +313,19 @@ function WhatsAppTab() {
     }
   };
 
+  const handleRefreshHealth = async (id: string) => {
+    try {
+      const result = await refreshHealth.mutateAsync(id);
+      const warning = result.health.warnings[0];
+      toast.success(warning || 'WhatsApp details refreshed.');
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to refresh account details.';
+      toast.error(message);
+    }
+  };
+
   return (
     <Card className="max-w-lg">
       <CardHeader><CardTitle className="text-lg">Connected WhatsApp Accounts</CardTitle></CardHeader>
@@ -311,20 +333,44 @@ function WhatsAppTab() {
         {isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
         {accounts && accounts.length === 0 && <p className="text-sm text-muted-foreground">No accounts connected. Use the Embedded Signup to connect.</p>}
         {accounts?.map((account) => (
-          <div key={account.id} className="flex items-center justify-between rounded border p-3">
-            <div>
-              <p className="text-sm font-medium">{account.verified_name || account.display_phone}</p>
-              <div className="mt-1 flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{account.display_phone}</span>
-                <Badge variant="secondary" className="text-[10px] capitalize">{account.status}</Badge>
-                {account.quality_rating && <Badge variant="outline" className="text-[10px]">{account.quality_rating}</Badge>}
+          <div key={account.id} className="rounded border p-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium">{account.verified_name || account.display_phone || account.waba_id}</p>
+                  <Badge variant={getWhatsAppAccountConnectionVariant(account)} className="text-[10px]">
+                    {getWhatsAppAccountConnectionLabel(account)}
+                  </Badge>
+                  {account.quality_rating && <Badge variant="outline" className="text-[10px]">{account.quality_rating}</Badge>}
+                </div>
+                <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                  <p>Connected number: {account.display_phone || 'Unknown'}</p>
+                  <p>WABA ID: {account.waba_id}</p>
+                  <p>Message limits: {account.messaging_limit || 'N/A'}</p>
+                  <p>Number status: {account.number_status || account.status}</p>
+                  {account.code_verification_status ? (
+                    <p>Phone verification: {account.code_verification_status}</p>
+                  ) : null}
+                  {account.account_review_status ? (
+                    <p>Account review: {account.account_review_status}</p>
+                  ) : null}
+                  {account.last_onboarding_error ? (
+                    <p className="text-destructive sm:col-span-2">Last update: {account.last_onboarding_error}</p>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => void handleRefreshHealth(account.id)} disabled={refreshHealth.isPending}>
+                  <Activity className="mr-2 h-4 w-4" />
+                  Refresh
+                </Button>
+                {account.status === 'active' ? (
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void handleDisconnect(account.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                ) : null}
               </div>
             </div>
-            {account.status === 'active' ? (
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void handleDisconnect(account.id)}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            ) : null}
           </div>
         ))}
         <Separator />
@@ -332,7 +378,7 @@ function WhatsAppTab() {
           Open Embedded Signup
           <ArrowUpRight className="ml-2 h-4 w-4" />
         </Button>
-        <p className="text-xs text-muted-foreground">Connected numbers remain isolated to the authenticated tenant and can be reused for template publishing, campaigns, chat, and automations.</p>
+        <p className="text-xs text-muted-foreground">Connected numbers can be reused across templates, chat, campaigns, flows, automations, and team workflows.</p>
       </CardContent>
     </Card>
   );

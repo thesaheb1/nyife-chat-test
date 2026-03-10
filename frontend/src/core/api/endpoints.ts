@@ -49,6 +49,8 @@ export const ENDPOINTS = {
     ACCOUNTS: '/api/v1/whatsapp/accounts',
     EMBEDDED_SIGNUP_PREVIEW: '/api/v1/whatsapp/accounts/embedded-signup/preview',
     EMBEDDED_SIGNUP: '/api/v1/whatsapp/accounts/embedded-signup',
+    ACCOUNT_HEALTH: (id: string) => `/api/v1/whatsapp/accounts/${id}/health`,
+    ACCOUNT_RECONCILE: (id: string) => `/api/v1/whatsapp/accounts/${id}/reconcile`,
     SEND: '/api/v1/whatsapp/send',
     SEND_TEMPLATE: '/api/v1/whatsapp/send/template',
     SEND_FLOW: '/api/v1/whatsapp/send/flow',

@@ -111,11 +111,10 @@ export function TypeCard({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-2xl border p-4 text-left transition ${
-        active
+      className={`rounded-2xl border p-4 text-left transition ${active
           ? 'border-primary bg-primary/5 shadow-sm'
           : 'border-border hover:border-primary/40 hover:bg-muted/40'
-      }`}
+        }`}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="font-semibold">{title}</div>

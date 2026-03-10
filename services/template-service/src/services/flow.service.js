@@ -3,7 +3,12 @@
 const { Op, QueryTypes } = require('sequelize');
 const axios = require('axios');
 const { Flow, FlowSubmission, sequelize } = require('../models');
-const { AppError, decrypt, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
+const {
+  AppError,
+  getPagination,
+  getPaginationMeta,
+  resolveMetaAccessCredential,
+} = require('@nyife/shared-utils');
 const {
   FLOW_CATEGORIES,
   FLOW_STATUSES,
@@ -49,12 +54,8 @@ async function resolveAccessToken(userId, wabaId, providedAccessToken) {
     return Array.isArray(providedAccessToken) ? providedAccessToken[0] : providedAccessToken;
   }
 
-  if (config.meta.systemUserAccessToken) {
-    return config.meta.systemUserAccessToken;
-  }
-
   if (!wabaId) {
-    return null;
+    return config.meta.systemUserAccessToken || null;
   }
 
   let accounts = [];
@@ -82,16 +83,13 @@ async function resolveAccessToken(userId, wabaId, providedAccessToken) {
     return null;
   }
 
-  if (!accounts || accounts.length === 0 || !accounts[0].access_token) {
-    return null;
-  }
+  const credential = resolveMetaAccessCredential({
+    systemUserAccessToken: config.meta.systemUserAccessToken,
+    encryptedAccessToken: accounts?.[0]?.access_token || null,
+    allowLegacyAccountTokenFallback: config.meta.allowLegacyAccountTokenFallback,
+  });
 
-  try {
-    return decrypt(accounts[0].access_token);
-  } catch (err) {
-    console.warn('[template-service] Failed to decrypt stored flow access token:', err.message);
-    return null;
-  }
+  return credential?.accessToken || null;
 }
 
 async function findFlow(userId, flowId) {

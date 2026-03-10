@@ -6,6 +6,7 @@ import type {
   EmbeddedSignupCompleteResult,
   EmbeddedSignupPreviewResult,
   WaAccount,
+  WaAccountHealthResult,
 } from '@/core/types';
 
 interface AccountListResponse {
@@ -50,6 +51,54 @@ export function useEmbeddedSignupComplete() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['wa-accounts'] });
+    },
+  });
+}
+
+export function useWhatsAppAccountHealth(id: string | null | undefined, enabled = true) {
+  return useQuery<WaAccountHealthResult>({
+    queryKey: ['wa-accounts', 'health', id],
+    enabled: Boolean(id) && enabled,
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<WaAccountHealthResult>>(
+        ENDPOINTS.WHATSAPP.ACCOUNT_HEALTH(String(id))
+      );
+      return data.data;
+    },
+  });
+}
+
+export function useRefreshWhatsAppAccountHealth() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await apiClient.get<ApiResponse<WaAccountHealthResult>>(
+        ENDPOINTS.WHATSAPP.ACCOUNT_HEALTH(id)
+      );
+      return data.data;
+    },
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['wa-accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['wa-accounts', 'health', id] });
+    },
+  });
+}
+
+export function useReconcileWhatsAppAccount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await apiClient.post<ApiResponse<{ account: WaAccount }>>(
+        ENDPOINTS.WHATSAPP.ACCOUNT_RECONCILE(id),
+        {}
+      );
+      return data.data;
+    },
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['wa-accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['wa-accounts', 'health', id] });
     },
   });
 }

@@ -5,6 +5,11 @@ const { successResponse, errorResponse } = require('./responseFormatter');
 const { getPagination, getPaginationMeta } = require('./pagination');
 const { encrypt, decrypt } = require('./encryption');
 const {
+  META_CREDENTIAL_SOURCES,
+  allowLegacyMetaAccountTokenFallback,
+  resolveMetaAccessCredential,
+} = require('./metaCredentials');
+const {
   phoneSchema,
   emailSchema,
   uuidSchema,
@@ -35,6 +40,9 @@ module.exports = {
   // Encryption
   encrypt,
   decrypt,
+  META_CREDENTIAL_SOURCES,
+  allowLegacyMetaAccountTokenFallback,
+  resolveMetaAccessCredential,
 
   // Validators (Zod schemas)
   phoneSchema,

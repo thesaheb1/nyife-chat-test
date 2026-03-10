@@ -9,7 +9,9 @@ export interface WhatsAppAccountOption {
 }
 
 export function getActiveWhatsAppAccounts(accounts: WaAccount[] | undefined) {
-  return (accounts || []).filter((account) => account.status === 'active');
+  return (accounts || []).filter(
+    (account) => account.status === 'active'
+  );
 }
 
 export function getWhatsAppAccountLabel(account: WaAccount | null | undefined) {
@@ -28,6 +30,38 @@ export function getWhatsAppAccountDescription(account: WaAccount | null | undefi
   return [account.display_phone || null, account.verified_name ? account.waba_id : null]
     .filter(Boolean)
     .join(' / ');
+}
+
+export function getWhatsAppAccountConnectionLabel(account: WaAccount | null | undefined) {
+  if (!account || account.status !== 'active') {
+    return 'Disconnected';
+  }
+
+  if (
+    account.app_subscription_status === 'failed'
+    || account.app_subscription_status === 'not_subscribed'
+    || account.last_onboarding_error
+  ) {
+    return 'Needs attention';
+  }
+
+  return 'Connected';
+}
+
+export function getWhatsAppAccountConnectionVariant(account: WaAccount | null | undefined) {
+  if (!account || account.status !== 'active') {
+    return 'secondary' as const;
+  }
+
+  if (
+    account.app_subscription_status === 'failed'
+    || account.app_subscription_status === 'not_subscribed'
+    || account.last_onboarding_error
+  ) {
+    return 'outline' as const;
+  }
+
+  return 'secondary' as const;
 }
 
 export function buildActiveWhatsAppAccountOptions(accounts: WaAccount[] | undefined): WhatsAppAccountOption[] {

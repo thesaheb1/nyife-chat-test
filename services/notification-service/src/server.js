@@ -113,7 +113,7 @@ async function startServer() {
   server.listen(config.port, () => {
     console.log(`[notification-service] Server running on port ${config.port} (${config.nodeEnv})`);
     console.log(`[notification-service] Health check: http://localhost:${config.port}/health`);
-    console.log(`[notification-service] Socket.IO path: /socket.io (namespace: /notifications)`);
+    console.log(`[notification-service] Socket.IO path: /api/v1/notifications/socket.io (namespace: /notifications)`);
   });
 }
 

@@ -115,6 +115,10 @@ const accountIdParamSchema = z.object({
   id: z.string().uuid('Invalid account ID'),
 });
 
+const reconcileAccountSchema = z.object({
+  force: z.boolean().optional(),
+}).optional();
+
 /**
  * Schema for webhook verification query parameters (GET /webhook).
  */
@@ -135,6 +139,7 @@ module.exports = {
   listMessagesSchema,
   contactPhoneParamSchema,
   accountIdParamSchema,
+  reconcileAccountSchema,
   webhookVerifySchema,
   flowDataExchangeSchema,
 };

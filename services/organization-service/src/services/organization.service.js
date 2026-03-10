@@ -452,6 +452,91 @@ async function removeTeamMember(userId, orgId, memberId) {
   await teamMember.destroy();
 }
 
+function memberHasResourcePermission(member, resource, permission) {
+  const resourcePermissions = member?.permissions?.resources?.[resource];
+  if (!resourcePermissions) {
+    return false;
+  }
+
+  if (permission === 'update') {
+    return Boolean(resourcePermissions.update || resourcePermissions.read);
+  }
+
+  return Boolean(resourcePermissions[permission]);
+}
+
+async function validateTeamMemberAccess(userId, memberUserId, resource = 'chat', permission = 'update') {
+  if (String(memberUserId) === String(userId)) {
+    return {
+      owner: true,
+      member_user_id: userId,
+      organization_id: null,
+      permissions: {
+        resources: {
+          [resource]: {
+            create: true,
+            read: true,
+            update: true,
+            delete: true,
+          },
+        },
+      },
+      status: 'active',
+    };
+  }
+
+  const membership = await TeamMember.findOne({
+    where: {
+      user_id: userId,
+      member_user_id: memberUserId,
+      status: 'active',
+    },
+    include: [
+      {
+        model: Organization,
+        as: 'organization',
+        attributes: ['id', 'name', 'status'],
+        required: true,
+        where: {
+          user_id: userId,
+          status: 'active',
+        },
+      },
+      {
+        model: User,
+        as: 'member',
+        attributes: ['id', 'email', 'first_name', 'last_name', 'status'],
+        required: false,
+      },
+    ],
+  });
+
+  if (!membership) {
+    throw AppError.forbidden('Selected team member is not active in your organization.');
+  }
+
+  if (!memberHasResourcePermission(membership, resource, permission)) {
+    throw AppError.forbidden(`Selected team member does not have ${resource} ${permission} permission.`);
+  }
+
+  return {
+    owner: false,
+    member_user_id: membership.member_user_id,
+    organization_id: membership.organization_id,
+    permissions: membership.permissions,
+    status: membership.status,
+    member: membership.member
+      ? {
+          id: membership.member.id,
+          email: membership.member.email,
+          first_name: membership.member.first_name,
+          last_name: membership.member.last_name,
+          status: membership.member.status,
+        }
+      : null,
+  };
+}
+
 /**
  * Gracefully disconnects the Kafka producer.
  * Called during shutdown.
@@ -478,5 +563,6 @@ module.exports = {
   listTeamMembers,
   updateTeamMember,
   removeTeamMember,
+  validateTeamMemberAccess,
   disconnectKafka,
 };

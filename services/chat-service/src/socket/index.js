@@ -19,7 +19,7 @@ function setupSocketIO(server, redis) {
       methods: ['GET', 'POST'],
       credentials: true,
     },
-    path: '/socket.io',
+    path: '/api/v1/chat/socket.io',
     pingTimeout: 60000,
     pingInterval: 25000,
   });

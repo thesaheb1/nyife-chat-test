@@ -7,6 +7,7 @@ const { sequelize } = require('./models');
 const { testConnection, createRedisClient } = require('@nyife/shared-config');
 const { TOPICS } = require('@nyife/shared-events');
 const flowService = require('./services/flow.service');
+const templateService = require('./services/template.service');
 
 const server = http.createServer(app);
 
@@ -49,19 +50,27 @@ async function startServer() {
       topic: TOPICS.WHATSAPP_FLOW_COMPLETED,
       fromBeginning: false,
     });
+    await kafkaConsumer.subscribe({
+      topic: TOPICS.WHATSAPP_TEMPLATE_STATUS,
+      fromBeginning: false,
+    });
 
     await kafkaConsumer.run({
-      eachMessage: async ({ message }) => {
+      eachMessage: async ({ topic, message }) => {
         try {
           const payload = JSON.parse(message.value.toString());
-          await flowService.storeFlowSubmission(payload);
+          if (topic === TOPICS.WHATSAPP_FLOW_COMPLETED) {
+            await flowService.storeFlowSubmission(payload);
+          } else if (topic === TOPICS.WHATSAPP_TEMPLATE_STATUS) {
+            await templateService.applyTemplateStatusEvent(payload);
+          }
         } catch (err) {
-          console.error('[template-service] Failed to process whatsapp.flow.completed:', err.message);
+          console.error('[template-service] Failed to process Kafka topic:', err.message);
         }
       },
     });
 
-    console.log('[template-service] Kafka consumer subscribed to whatsapp.flow.completed');
+    console.log('[template-service] Kafka consumer subscribed to whatsapp.flow.completed and whatsapp.template.status');
   } catch (err) {
     console.warn('[template-service] Could not start Kafka consumer:', err.message);
   }

@@ -9,6 +9,7 @@ const {
   updateMemberSchema,
   orgIdParamSchema,
   memberIdParamSchema,
+  internalValidateTeamMemberSchema,
 } = require('../validations/organization.validation');
 
 /**
@@ -136,6 +137,20 @@ async function removeTeamMember(req, res) {
   return successResponse(res, null, 'Team member removed successfully');
 }
 
+async function validateTeamMemberAccess(req, res) {
+  const userId = req.tenantId;
+  const data = internalValidateTeamMemberSchema.parse(req.body);
+
+  const member = await organizationService.validateTeamMemberAccess(
+    userId,
+    data.member_user_id,
+    data.resource,
+    data.permission
+  );
+
+  return successResponse(res, { member }, 'Team member validated successfully');
+}
+
 module.exports = {
   createOrganization,
   listOrganizations,
@@ -146,4 +161,5 @@ module.exports = {
   listTeamMembers,
   updateTeamMember,
   removeTeamMember,
+  validateTeamMemberAccess,
 };

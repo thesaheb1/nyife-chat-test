@@ -304,7 +304,25 @@ async function sendMessage(userId, conversationId, data, io) {
     // Update message status to failed
     await chatMessage.update({ status: 'failed' });
 
-    const errorMsg = err.response ? (err.response.data && err.response.data.message) || err.message : err.message;
+    const responseMessage = err.response?.data?.message;
+    const responseErrors = Array.isArray(err.response?.data?.errors)
+      ? err.response.data.errors
+          .map((item) => item?.message || item?.field || JSON.stringify(item))
+          .filter(Boolean)
+          .join(', ')
+      : '';
+    const responseText =
+      typeof err.response?.data === 'string'
+        ? err.response.data
+        : '';
+    const fallbackPieces = [
+      responseMessage,
+      responseErrors,
+      responseText,
+      err.message,
+      err.code,
+    ].filter(Boolean);
+    const errorMsg = fallbackPieces.join(' | ') || 'Unknown whatsapp-service error';
     console.error(`[chat-service] Failed to send message via whatsapp-service: ${errorMsg}`);
     throw AppError.badRequest(`Failed to send message: ${errorMsg}`);
   }

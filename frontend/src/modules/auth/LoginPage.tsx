@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,9 +18,11 @@ import { usePublicSettings } from './usePublicSettings';
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { login } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { data: settings } = usePublicSettings();
+  const prefilledEmail = searchParams.get('email') || '';
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/dashboard';
 
@@ -30,6 +32,10 @@ export function LoginPage() {
     formState: { errors },
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: prefilledEmail,
+      password: '',
+    },
   });
 
   const onSubmit = async (data: LoginFormData) => {
@@ -37,6 +43,10 @@ export function LoginPage() {
     try {
       const result = await login(data.email, data.password);
       toast.success('Login successful');
+      if (result.data.user.must_change_password) {
+        navigate('/force-change-password', { replace: true });
+        return;
+      }
       const role = result.data.user.role;
       const isAdmin = role === 'admin' || role === 'super_admin';
       const target = isAdmin ? '/admin/dashboard' : from;

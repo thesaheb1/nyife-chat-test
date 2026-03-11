@@ -3,27 +3,27 @@
 const express = require('express');
 const router = express.Router();
 const walletController = require('../controllers/wallet.controller');
-const { authenticate, asyncHandler } = require('@nyife/shared-middleware');
+const { authenticate, organizationResolver, asyncHandler, rbac } = require('@nyife/shared-middleware');
 
 // ─── Authenticated user routes ──────────────────────────────────────────────
 
 // Get wallet balance
-router.get('/', authenticate, asyncHandler(walletController.getBalance));
+router.get('/', authenticate, organizationResolver, rbac('wallet', 'read'), asyncHandler(walletController.getBalance));
 
 // Initiate a wallet recharge (creates Razorpay order)
-router.post('/recharge', authenticate, asyncHandler(walletController.initiateRecharge));
+router.post('/recharge', authenticate, organizationResolver, rbac('wallet', 'create'), asyncHandler(walletController.initiateRecharge));
 
 // Verify Razorpay payment and credit wallet
-router.post('/recharge/verify', authenticate, asyncHandler(walletController.verifyRechargePayment));
+router.post('/recharge/verify', authenticate, organizationResolver, rbac('wallet', 'create'), asyncHandler(walletController.verifyRechargePayment));
 
 // List transactions with filtering and pagination
-router.get('/transactions', authenticate, asyncHandler(walletController.listTransactions));
+router.get('/transactions', authenticate, organizationResolver, rbac('wallet', 'read'), asyncHandler(walletController.listTransactions));
 
 // List invoices with pagination
-router.get('/invoices', authenticate, asyncHandler(walletController.listInvoices));
+router.get('/invoices', authenticate, organizationResolver, rbac('billing', 'read'), asyncHandler(walletController.listInvoices));
 
 // Get a single invoice by ID
-router.get('/invoices/:id', authenticate, asyncHandler(walletController.getInvoice));
+router.get('/invoices/:id', authenticate, organizationResolver, rbac('billing', 'read'), asyncHandler(walletController.getInvoice));
 
 // ─── Internal routes (called by other services, no auth) ────────────────────
 

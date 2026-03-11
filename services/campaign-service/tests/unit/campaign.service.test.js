@@ -64,8 +64,6 @@ function mockServiceCalls() {
                 marketing_message_price: 50,
                 utility_message_price: 25,
                 auth_message_price: 10,
-                service_message_price: 20,
-                referral_conversion_message_price: 0,
               },
               usage: {
                 messages_this_month: 0,
@@ -128,8 +126,6 @@ describe('createCampaign', () => {
                   marketing_message_price: 50,
                   utility_message_price: 25,
                   auth_message_price: 10,
-                  service_message_price: 20,
-                  referral_conversion_message_price: 0,
                 },
                 usage: {
                   messages_this_month: 0,
@@ -163,8 +159,6 @@ describe('createCampaign', () => {
                   marketing_message_price: 50,
                   utility_message_price: 25,
                   auth_message_price: 10,
-                  service_message_price: 20,
-                  referral_conversion_message_price: 0,
                 },
                 usage: {
                   messages_this_month: 0,

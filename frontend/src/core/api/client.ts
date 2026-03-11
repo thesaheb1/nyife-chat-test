@@ -7,6 +7,7 @@ import { ENDPOINTS } from '@/core/api/endpoints';
 import { ensureCsrfToken, getCsrfTokenFromCookie } from '@/core/security/csrf';
 import type { ApiResponse, User } from '@/core/types';
 import { getApiErrorMessage } from '@/core/errors/apiError';
+import { getOrganizationIdForCurrentPath, getStoredActiveOrganizationId } from '@/modules/organizations/context';
 
 const API_BASE_URL = resolveApiBaseUrl();
 const PUBLIC_AUTH_PATHS = [
@@ -108,6 +109,15 @@ apiClient.interceptors.request.use(async (config) => {
 
   if (accessToken && !isPublicAuthRequest) {
     config.headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  if (typeof window !== 'undefined' && !isPublicAuthRequest && !config.url?.startsWith('/api/v1/admin/')) {
+    const organizationId =
+      getOrganizationIdForCurrentPath(window.location.pathname) || getStoredActiveOrganizationId();
+
+    if (organizationId) {
+      config.headers['X-Organization-Id'] = organizationId;
+    }
   }
 
   if (!SAFE_METHODS.has(method) && !config.url?.includes(ENDPOINTS.AUTH.CSRF_TOKEN)) {

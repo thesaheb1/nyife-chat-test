@@ -41,6 +41,13 @@ router.put(
   asyncHandler(userController.changePassword)
 );
 
+router.post(
+  '/password/force-change',
+  authenticate,
+  tenantResolver,
+  asyncHandler(userController.forceChangePassword)
+);
+
 // Settings routes
 router.get(
   '/settings',

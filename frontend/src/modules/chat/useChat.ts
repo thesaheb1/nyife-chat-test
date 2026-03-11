@@ -12,6 +12,7 @@ interface ConversationListParams {
   search?: string;
   unread?: boolean;
   wa_account_id?: string;
+  assigned_to?: string;
 }
 
 // List conversations
@@ -23,6 +24,7 @@ export function useConversations(params: ConversationListParams = {}) {
   if (params.search) query.set('search', params.search);
   if (params.unread) query.set('unread', 'true');
   if (params.wa_account_id) query.set('wa_account_id', params.wa_account_id);
+  if (params.assigned_to) query.set('assigned_to', params.assigned_to);
 
   const qs = query.toString();
   const url = `${ENDPOINTS.CHAT.CONVERSATIONS}${qs ? `?${qs}` : ''}`;
@@ -100,7 +102,7 @@ export function useSendMessage() {
 export function useAssignConversation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, member_user_id }: { id: string; member_user_id: string }) => {
+    mutationFn: async ({ id, member_user_id }: { id: string; member_user_id: string | null }) => {
       const { data } = await apiClient.post<ApiResponse<{ conversation: Conversation }>>(
         `${ENDPOINTS.CHAT.CONVERSATIONS}/${id}/assign`,
         { member_user_id }

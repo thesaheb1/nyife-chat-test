@@ -26,24 +26,24 @@ async function getPlanBySlug(req, res) {
 
 async function subscribe(req, res) {
   const data = subscribeSchema.parse(req.body);
-  const result = await subscriptionService.subscribe(req.user.id, data);
+  const result = await subscriptionService.subscribe(req.organizationId || req.user.id, data);
   return successResponse(res, result, result.payment_required ? 'Payment order created' : 'Subscription activated', 201);
 }
 
 async function changePlan(req, res) {
   const data = changePlanSchema.parse(req.body);
-  const result = await subscriptionService.changePlan(req.user.id, data);
+  const result = await subscriptionService.changePlan(req.organizationId || req.user.id, data);
   return successResponse(res, result, result.payment_required ? 'Payment order created for plan change' : 'Plan changed successfully', 201);
 }
 
 async function verifyPayment(req, res) {
   const data = verifyPaymentSchema.parse(req.body);
-  const subscription = await subscriptionService.verifyPayment(req.user.id, data);
+  const subscription = await subscriptionService.verifyPayment(req.organizationId || req.user.id, data);
   return successResponse(res, { subscription }, 'Payment verified and subscription activated');
 }
 
 async function getCurrentSubscription(req, res) {
-  const subscription = await subscriptionService.getCurrentSubscription(req.user.id);
+  const subscription = await subscriptionService.getCurrentSubscription(req.organizationId || req.user.id);
   return successResponse(res, { subscription }, subscription ? 'Current subscription retrieved' : 'No active subscription');
 }
 
@@ -59,19 +59,19 @@ async function getCurrentSubscriptionInternal(req, res) {
 
 async function cancelSubscription(req, res) {
   const { reason } = cancelSchema.parse(req.body);
-  const subscription = await subscriptionService.cancelSubscription(req.user.id, reason);
+  const subscription = await subscriptionService.cancelSubscription(req.organizationId || req.user.id, reason);
   return successResponse(res, { subscription }, 'Subscription cancelled successfully');
 }
 
 async function validateCoupon(req, res) {
   const { code, plan_id } = validateCouponSchema.parse(req.body);
-  const result = await subscriptionService.validateCoupon(code, plan_id, req.user.id);
+  const result = await subscriptionService.validateCoupon(code, plan_id, req.organizationId || req.user.id);
   return successResponse(res, result, 'Coupon is valid');
 }
 
 async function getHistory(req, res) {
   const { page, limit } = paginationSchema.parse(req.query);
-  const result = await subscriptionService.getHistory(req.user.id, page, limit);
+  const result = await subscriptionService.getHistory(req.organizationId || req.user.id, page, limit);
   return successResponse(res, { subscriptions: result.subscriptions }, 'Subscription history retrieved', 200, result.meta);
 }
 

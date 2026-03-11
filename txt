@@ -1,0 +1,49 @@
+There is no Ui to create team member account. so i can't create team member account. in my previous prompt i have mentioned to create team member Ui and functionalty so i can create team member account, invite by email, access him resource and permission and can assign chat with team members.
+below is my previous prompt for team member and organization implementation :
+Please review the whole organization implementation and fixed the issue also currrently we are in developement mode so you can update db, backend, and Ui freely without any issues.
+ this was my prompt for Organization implementation :
+
+ Big change in system architecture. below are the following changes : -
+
+1. now we must be only add single whatsapp account using embedded signup with single or multiple phone number as per subscription plan.
+
+
+2. now we will create organization with dp, name and description.
+organization architecture is like this:-
+1. we can switch between organizations using organization switcher.
+2. every organization has its own whatsapp account.
+3. every organization has its own dashboard.
+4. every organization has its own contacts.
+5. every organization has its own templates.
+6. every organization has its own flows.
+7. every organization has its own campaigns.
+8. every organization has its own automations.
+9. every organization has its chat with single or multiple phone number.
+10. every organization has its own wallet.
+11. every organization has its own support tickets.
+12. every organization has its own analytics.
+13. every organization has its own settings.
+14. every organization has its own billing.
+15. every organization has its own subscription.
+
+when any user account register happend the create a default organization with name "default" and description "default organization" leter user can edit this organization such as dp, name and description.
+user can create multple organizations with active subscription plan limit.
+
+example : suppose user A has 2 company A and B. when user register their account in nyife one organization will be created with name "default" and description "default organization" and user can edit this organization such as dp, name and description. we can say default organization which is the first organization for user account is a Company A. and user can create another organization with name "Company B" and description "Company B organization" and switch between organizations using organization switcher. every organization has its own data like whatsapp account, dashboard, contacts, templates, flows, campaigns, automations, chat, wallet, support tickets, analytics, settings, billing, subscription. and etc like we see in new user register account.
+
+3. Currently we have 3 types of users:-
+1.user
+2.admin
+3.super_admin
+
+Now add one more user role which is called "team".
+user can create team account or invite team using email. user will give team member permission to access the dashboard, contacts, templates, flows, campaigns, automations, chat, wallet, support tickets, analytics, settings, billing, subscription. and etc with Create, read, update and delete permission for each resource. team member belong to those organization where user create or invite team. suppose user A has 2 company A and B. when user created a team member account in company A then team member will have access to company A only and he can't access company B or switch between organizations.
+
+user can assign chat with team members so that team member can chat with clients.
+purpose of team member is to assign them chat so user don't engage with one client in chats.
+user can create multple team member account with active subscription plan limit.
+
+
+4. update subscription plan table and creation form Ui and remove service and referral conversion input and add Max Organization Limit.
+
+Do a deep review on all the code and create complete plan team member managemet and assignement. ensure that all goal checklist is completed.

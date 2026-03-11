@@ -3,15 +3,20 @@
 const http = require('http');
 const app = require('./app');
 const config = require('./config');
-const { sequelize } = require('./models');
+const { sequelize, EmailTemplate } = require('./models');
 const { testConnection, createRedisClient, createKafkaConsumer } = require('@nyife/shared-config');
 const { TOPICS } = require('@nyife/shared-events');
 const emailService = require('./services/email.service');
+const coreTemplateSeeder = require('./seeders/20240101000001-seed-email-templates');
 
 const server = http.createServer(app);
 
 let redis = null;
 let kafkaConsumer = null;
+let kafkaConsumerRetryTimer = null;
+let kafkaConsumerConnecting = false;
+
+const KAFKA_CONSUMER_RETRY_DELAY_MS = 5000;
 
 function normalizeTemplateName(name) {
   if (!name) {
@@ -24,33 +29,22 @@ function normalizeTemplateName(name) {
 /**
  * Starts the email-service: database, Redis, Kafka consumer, HTTP server.
  */
-async function startServer() {
-  // ── Database Connection ──────────────────────────
-  const dbConnected = await testConnection(sequelize, 'email-service');
-  if (!dbConnected) {
-    console.error('[email-service] Failed to connect to database. Exiting.');
-    process.exit(1);
+async function startKafkaConsumer() {
+  if (kafkaConsumerConnecting || kafkaConsumer) {
+    return;
   }
 
-  // ── Redis Connection (optional, for caching) ─────
-  try {
-    redis = createRedisClient('email');
-    app.locals.redis = redis;
-    console.log('[email-service] Redis client initialized');
-  } catch (err) {
-    console.warn('[email-service] Could not connect to Redis:', err.message);
-  }
+  kafkaConsumerConnecting = true;
 
-  // ── Kafka Consumer for email.send ────────────────
   try {
-    kafkaConsumer = await createKafkaConsumer('email-service', 'email-service-group');
+    const consumer = await createKafkaConsumer('email-service', 'email-service-group');
 
-    await kafkaConsumer.subscribe({
+    await consumer.subscribe({
       topic: TOPICS.EMAIL_SEND,
       fromBeginning: false,
     });
 
-    await kafkaConsumer.run({
+    await consumer.run({
       eachMessage: async ({ message }) => {
         try {
           const payload = JSON.parse(message.value.toString());
@@ -102,10 +96,58 @@ async function startServer() {
       },
     });
 
+    kafkaConsumer = consumer;
     console.log('[email-service] Kafka consumer subscribed to email.send');
   } catch (err) {
     console.warn('[email-service] Could not start Kafka consumer:', err.message);
+
+    if (kafkaConsumerRetryTimer) {
+      clearTimeout(kafkaConsumerRetryTimer);
+    }
+
+    kafkaConsumerRetryTimer = setTimeout(() => {
+      kafkaConsumerRetryTimer = null;
+      startKafkaConsumer().catch((retryError) => {
+        console.error('[email-service] Kafka retry bootstrap failed:', retryError.message);
+      });
+    }, KAFKA_CONSUMER_RETRY_DELAY_MS);
+  } finally {
+    kafkaConsumerConnecting = false;
   }
+}
+
+async function ensureCoreTemplates() {
+  const totalTemplates = await EmailTemplate.count();
+
+  if (totalTemplates > 0) {
+    return;
+  }
+
+  console.warn('[email-service] email_templates is empty. Bootstrapping core templates.');
+  await coreTemplateSeeder.up(sequelize.getQueryInterface());
+}
+
+async function startServer() {
+  // ── Database Connection ──────────────────────────
+  const dbConnected = await testConnection(sequelize, 'email-service');
+  if (!dbConnected) {
+    console.error('[email-service] Failed to connect to database. Exiting.');
+    process.exit(1);
+  }
+
+  await ensureCoreTemplates();
+
+  // ── Redis Connection (optional, for caching) ─────
+  try {
+    redis = createRedisClient('email');
+    app.locals.redis = redis;
+    console.log('[email-service] Redis client initialized');
+  } catch (err) {
+    console.warn('[email-service] Could not connect to Redis:', err.message);
+  }
+
+  // ── Kafka Consumer for email.send ────────────────
+  void startKafkaConsumer();
 
   // ── Start HTTP Server ────────────────────────────
   server.listen(config.port, () => {
@@ -152,6 +194,11 @@ const gracefulShutdown = (signal) => {
       } catch (err) {
         console.error('[email-service] Error disconnecting Kafka consumer:', err.message);
       }
+    }
+
+    if (kafkaConsumerRetryTimer) {
+      clearTimeout(kafkaConsumerRetryTimer);
+      kafkaConsumerRetryTimer = null;
     }
 
     console.log('[email-service] Graceful shutdown complete');

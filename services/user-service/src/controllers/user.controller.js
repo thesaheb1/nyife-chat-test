@@ -5,6 +5,7 @@ const userService = require('../services/user.service');
 const {
   updateProfileSchema,
   changePasswordSchema,
+  forceChangePasswordSchema,
   updateSettingsSchema,
   createApiTokenSchema,
   resolveApiTokenSchema,
@@ -44,6 +45,13 @@ const changePassword = async (req, res) => {
   const validated = changePasswordSchema.parse(req.body);
   await userService.changePassword(userId, validated.current_password, validated.new_password);
   return successResponse(res, null, 'Password changed successfully');
+};
+
+const forceChangePassword = async (req, res) => {
+  const userId = req.user.id;
+  const validated = forceChangePasswordSchema.parse(req.body);
+  await userService.forceChangePassword(userId, validated.new_password);
+  return successResponse(res, null, 'Password updated successfully');
 };
 
 // ---------------------------------------------------------------------------
@@ -152,6 +160,7 @@ module.exports = {
   getProfile,
   updateProfile,
   changePassword,
+  forceChangePassword,
   getSettings,
   updateSettings,
   createApiToken,

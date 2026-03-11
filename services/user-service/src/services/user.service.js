@@ -25,7 +25,7 @@ const BCRYPT_ROUNDS = 12;
  */
 const getProfile = async (userId) => {
   const [user] = await sequelize.query(
-    `SELECT id, email, first_name, last_name, phone, role, status, email_verified_at, avatar_url, created_at, updated_at
+    `SELECT id, email, first_name, last_name, phone, role, status, must_change_password, email_verified_at, avatar_url, created_at, updated_at
      FROM auth_users
      WHERE id = :userId AND deleted_at IS NULL
      LIMIT 1`,
@@ -120,6 +120,48 @@ const changePassword = async (userId, currentPassword, newPassword) => {
   // Update the password
   await sequelize.query(
     `UPDATE auth_users SET password = :newPasswordHash, updated_at = NOW() WHERE id = :userId`,
+    {
+      replacements: { userId, newPasswordHash },
+      type: QueryTypes.UPDATE,
+    }
+  );
+};
+
+/**
+ * Forces a password change for accounts that were created by an organization owner.
+ *
+ * @param {string} userId
+ * @param {string} newPassword
+ * @returns {Promise<void>}
+ */
+const forceChangePassword = async (userId, newPassword) => {
+  const [user] = await sequelize.query(
+    `SELECT id, must_change_password
+     FROM auth_users
+     WHERE id = :userId AND deleted_at IS NULL
+     LIMIT 1`,
+    {
+      replacements: { userId },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  if (!user) {
+    throw AppError.notFound('User not found');
+  }
+
+  if (!user.must_change_password) {
+    throw AppError.badRequest('Your password does not need to be changed right now.');
+  }
+
+  const newPasswordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+  await sequelize.query(
+    `UPDATE auth_users
+     SET password = :newPasswordHash,
+         must_change_password = false,
+         updated_at = NOW()
+     WHERE id = :userId`,
     {
       replacements: { userId, newPasswordHash },
       type: QueryTypes.UPDATE,
@@ -363,6 +405,7 @@ module.exports = {
   getProfile,
   updateProfile,
   changePassword,
+  forceChangePassword,
   getSettings,
   updateSettings,
   createApiToken,

@@ -129,8 +129,14 @@ async function deleteUser(req, res) {
  */
 async function creditWallet(req, res) {
   const { id } = idParamSchema.parse(req.params);
-  const { amount, remarks } = walletActionSchema.parse(req.body);
-  const result = await adminService.creditWallet(id, amount, remarks, req.adminUser.id);
+  const { amount, remarks, organization_id } = walletActionSchema.parse(req.body);
+  const result = await adminService.creditWallet(
+    id,
+    amount,
+    remarks,
+    req.adminUser.id,
+    organization_id || null
+  );
   return successResponse(res, result, 'Wallet credited successfully');
 }
 
@@ -140,8 +146,14 @@ async function creditWallet(req, res) {
  */
 async function debitWallet(req, res) {
   const { id } = idParamSchema.parse(req.params);
-  const { amount, remarks } = walletActionSchema.parse(req.body);
-  const result = await adminService.debitWallet(id, amount, remarks, req.adminUser.id);
+  const { amount, remarks, organization_id } = walletActionSchema.parse(req.body);
+  const result = await adminService.debitWallet(
+    id,
+    amount,
+    remarks,
+    req.adminUser.id,
+    organization_id || null
+  );
   return successResponse(res, result, 'Wallet debited successfully');
 }
 

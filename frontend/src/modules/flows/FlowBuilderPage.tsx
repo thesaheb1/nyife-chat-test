@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -47,6 +47,18 @@ import {
   useSaveFlowToMeta,
   useUpdateFlow,
 } from './useFlows';
+
+function activateWithKeyboard(
+  event: KeyboardEvent<HTMLElement>,
+  onActivate: () => void
+) {
+  if (event.key !== 'Enter' && event.key !== ' ') {
+    return;
+  }
+
+  event.preventDefault();
+  onActivate();
+}
 
 export function FlowBuilderPage() {
   const navigate = useNavigate();
@@ -465,7 +477,14 @@ function FlowScreenRail(props: {
         </CardHeader>
         <CardContent className="space-y-3">
           {props.flowDefinition.screens.map((screen, index) => (
-            <button key={screen.id} type="button" onClick={() => props.onSelect(screen.id)} className={cn('w-full rounded-xl border p-3 text-left transition-colors', props.activeScreenId === screen.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40 hover:bg-muted/40')}>
+            <div
+              key={screen.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => props.onSelect(screen.id)}
+              onKeyDown={(event) => activateWithKeyboard(event, () => props.onSelect(screen.id))}
+              className={cn('w-full rounded-xl border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30', props.activeScreenId === screen.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40 hover:bg-muted/40')}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div><p className="font-medium">{screen.title}</p><p className="text-xs text-muted-foreground">{screen.id}</p></div>
                 <Badge variant="outline">{screen.layout.children.length}</Badge>
@@ -475,7 +494,7 @@ function FlowScreenRail(props: {
                 <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={(event) => { event.stopPropagation(); props.onMove(index, index + 1); }}><ArrowDown className="h-3.5 w-3.5" /></Button>
                 <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={(event) => { event.stopPropagation(); props.onRemove(screen.id); }}><Trash2 className="h-3.5 w-3.5" /></Button>
               </div>
-            </button>
+            </div>
           ))}
         </CardContent>
       </Card>
@@ -520,7 +539,14 @@ function FlowPhoneCanvas(props: {
                 <p className="text-xs text-emerald-100">{props.activeScreen.id}</p>
               </div>
               {props.activeScreen.layout.children.map((component, index) => (
-                <button key={`${props.activeScreen?.id}-${index}-${component.type}`} type="button" onClick={() => props.onSelect(index)} className={cn('w-full rounded-2xl border p-4 text-left transition-colors', props.selectedComponentIndex === index ? 'border-primary bg-primary/5' : 'border-slate-200 bg-white hover:border-primary/40')}>
+                <div
+                  key={`${props.activeScreen?.id}-${index}-${component.type}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => props.onSelect(index)}
+                  onKeyDown={(event) => activateWithKeyboard(event, () => props.onSelect(index))}
+                  className={cn('w-full rounded-2xl border p-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30', props.selectedComponentIndex === index ? 'border-primary bg-primary/5' : 'border-slate-200 bg-white hover:border-primary/40')}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1"><FlowComponentPreview component={component} /></div>
                     <div className="flex shrink-0 gap-1">
@@ -529,7 +555,7 @@ function FlowPhoneCanvas(props: {
                       <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={(event) => { event.stopPropagation(); props.onRemoveComponent(index); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </div>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           ) : (

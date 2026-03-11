@@ -59,6 +59,19 @@ const changePasswordSchema = z
     path: ['new_password'],
   });
 
+const forceChangePasswordSchema = z.object({
+  new_password: z
+    .string()
+    .min(8, 'New password must be at least 8 characters')
+    .regex(/[A-Z]/, 'New password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'New password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'New password must contain at least one number')
+    .regex(
+      /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/,
+      'New password must contain at least one special character'
+    ),
+});
+
 // ---------------------------------------------------------------------------
 // Settings validation schema
 // ---------------------------------------------------------------------------
@@ -123,6 +136,7 @@ const resolveApiTokenSchema = z.object({
 module.exports = {
   updateProfileSchema,
   changePasswordSchema,
+  forceChangePasswordSchema,
   updateSettingsSchema,
   createApiTokenSchema,
   resolveApiTokenSchema,

@@ -57,11 +57,12 @@ async function sendNotification(kafkaProducer, userId, notificationData) {
 /**
  * Creates a new support ticket.
  * @param {string} userId - The ticket creator's user ID
+ * @param {string} organizationId - The organization scope for the ticket
  * @param {object} data - Validated ticket data (subject, description, category, priority)
  * @param {object|null} kafkaProducer - Kafka producer for notifications
  * @returns {Promise<object>} Created ticket
  */
-async function createTicket(userId, data, kafkaProducer) {
+async function createTicket(userId, organizationId, data, kafkaProducer) {
   // Generate a unique ticket number with collision retry
   let ticketNumber;
   let attempts = 0;
@@ -86,6 +87,7 @@ async function createTicket(userId, data, kafkaProducer) {
     id: generateUUID(),
     ticket_number: ticketNumber,
     user_id: userId,
+    organization_id: organizationId,
     subject: data.subject,
     description: data.description,
     category: data.category,
@@ -110,15 +112,15 @@ async function createTicket(userId, data, kafkaProducer) {
 
 /**
  * Lists tickets belonging to a specific user with pagination and filters.
- * @param {string} userId - The user's ID
+ * @param {string} organizationId - The organization ID
  * @param {object} filters - Query filters (page, limit, status, category)
  * @returns {Promise<{tickets: Array, meta: object}>}
  */
-async function listUserTickets(userId, filters) {
+async function listUserTickets(organizationId, filters) {
   const { page, limit, status, category } = filters;
   const { offset, limit: paginationLimit } = getPagination(page, limit);
 
-  const where = { user_id: userId };
+  const where = { organization_id: organizationId };
 
   if (status) {
     where.status = status;
@@ -142,13 +144,13 @@ async function listUserTickets(userId, filters) {
 
 /**
  * Gets a single ticket with all its replies. Verifies the ticket belongs to the user.
- * @param {string} userId - The user's ID
+ * @param {string} organizationId - The organization ID
  * @param {string} ticketId - The ticket ID
  * @returns {Promise<object>} Ticket with replies
  */
-async function getTicket(userId, ticketId) {
+async function getTicket(organizationId, ticketId) {
   const ticket = await Ticket.findOne({
-    where: { id: ticketId, user_id: userId },
+    where: { id: ticketId, organization_id: organizationId },
     include: [
       {
         model: TicketReply,
@@ -169,15 +171,16 @@ async function getTicket(userId, ticketId) {
  * Adds a user reply to a ticket.
  * Verifies ownership and that the ticket is not closed.
  * Transitions ticket status from 'waiting_on_user' to 'open' if applicable.
- * @param {string} userId - The user's ID
+ * @param {string} organizationId - The organization ID
+ * @param {string} actorUserId - The acting user's ID
  * @param {string} ticketId - The ticket ID
  * @param {object} data - Reply data (body, attachments)
  * @param {object|null} kafkaProducer - Kafka producer for notifications
  * @returns {Promise<object>} Created reply
  */
-async function replyToTicket(userId, ticketId, data, kafkaProducer) {
+async function replyToTicket(organizationId, actorUserId, ticketId, data, kafkaProducer) {
   const ticket = await Ticket.findOne({
-    where: { id: ticketId, user_id: userId },
+    where: { id: ticketId, organization_id: organizationId },
   });
 
   if (!ticket) {
@@ -191,7 +194,7 @@ async function replyToTicket(userId, ticketId, data, kafkaProducer) {
   const reply = await TicketReply.create({
     id: generateUUID(),
     ticket_id: ticketId,
-    user_id: userId,
+    user_id: actorUserId,
     reply_type: 'user',
     body: data.body,
     attachments: data.attachments || null,
@@ -218,13 +221,13 @@ async function replyToTicket(userId, ticketId, data, kafkaProducer) {
 
 /**
  * Closes a ticket. Only the ticket owner can close their ticket.
- * @param {string} userId - The user's ID
+ * @param {string} organizationId - The organization ID
  * @param {string} ticketId - The ticket ID
  * @returns {Promise<object>} Updated ticket
  */
-async function closeTicket(userId, ticketId) {
+async function closeTicket(organizationId, ticketId) {
   const ticket = await Ticket.findOne({
-    where: { id: ticketId, user_id: userId },
+    where: { id: ticketId, organization_id: organizationId },
   });
 
   if (!ticket) {
@@ -247,14 +250,14 @@ async function closeTicket(userId, ticketId) {
 
 /**
  * Rates a resolved or closed ticket.
- * @param {string} userId - The user's ID
+ * @param {string} organizationId - The organization ID
  * @param {string} ticketId - The ticket ID
  * @param {object} data - Rating data (satisfaction_rating, satisfaction_feedback)
  * @returns {Promise<object>} Updated ticket
  */
-async function rateTicket(userId, ticketId, data) {
+async function rateTicket(organizationId, ticketId, data) {
   const ticket = await Ticket.findOne({
-    where: { id: ticketId, user_id: userId },
+    where: { id: ticketId, organization_id: organizationId },
   });
 
   if (!ticket) {

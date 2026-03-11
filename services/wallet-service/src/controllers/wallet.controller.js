@@ -18,7 +18,7 @@ const {
  * Returns the authenticated user's wallet balance.
  */
 async function getBalance(req, res) {
-  const result = await walletService.getBalance(req.user.id, req.app.locals.redis);
+  const result = await walletService.getBalance(req.organizationId || req.user.id, req.app.locals.redis);
   return successResponse(res, result, 'Wallet balance retrieved');
 }
 
@@ -29,7 +29,7 @@ async function getBalance(req, res) {
  */
 async function initiateRecharge(req, res) {
   const data = rechargeSchema.parse(req.body);
-  const result = await walletService.initiateRecharge(req.user.id, data.amount);
+  const result = await walletService.initiateRecharge(req.organizationId || req.user.id, data.amount);
   return successResponse(res, result, 'Recharge order created', 201);
 }
 
@@ -40,7 +40,7 @@ async function initiateRecharge(req, res) {
 async function verifyRechargePayment(req, res) {
   const data = verifyPaymentSchema.parse(req.body);
   const result = await walletService.verifyRechargePayment(
-    req.user.id,
+    req.organizationId || req.user.id,
     data,
     req.app.locals.kafkaProducer,
     req.app.locals.redis
@@ -54,7 +54,7 @@ async function verifyRechargePayment(req, res) {
  */
 async function listTransactions(req, res) {
   const filters = transactionFilterSchema.parse(req.query);
-  const result = await walletService.listTransactions(req.user.id, filters);
+  const result = await walletService.listTransactions(req.organizationId || req.user.id, filters);
   return successResponse(res, result.transactions, 'Transactions retrieved', 200, result.meta);
 }
 
@@ -64,7 +64,7 @@ async function listTransactions(req, res) {
  */
 async function listInvoices(req, res) {
   const { page, limit } = invoiceListSchema.parse(req.query);
-  const result = await walletService.listInvoices(req.user.id, page, limit);
+  const result = await walletService.listInvoices(req.organizationId || req.user.id, page, limit);
   return successResponse(res, result.invoices, 'Invoices retrieved', 200, result.meta);
 }
 
@@ -73,7 +73,7 @@ async function listInvoices(req, res) {
  * Returns a single invoice belonging to the authenticated user.
  */
 async function getInvoice(req, res) {
-  const result = await walletService.getInvoice(req.user.id, req.params.id);
+  const result = await walletService.getInvoice(req.organizationId || req.user.id, req.params.id);
   return successResponse(res, result, 'Invoice retrieved');
 }
 

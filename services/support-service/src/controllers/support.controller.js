@@ -1,7 +1,7 @@
 'use strict';
 
 const supportService = require('../services/support.service');
-const { successResponse } = require('@nyife/shared-utils');
+const { successResponse, AppError } = require('@nyife/shared-utils');
 const {
   createTicketSchema,
   listTicketsSchema,
@@ -14,6 +14,27 @@ const {
   userIdParamSchema,
 } = require('../validations/support.validation');
 
+function getSupportUserContext(req) {
+  const actorUserId = req.headers['x-user-id'] || req.user?.id || req.user?.userId || null;
+  const organizationId = req.organizationId || req.headers['x-organization-id'] || null;
+
+  if (!actorUserId) {
+    throw AppError.unauthorized('Authentication is required to access support.', 'AUTH_REQUIRED');
+  }
+
+  if (!organizationId) {
+    throw AppError.forbidden(
+      'Select an organization before using support.',
+      'ORG_CONTEXT_REQUIRED'
+    );
+  }
+
+  return {
+    actorUserId,
+    organizationId,
+  };
+}
+
 // ────────────────────────────────────────────────
 // User Handlers
 // ────────────────────────────────────────────────
@@ -23,11 +44,11 @@ const {
  * Creates a new support ticket for the authenticated user.
  */
 async function createTicket(req, res) {
-  const userId = req.headers['x-user-id'];
+  const { actorUserId, organizationId } = getSupportUserContext(req);
   const data = createTicketSchema.parse(req.body);
   const kafkaProducer = req.app.locals.kafkaProducer;
 
-  const ticket = await supportService.createTicket(userId, data, kafkaProducer);
+  const ticket = await supportService.createTicket(actorUserId, organizationId, data, kafkaProducer);
 
   return successResponse(res, { ticket }, 'Support ticket created successfully', 201);
 }
@@ -37,10 +58,10 @@ async function createTicket(req, res) {
  * Lists tickets for the authenticated user with pagination and optional filters.
  */
 async function listTickets(req, res) {
-  const userId = req.headers['x-user-id'];
+  const { organizationId } = getSupportUserContext(req);
   const filters = listTicketsSchema.parse(req.query);
 
-  const { tickets, meta } = await supportService.listUserTickets(userId, filters);
+  const { tickets, meta } = await supportService.listUserTickets(organizationId, filters);
 
   return successResponse(res, { tickets }, 'Tickets retrieved', 200, meta);
 }
@@ -50,10 +71,10 @@ async function listTickets(req, res) {
  * Gets a single ticket with all replies for the authenticated user.
  */
 async function getTicket(req, res) {
-  const userId = req.headers['x-user-id'];
+  const { organizationId } = getSupportUserContext(req);
   const { id } = idParamSchema.parse(req.params);
 
-  const ticket = await supportService.getTicket(userId, id);
+  const ticket = await supportService.getTicket(organizationId, id);
 
   return successResponse(res, { ticket }, 'Ticket retrieved');
 }
@@ -63,12 +84,12 @@ async function getTicket(req, res) {
  * Adds a user reply to a ticket.
  */
 async function replyToTicket(req, res) {
-  const userId = req.headers['x-user-id'];
+  const { actorUserId, organizationId } = getSupportUserContext(req);
   const { id } = idParamSchema.parse(req.params);
   const data = replyTicketSchema.parse(req.body);
   const kafkaProducer = req.app.locals.kafkaProducer;
 
-  const reply = await supportService.replyToTicket(userId, id, data, kafkaProducer);
+  const reply = await supportService.replyToTicket(organizationId, actorUserId, id, data, kafkaProducer);
 
   return successResponse(res, { reply }, 'Reply added successfully', 201);
 }
@@ -78,10 +99,10 @@ async function replyToTicket(req, res) {
  * Closes a user's ticket.
  */
 async function closeTicket(req, res) {
-  const userId = req.headers['x-user-id'];
+  const { organizationId } = getSupportUserContext(req);
   const { id } = idParamSchema.parse(req.params);
 
-  const ticket = await supportService.closeTicket(userId, id);
+  const ticket = await supportService.closeTicket(organizationId, id);
 
   return successResponse(res, { ticket }, 'Ticket closed successfully');
 }
@@ -91,11 +112,11 @@ async function closeTicket(req, res) {
  * Rates a resolved or closed ticket.
  */
 async function rateTicket(req, res) {
-  const userId = req.headers['x-user-id'];
+  const { organizationId } = getSupportUserContext(req);
   const { id } = idParamSchema.parse(req.params);
   const data = rateTicketSchema.parse(req.body);
 
-  const ticket = await supportService.rateTicket(userId, id, data);
+  const ticket = await supportService.rateTicket(organizationId, id, data);
 
   return successResponse(res, { ticket }, 'Ticket rated successfully');
 }

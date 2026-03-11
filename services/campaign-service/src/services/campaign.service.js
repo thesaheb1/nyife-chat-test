@@ -161,8 +161,6 @@ async function fetchActiveSubscription(userId) {
           marketing_message_price: 0,
           utility_message_price: 0,
           auth_message_price: 0,
-          service_message_price: 0,
-          referral_conversion_message_price: 0,
         },
         usage: {
           messages_this_month: 0,
@@ -211,10 +209,6 @@ function getPlanPriceForCategory(plan, category) {
       return Number(plan.utility_message_price || 0);
     case 'authentication':
       return Number(plan.auth_message_price || 0);
-    case 'service':
-      return Number(plan.service_message_price || 0);
-    case 'referral_conversion':
-      return Number(plan.referral_conversion_message_price || 0);
     default:
       return 0;
   }

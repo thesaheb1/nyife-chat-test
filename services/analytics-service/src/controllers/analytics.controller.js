@@ -18,7 +18,7 @@ const {
  * Returns aggregated dashboard data for the authenticated user.
  */
 async function getUserDashboard(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   if (!userId) {
     throw new AppError('Authentication required', 401);
   }
@@ -36,7 +36,7 @@ async function getUserDashboard(req, res) {
  * Returns specific metrics for the authenticated user over a date range.
  */
 async function getUserMetrics(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   if (!userId) {
     throw new AppError('Authentication required', 401);
   }

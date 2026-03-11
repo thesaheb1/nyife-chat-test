@@ -21,10 +21,11 @@ const rbac = (resource, permission) => {
       });
     }
 
-    const { role, permissions } = req.user;
+    const role = req.user.organizationRole || req.user.role;
+    const permissions = req.user.permissions;
 
     // Owner and super_admin bypass all permission checks
-    if (role === 'owner' || role === 'super_admin') {
+    if (role === 'owner' || role === 'super_admin' || role === 'admin') {
       return next();
     }
 
@@ -36,7 +37,8 @@ const rbac = (resource, permission) => {
     ) {
       return res.status(403).json({
         success: false,
-        message: 'Insufficient permissions',
+        code: 'INSUFFICIENT_PERMISSIONS',
+        message: 'You do not have permission to access this part of the organization.',
       });
     }
 
@@ -44,7 +46,8 @@ const rbac = (resource, permission) => {
     if (permissions.resources[resource][permission] !== true) {
       return res.status(403).json({
         success: false,
-        message: 'Insufficient permissions',
+        code: 'INSUFFICIENT_PERMISSIONS',
+        message: 'You do not have permission to perform this action in the organization.',
       });
     }
 

@@ -20,10 +20,14 @@ const {
  * Lists conversations for the authenticated user with optional filters.
  */
 async function listConversations(req, res) {
-  const userId = req.headers['x-user-id'];
+  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const actor = {
+    userId: req.user?.id || req.headers['x-user-id'],
+    role: req.user?.organizationRole || req.user?.role || 'owner',
+  };
   const filters = listConversationsSchema.parse(req.query);
 
-  const { conversations, meta } = await chatService.listConversations(userId, filters);
+  const { conversations, meta } = await chatService.listConversations(scopeId, actor, filters);
 
   return successResponse(res, { conversations }, 'Conversations retrieved', 200, meta);
 }
@@ -33,10 +37,14 @@ async function listConversations(req, res) {
  * Gets a single conversation by ID.
  */
 async function getConversation(req, res) {
-  const userId = req.headers['x-user-id'];
+  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const actor = {
+    userId: req.user?.id || req.headers['x-user-id'],
+    role: req.user?.organizationRole || req.user?.role || 'owner',
+  };
   const { id } = conversationIdSchema.parse(req.params);
 
-  const conversation = await chatService.getConversation(userId, id);
+  const conversation = await chatService.getConversation(scopeId, actor, id);
 
   return successResponse(res, { conversation }, 'Conversation retrieved');
 }
@@ -46,11 +54,15 @@ async function getConversation(req, res) {
  * Lists messages for a conversation with pagination.
  */
 async function getConversationMessages(req, res) {
-  const userId = req.headers['x-user-id'];
+  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const actor = {
+    userId: req.user?.id || req.headers['x-user-id'],
+    role: req.user?.organizationRole || req.user?.role || 'owner',
+  };
   const { id } = conversationIdSchema.parse(req.params);
   const filters = listMessagesSchema.parse(req.query);
 
-  const { messages, meta } = await chatService.getConversationMessages(userId, id, filters);
+  const { messages, meta } = await chatService.getConversationMessages(scopeId, actor, id, filters);
 
   return successResponse(res, { messages }, 'Messages retrieved', 200, meta);
 }
@@ -60,14 +72,18 @@ async function getConversationMessages(req, res) {
  * Sends a message in a conversation.
  */
 async function sendMessage(req, res) {
-  const userId = req.headers['x-user-id'];
+  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const actor = {
+    userId: req.user?.id || req.headers['x-user-id'],
+    role: req.user?.organizationRole || req.user?.role || 'owner',
+  };
   const { id } = conversationIdSchema.parse(req.params);
   const data = sendMessageSchema.parse(req.body);
 
   // Access Socket.IO instance from app.locals (set in server.js)
   const io = req.app.locals.io || null;
 
-  const message = await chatService.sendMessage(userId, id, data, io);
+  const message = await chatService.sendMessage(scopeId, actor, id, data, io);
 
   return successResponse(res, { message }, 'Message sent successfully', 201);
 }
@@ -77,31 +93,49 @@ async function sendMessage(req, res) {
  * Assigns a conversation to a team member.
  */
 async function assignConversation(req, res) {
-  const userId = req.headers['x-user-id'];
+  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const actorUserId = req.user?.id || req.headers['x-user-id'];
+  const actor = {
+    userId: actorUserId,
+    role: req.user?.organizationRole || req.user?.role || 'owner',
+  };
   const { id } = conversationIdSchema.parse(req.params);
   const { member_user_id } = assignConversationSchema.parse(req.body);
 
   // Access Socket.IO instance
   const io = req.app.locals.io || null;
 
-  const conversation = await chatService.assignConversation(userId, id, member_user_id);
+  const conversation = await chatService.assignConversation(scopeId, actor, id, member_user_id);
 
   // Emit Socket.IO event for assignment
   if (io) {
-    io.to(`user:${userId}`).emit('conversation:assigned', {
+    io.to(`user:${actorUserId}`).emit('conversation:assigned', {
       conversation_id: id,
       assigned_to: member_user_id,
-      assigned_by: userId,
+      assigned_by: actorUserId,
       assigned_at: conversation.assigned_at,
+      assigned_member: conversation.assigned_member || null,
     });
 
-    // Notify the assigned team member
-    io.to(`user:${member_user_id}`).emit('conversation:assigned', {
-      conversation_id: id,
-      assigned_to: member_user_id,
-      assigned_by: userId,
-      assigned_at: conversation.assigned_at,
-    });
+    if (member_user_id) {
+      io.to(`user:${member_user_id}`).emit('conversation:assigned', {
+        conversation_id: id,
+        assigned_to: member_user_id,
+        assigned_by: actorUserId,
+        assigned_at: conversation.assigned_at,
+        assigned_member: conversation.assigned_member || null,
+      });
+    }
+
+    if (conversation.assigned_to && conversation.assigned_to !== actorUserId && conversation.assigned_to !== member_user_id) {
+      io.to(`user:${conversation.assigned_to}`).emit('conversation:assigned', {
+        conversation_id: id,
+        assigned_to: member_user_id,
+        assigned_by: actorUserId,
+        assigned_at: conversation.assigned_at,
+        assigned_member: conversation.assigned_member || null,
+      });
+    }
   }
 
   return successResponse(res, { conversation }, 'Conversation assigned successfully');
@@ -112,21 +146,32 @@ async function assignConversation(req, res) {
  * Updates the status of a conversation.
  */
 async function updateConversationStatus(req, res) {
-  const userId = req.headers['x-user-id'];
+  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const actor = {
+    userId: req.user?.id || req.headers['x-user-id'],
+    role: req.user?.organizationRole || req.user?.role || 'owner',
+  };
   const { id } = conversationIdSchema.parse(req.params);
   const { status } = updateConversationStatusSchema.parse(req.body);
 
   // Access Socket.IO instance
   const io = req.app.locals.io || null;
 
-  const conversation = await chatService.updateConversationStatus(userId, id, status);
+  const conversation = await chatService.updateConversationStatus(scopeId, actor, id, status);
 
   // Emit Socket.IO event for status change
   if (io) {
-    io.to(`user:${userId}`).emit('conversation:status', {
+    io.to(`user:${actor.userId}`).emit('conversation:status', {
       conversation_id: id,
       status,
     });
+
+    if (conversation.assigned_to && conversation.assigned_to !== actor.userId) {
+      io.to(`user:${conversation.assigned_to}`).emit('conversation:status', {
+        conversation_id: id,
+        status,
+      });
+    }
 
     io.to(`conversation:${id}`).emit('conversation:status', {
       conversation_id: id,
@@ -142,20 +187,31 @@ async function updateConversationStatus(req, res) {
  * Marks a conversation as read (resets unread count).
  */
 async function markAsRead(req, res) {
-  const userId = req.headers['x-user-id'];
+  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const actor = {
+    userId: req.user?.id || req.headers['x-user-id'],
+    role: req.user?.organizationRole || req.user?.role || 'owner',
+  };
   const { id } = conversationIdSchema.parse(req.params);
 
   // Access Socket.IO instance
   const io = req.app.locals.io || null;
 
-  const conversation = await chatService.markAsRead(userId, id);
+  const conversation = await chatService.markAsRead(scopeId, actor, id);
 
   // Emit Socket.IO event for read status
   if (io) {
-    io.to(`user:${userId}`).emit('conversation:read', {
+    io.to(`user:${actor.userId}`).emit('conversation:read', {
       conversation_id: id,
       unread_count: 0,
     });
+
+    if (conversation.assigned_to && conversation.assigned_to !== actor.userId) {
+      io.to(`user:${conversation.assigned_to}`).emit('conversation:read', {
+        conversation_id: id,
+        unread_count: 0,
+      });
+    }
   }
 
   return successResponse(res, { conversation }, 'Conversation marked as read');

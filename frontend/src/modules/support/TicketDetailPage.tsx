@@ -12,11 +12,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { SupportTicket, TicketReply, ApiResponse } from '@/core/types';
+import { buildOrganizationPath } from '@/modules/organizations/context';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
-function useTicket(id: string | undefined) {
+function useTicket(id: string | undefined, organizationId: string) {
   return useQuery<SupportTicket & { replies?: TicketReply[] }>({
-    queryKey: ['tickets', id],
+    queryKey: ['tickets', organizationId, id],
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ ticket: SupportTicket & { replies?: TicketReply[] } }>>(`${ENDPOINTS.SUPPORT.TICKETS}/${id}`);
       return data.data.ticket;
@@ -34,7 +37,9 @@ export function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { data: ticket, isLoading } = useTicket(id);
+  const { activeOrganization } = useOrganizationContext();
+  const organizationId = activeOrganization?.id || 'global';
+  const { data: ticket, isLoading } = useTicket(id, organizationId);
   const [replyBody, setReplyBody] = useState('');
   const [rating, setRating] = useState(0);
 
@@ -45,19 +50,30 @@ export function TicketDetailPage() {
     onSuccess: () => {
       toast.success('Reply sent');
       setReplyBody('');
-      qc.invalidateQueries({ queryKey: ['tickets', id] });
+      qc.invalidateQueries({ queryKey: ['tickets', organizationId, id] });
+      qc.invalidateQueries({ queryKey: ['tickets', organizationId] });
     },
-    onError: () => toast.error('Failed to send reply'),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Failed to send the reply.')),
   });
 
   const closeTicket = useMutation({
     mutationFn: async () => { await apiClient.put(`${ENDPOINTS.SUPPORT.TICKETS}/${id}/close`); },
-    onSuccess: () => { toast.success('Ticket closed'); qc.invalidateQueries({ queryKey: ['tickets', id] }); },
+    onSuccess: () => {
+      toast.success('Ticket closed');
+      qc.invalidateQueries({ queryKey: ['tickets', organizationId, id] });
+      qc.invalidateQueries({ queryKey: ['tickets', organizationId] });
+    },
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Failed to close the ticket.')),
   });
 
   const rateTicket = useMutation({
     mutationFn: async () => { await apiClient.put(`${ENDPOINTS.SUPPORT.TICKETS}/${id}/rate`, { satisfaction_rating: rating }); },
-    onSuccess: () => { toast.success('Thanks for your feedback!'); qc.invalidateQueries({ queryKey: ['tickets', id] }); },
+    onSuccess: () => {
+      toast.success('Thanks for your feedback!');
+      qc.invalidateQueries({ queryKey: ['tickets', organizationId, id] });
+      qc.invalidateQueries({ queryKey: ['tickets', organizationId] });
+    },
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Failed to submit the rating.')),
   });
 
   if (isLoading) return <div className="mx-auto max-w-3xl space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-48" /></div>;
@@ -69,7 +85,19 @@ export function TicketDetailPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/support')}><ArrowLeft className="h-4 w-4" /></Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() =>
+            navigate(
+              activeOrganization
+                ? buildOrganizationPath(activeOrganization.slug, '/support')
+                : '/support'
+            )
+          }
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
         <div className="flex-1">
           <h1 className="text-xl font-bold tracking-tight">{ticket.subject}</h1>
           <div className="flex items-center gap-2 mt-1">

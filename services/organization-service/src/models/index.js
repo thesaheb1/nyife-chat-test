@@ -7,9 +7,10 @@ const sequelize = createDatabase('organization-service');
 const User = require('./User.model')(sequelize);
 const Organization = require('./Organization.model')(sequelize);
 const TeamMember = require('./TeamMember.model')(sequelize);
+const Invitation = require('./Invitation.model')(sequelize);
 
 // Set up associations
-const models = { User, Organization, TeamMember };
+const models = { User, Organization, TeamMember, Invitation };
 Object.values(models).forEach((model) => {
   if (model.associate) {
     model.associate(models);
@@ -21,4 +22,5 @@ module.exports = {
   User,
   Organization,
   TeamMember,
+  Invitation,
 };

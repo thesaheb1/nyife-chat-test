@@ -5,6 +5,8 @@ import type { RootState } from '@/core/store';
 import { AuthGuard } from './AuthGuard';
 import { GuestGuard } from './GuestGuard';
 import { AppLayout } from '@/shared/layouts/AppLayout';
+import { OrganizationPathRedirect } from '@/modules/organizations/OrganizationPathRedirect';
+import { OrganizationScopeGuard } from '@/modules/organizations/OrganizationScopeGuard';
 
 // Auth pages — eager (small, always needed first)
 import { LoginPage } from '@/modules/auth/LoginPage';
@@ -12,6 +14,7 @@ import { RegisterPage } from '@/modules/auth/RegisterPage';
 import { ForgotPasswordPage } from '@/modules/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/modules/auth/ResetPasswordPage';
 import { VerifyEmailPage } from '@/modules/auth/VerifyEmailPage';
+import { ForceChangePasswordPage } from '@/modules/auth/ForceChangePasswordPage';
 
 // Lazy-loaded pages (code splitting)
 const DashboardPage = lazy(() => import('@/modules/dashboard/DashboardPage').then(m => ({ default: m.DashboardPage })));
@@ -31,12 +34,14 @@ const CampaignListPage = lazy(() => import('@/modules/campaigns/CampaignListPage
 const CreateCampaignPage = lazy(() => import('@/modules/campaigns/CreateCampaignPage').then(m => ({ default: m.CreateCampaignPage })));
 const CampaignDetailPage = lazy(() => import('@/modules/campaigns/CampaignDetailPage').then(m => ({ default: m.CampaignDetailPage })));
 const ChatPage = lazy(() => import('@/modules/chat/ChatPage').then(m => ({ default: m.ChatPage })));
+const TeamMembersPage = lazy(() => import('@/modules/team/TeamMembersPage').then(m => ({ default: m.TeamMembersPage })));
 const AutomationsPage = lazy(() => import('@/modules/automations/AutomationsPage').then(m => ({ default: m.AutomationsPage })));
 const CreateAutomationPage = lazy(() => import('@/modules/automations/CreateAutomationPage').then(m => ({ default: m.CreateAutomationPage })));
 const AutomationDetailPage = lazy(() => import('@/modules/automations/AutomationDetailPage').then(m => ({ default: m.AutomationDetailPage })));
 const WebhookManagementPage = lazy(() => import('@/modules/automations/WebhookManagementPage').then(m => ({ default: m.WebhookManagementPage })));
 const OrganizationsPage = lazy(() => import('@/modules/organizations/OrganizationsPage').then(m => ({ default: m.OrganizationsPage })));
 const OrgDetailPage = lazy(() => import('@/modules/organizations/OrgDetailPage').then(m => ({ default: m.OrgDetailPage })));
+const AcceptInvitationPage = lazy(() => import('@/modules/organizations/AcceptInvitationPage').then(m => ({ default: m.AcceptInvitationPage })));
 const SupportPage = lazy(() => import('@/modules/support/SupportPage').then(m => ({ default: m.SupportPage })));
 const TicketDetailPage = lazy(() => import('@/modules/support/TicketDetailPage').then(m => ({ default: m.TicketDetailPage })));
 const WalletPage = lazy(() => import('@/modules/wallet/WalletPage').then(m => ({ default: m.WalletPage })));
@@ -80,9 +85,47 @@ function lazyElement(Component: React.LazyExoticComponent<React.ComponentType>) 
 
 function RoleRedirect() {
   const { user } = useSelector((state: RootState) => state.auth);
+  if (user?.must_change_password) {
+    return <Navigate to="/force-change-password" replace />;
+  }
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   return <Navigate to={isAdmin ? '/admin/dashboard' : '/dashboard'} replace />;
 }
+
+const organizationScopedRoutes = [
+  { path: 'dashboard', element: lazyElement(DashboardPage) },
+  { path: 'contacts', element: lazyElement(ContactListPage) },
+  { path: 'contacts/import', element: lazyElement(ImportCSVPage) },
+  { path: 'contacts/tags', element: lazyElement(TagsPage) },
+  { path: 'contacts/groups', element: lazyElement(GroupsPage) },
+  { path: 'contacts/groups/:id', element: lazyElement(GroupDetailPage) },
+  { path: 'contacts/:id', element: lazyElement(ContactDetailPage) },
+  { path: 'templates', element: lazyElement(TemplateListPage) },
+  { path: 'templates/create', element: lazyElement(CreateTemplatePage) },
+  { path: 'templates/:id/edit', element: lazyElement(CreateTemplatePage) },
+  { path: 'templates/:id', element: lazyElement(TemplateDetailPage) },
+  { path: 'flows', element: lazyElement(FlowListPage) },
+  { path: 'flows/create', element: lazyElement(FlowBuilderPage) },
+  { path: 'flows/:id/edit', element: lazyElement(FlowBuilderPage) },
+  { path: 'flows/:id', element: lazyElement(FlowDetailPage) },
+  { path: 'campaigns', element: lazyElement(CampaignListPage) },
+  { path: 'campaigns/create', element: lazyElement(CreateCampaignPage) },
+  { path: 'campaigns/:id', element: lazyElement(CampaignDetailPage) },
+  { path: 'chat', element: lazyElement(ChatPage) },
+  { path: 'team', element: lazyElement(TeamMembersPage) },
+  { path: 'automations', element: lazyElement(AutomationsPage) },
+  { path: 'automations/create', element: lazyElement(CreateAutomationPage) },
+  { path: 'automations/webhooks', element: lazyElement(WebhookManagementPage) },
+  { path: 'automations/:id/edit', element: lazyElement(CreateAutomationPage) },
+  { path: 'automations/:id', element: lazyElement(AutomationDetailPage) },
+  { path: 'support', element: lazyElement(SupportPage) },
+  { path: 'support/:id', element: lazyElement(TicketDetailPage) },
+  { path: 'subscription', element: lazyElement(SubscriptionPage) },
+  { path: 'wallet', element: lazyElement(WalletPage) },
+  { path: 'whatsapp/connect', element: lazyElement(WhatsAppOnboardingPage) },
+  { path: 'settings', element: lazyElement(SettingsPage) },
+  { path: 'developer', element: lazyElement(DeveloperPage) },
+];
 
 export const router = createBrowserRouter([
   // Public routes (guest only)
@@ -96,46 +139,57 @@ export const router = createBrowserRouter([
       { path: '/verify-email', element: <VerifyEmailPage /> },
     ],
   },
+  {
+    path: '/organizations/invitations/accept',
+    element: lazyElement(AcceptInvitationPage),
+  },
   // Protected routes (with app layout)
   {
     element: <AuthGuard />,
     children: [
+      { path: '/force-change-password', element: <ForceChangePasswordPage /> },
       {
         element: <AppLayout />,
         children: [
-          { path: '/dashboard', element: lazyElement(DashboardPage) },
-          { path: '/contacts', element: lazyElement(ContactListPage) },
-          { path: '/contacts/import', element: lazyElement(ImportCSVPage) },
-          { path: '/contacts/tags', element: lazyElement(TagsPage) },
-          { path: '/contacts/groups', element: lazyElement(GroupsPage) },
-          { path: '/contacts/groups/:id', element: lazyElement(GroupDetailPage) },
-          { path: '/contacts/:id', element: lazyElement(ContactDetailPage) },
-          { path: '/templates', element: lazyElement(TemplateListPage) },
-          { path: '/templates/create', element: lazyElement(CreateTemplatePage) },
-          { path: '/templates/:id/edit', element: lazyElement(CreateTemplatePage) },
-          { path: '/templates/:id', element: lazyElement(TemplateDetailPage) },
-          { path: '/flows', element: lazyElement(FlowListPage) },
-          { path: '/flows/create', element: lazyElement(FlowBuilderPage) },
-          { path: '/flows/:id/edit', element: lazyElement(FlowBuilderPage) },
-          { path: '/flows/:id', element: lazyElement(FlowDetailPage) },
-          { path: '/campaigns', element: lazyElement(CampaignListPage) },
-          { path: '/campaigns/create', element: lazyElement(CreateCampaignPage) },
-          { path: '/campaigns/:id', element: lazyElement(CampaignDetailPage) },
-          { path: '/chat', element: lazyElement(ChatPage) },
-          { path: '/automations', element: lazyElement(AutomationsPage) },
-          { path: '/automations/create', element: lazyElement(CreateAutomationPage) },
-          { path: '/automations/webhooks', element: lazyElement(WebhookManagementPage) },
-          { path: '/automations/:id/edit', element: lazyElement(CreateAutomationPage) },
-          { path: '/automations/:id', element: lazyElement(AutomationDetailPage) },
+          {
+            path: '/org/:slug',
+            element: <OrganizationScopeGuard />,
+            children: organizationScopedRoutes,
+          },
+          { path: '/dashboard', element: <OrganizationPathRedirect targetPath="/dashboard" /> },
+          { path: '/contacts', element: <OrganizationPathRedirect targetPath="/contacts" /> },
+          { path: '/contacts/import', element: <OrganizationPathRedirect targetPath="/contacts/import" /> },
+          { path: '/contacts/tags', element: <OrganizationPathRedirect targetPath="/contacts/tags" /> },
+          { path: '/contacts/groups', element: <OrganizationPathRedirect targetPath="/contacts/groups" /> },
+          { path: '/contacts/groups/:id', element: <OrganizationPathRedirect /> },
+          { path: '/contacts/:id', element: <OrganizationPathRedirect /> },
+          { path: '/templates', element: <OrganizationPathRedirect targetPath="/templates" /> },
+          { path: '/templates/create', element: <OrganizationPathRedirect targetPath="/templates/create" /> },
+          { path: '/templates/:id/edit', element: <OrganizationPathRedirect /> },
+          { path: '/templates/:id', element: <OrganizationPathRedirect /> },
+          { path: '/flows', element: <OrganizationPathRedirect targetPath="/flows" /> },
+          { path: '/flows/create', element: <OrganizationPathRedirect targetPath="/flows/create" /> },
+          { path: '/flows/:id/edit', element: <OrganizationPathRedirect /> },
+          { path: '/flows/:id', element: <OrganizationPathRedirect /> },
+          { path: '/campaigns', element: <OrganizationPathRedirect targetPath="/campaigns" /> },
+          { path: '/campaigns/create', element: <OrganizationPathRedirect targetPath="/campaigns/create" /> },
+          { path: '/campaigns/:id', element: <OrganizationPathRedirect /> },
+          { path: '/chat', element: <OrganizationPathRedirect targetPath="/chat" /> },
+          { path: '/team', element: <OrganizationPathRedirect targetPath="/team" /> },
+          { path: '/automations', element: <OrganizationPathRedirect targetPath="/automations" /> },
+          { path: '/automations/create', element: <OrganizationPathRedirect targetPath="/automations/create" /> },
+          { path: '/automations/webhooks', element: <OrganizationPathRedirect targetPath="/automations/webhooks" /> },
+          { path: '/automations/:id/edit', element: <OrganizationPathRedirect /> },
+          { path: '/automations/:id', element: <OrganizationPathRedirect /> },
           { path: '/organizations', element: lazyElement(OrganizationsPage) },
           { path: '/organizations/:id', element: lazyElement(OrgDetailPage) },
-          { path: '/support', element: lazyElement(SupportPage) },
-          { path: '/support/:id', element: lazyElement(TicketDetailPage) },
-          { path: '/subscription', element: lazyElement(SubscriptionPage) },
-          { path: '/wallet', element: lazyElement(WalletPage) },
-          { path: '/whatsapp/connect', element: lazyElement(WhatsAppOnboardingPage) },
-          { path: '/settings', element: lazyElement(SettingsPage) },
-          { path: '/developer', element: lazyElement(DeveloperPage) },
+          { path: '/support', element: <OrganizationPathRedirect targetPath="/support" /> },
+          { path: '/support/:id', element: <OrganizationPathRedirect /> },
+          { path: '/subscription', element: <OrganizationPathRedirect targetPath="/subscription" /> },
+          { path: '/wallet', element: <OrganizationPathRedirect targetPath="/wallet" /> },
+          { path: '/whatsapp/connect', element: <OrganizationPathRedirect targetPath="/whatsapp/connect" /> },
+          { path: '/settings', element: <OrganizationPathRedirect targetPath="/settings" /> },
+          { path: '/developer', element: <OrganizationPathRedirect targetPath="/developer" /> },
         ],
       },
     ],

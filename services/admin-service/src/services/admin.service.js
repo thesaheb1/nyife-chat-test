@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
@@ -22,6 +23,129 @@ function normalizePlanRecord(plan) {
     has_priority_support: Boolean(plan.has_priority_support),
     is_active: Boolean(plan.is_active),
     features: typeof plan.features === 'string' ? JSON.parse(plan.features) : plan.features,
+  };
+}
+
+async function findUserById(userId, attributes = 'id, email, role, status') {
+  const [user] = await sequelize.query(
+    `SELECT ${attributes}
+     FROM auth_users
+     WHERE id = :userId
+       AND deleted_at IS NULL`,
+    { replacements: { userId }, type: QueryTypes.SELECT }
+  );
+
+  return user || null;
+}
+
+async function createDefaultOrganizationForUser(userId, transaction = null) {
+  const now = new Date();
+  const organizationId = crypto.randomUUID();
+  const walletId = crypto.randomUUID();
+  const slug = slugify(`default-${userId.slice(0, 8)}`);
+
+  await sequelize.query(
+    `INSERT INTO org_organizations (id, user_id, name, slug, description, status, logo_url, created_at, updated_at)
+     VALUES (:organizationId, :userId, 'default', :slug, 'default organization', 'active', NULL, :now, :now)`,
+    {
+      replacements: {
+        organizationId,
+        userId,
+        slug,
+        now,
+      },
+      transaction,
+    }
+  );
+
+  await sequelize.query(
+    `INSERT INTO wallet_wallets (id, user_id, balance, currency, created_at, updated_at)
+     VALUES (:walletId, :organizationId, 0, 'INR', :now, :now)`,
+    {
+      replacements: {
+        walletId,
+        organizationId,
+        now,
+      },
+      transaction,
+    }
+  );
+
+  const [organization] = await sequelize.query(
+    `SELECT id, user_id, name, slug, description, logo_url, status, created_at, updated_at
+     FROM org_organizations
+     WHERE id = :organizationId
+     LIMIT 1`,
+    {
+      replacements: { organizationId },
+      type: QueryTypes.SELECT,
+      transaction,
+    }
+  );
+
+  return organization;
+}
+
+async function resolveUserBusinessScope(userId, requestedOrganizationId = null) {
+  const user = await findUserById(userId);
+
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  if (user.role !== 'user') {
+    return {
+      user,
+      scope_id: user.id,
+      organization: null,
+    };
+  }
+
+  let organization = null;
+
+  if (requestedOrganizationId) {
+    [organization] = await sequelize.query(
+      `SELECT id, user_id, name, slug, description, logo_url, status, created_at, updated_at
+       FROM org_organizations
+       WHERE id = :organizationId
+         AND user_id = :userId
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      {
+        replacements: {
+          organizationId: requestedOrganizationId,
+          userId: user.id,
+        },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    if (!organization) {
+      throw new AppError('Organization not found for this user', 404);
+    }
+  } else {
+    [organization] = await sequelize.query(
+      `SELECT id, user_id, name, slug, description, logo_url, status, created_at, updated_at
+       FROM org_organizations
+       WHERE user_id = :userId
+         AND deleted_at IS NULL
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      {
+        replacements: { userId: user.id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    if (!organization) {
+      organization = await createDefaultOrganizationForUser(user.id);
+    }
+  }
+
+  return {
+    user,
+    scope_id: organization?.id || user.id,
+    organization: organization || null,
   };
 }
 
@@ -333,12 +457,15 @@ async function getUser(userId) {
     throw new AppError('User not found', 404);
   }
 
+  const scope = await resolveUserBusinessScope(userId);
+  const scopeId = scope.scope_id;
+
   // Attempt to fetch wallet balance (fail gracefully if table doesn't exist yet)
   let wallet = null;
   try {
     const [walletRow] = await sequelize.query(
-      'SELECT id, balance, currency FROM wallet_wallets WHERE user_id = :userId LIMIT 1',
-      { replacements: { userId }, type: QueryTypes.SELECT }
+      'SELECT id, balance, currency FROM wallet_wallets WHERE user_id = :scopeId LIMIT 1',
+      { replacements: { scopeId }, type: QueryTypes.SELECT }
     );
     wallet = walletRow || null;
   } catch (_err) {
@@ -353,9 +480,9 @@ async function getUser(userId) {
               p.name AS plan_name, p.type AS plan_type
        FROM sub_subscriptions s
        LEFT JOIN sub_plans p ON p.id = s.plan_id
-       WHERE s.user_id = :userId AND s.status = 'active' AND s.deleted_at IS NULL
+       WHERE s.user_id = :scopeId AND s.status = 'active'
        ORDER BY s.created_at DESC LIMIT 1`,
-      { replacements: { userId }, type: QueryTypes.SELECT }
+      { replacements: { scopeId }, type: QueryTypes.SELECT }
     );
     subscription = subRow || null;
   } catch (_err) {
@@ -364,6 +491,7 @@ async function getUser(userId) {
 
   return {
     ...user,
+    primary_organization: scope.organization,
     wallet,
     subscription,
   };
@@ -391,25 +519,34 @@ async function createUser(data) {
   const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
   const userId = uuidv4();
   const now = new Date();
+  const nextRole = role || 'user';
+  const nextStatus = status || 'active';
 
-  await sequelize.query(
-    `INSERT INTO auth_users (id, email, password, first_name, last_name, phone, role, status, email_verified_at, created_at, updated_at)
-     VALUES (:id, :email, :password, :first_name, :last_name, :phone, :role, :status, :now, :now, :now)`,
-    {
-      replacements: {
-        id: userId,
-        email,
-        password: hashedPassword,
-        first_name,
-        last_name,
-        phone: phone || null,
-        role: role || 'user',
-        status: status || 'active',
-        now,
-      },
-      type: QueryTypes.INSERT,
+  await sequelize.transaction(async (transaction) => {
+    await sequelize.query(
+      `INSERT INTO auth_users (id, email, password, first_name, last_name, phone, role, status, email_verified_at, created_at, updated_at)
+       VALUES (:id, :email, :password, :first_name, :last_name, :phone, :role, :status, :now, :now, :now)`,
+      {
+        replacements: {
+          id: userId,
+          email,
+          password: hashedPassword,
+          first_name,
+          last_name,
+          phone: phone || null,
+          role: nextRole,
+          status: nextStatus,
+          now,
+        },
+        type: QueryTypes.INSERT,
+        transaction,
+      }
+    );
+
+    if (nextRole === 'user') {
+      await createDefaultOrganizationForUser(userId, transaction);
     }
-  );
+  });
 
   return {
     id: userId,
@@ -417,8 +554,8 @@ async function createUser(data) {
     first_name,
     last_name,
     phone: phone || null,
-    role: role || 'user',
-    status: status || 'active',
+    role: nextRole,
+    status: nextStatus,
     email_verified_at: now,
     created_at: now,
   };
@@ -523,21 +660,14 @@ async function deleteUser(userId) {
  * @param {string} adminUserId - Admin performing the action
  * @returns {Promise<object>} Transaction result from wallet-service
  */
-async function creditWallet(userId, amount, remarks, adminUserId) {
-  // Verify user exists
-  const [user] = await sequelize.query(
-    'SELECT id FROM auth_users WHERE id = :userId AND deleted_at IS NULL',
-    { replacements: { userId }, type: QueryTypes.SELECT }
-  );
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
+async function creditWallet(userId, amount, remarks, adminUserId, organizationId = null) {
+  const scope = await resolveUserBusinessScope(userId, organizationId);
 
   try {
     const response = await axios.post(
       `${config.walletServiceUrl}/api/v1/wallet/admin/credit`,
       {
-        user_id: userId,
+        user_id: scope.scope_id,
         amount,
         remarks,
         admin_user_id: adminUserId,
@@ -552,7 +682,11 @@ async function creditWallet(userId, amount, remarks, adminUserId) {
       }
     );
 
-    return response.data.data || response.data;
+    return {
+      ...(response.data.data || response.data),
+      user_id: userId,
+      organization_id: scope.organization?.id || null,
+    };
   } catch (err) {
     if (err.response) {
       throw new AppError(
@@ -573,21 +707,14 @@ async function creditWallet(userId, amount, remarks, adminUserId) {
  * @param {string} adminUserId - Admin performing the action
  * @returns {Promise<object>} Transaction result from wallet-service
  */
-async function debitWallet(userId, amount, remarks, adminUserId) {
-  // Verify user exists
-  const [user] = await sequelize.query(
-    'SELECT id FROM auth_users WHERE id = :userId AND deleted_at IS NULL',
-    { replacements: { userId }, type: QueryTypes.SELECT }
-  );
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
+async function debitWallet(userId, amount, remarks, adminUserId, organizationId = null) {
+  const scope = await resolveUserBusinessScope(userId, organizationId);
 
   try {
     const response = await axios.post(
       `${config.walletServiceUrl}/api/v1/wallet/admin/debit`,
       {
-        user_id: userId,
+        user_id: scope.scope_id,
         amount,
         remarks,
         admin_user_id: adminUserId,
@@ -602,7 +729,11 @@ async function debitWallet(userId, amount, remarks, adminUserId) {
       }
     );
 
-    return response.data.data || response.data;
+    return {
+      ...(response.data.data || response.data),
+      user_id: userId,
+      organization_id: scope.organization?.id || null,
+    };
   } catch (err) {
     if (err.response) {
       throw new AppError(
@@ -621,34 +752,27 @@ async function debitWallet(userId, amount, remarks, adminUserId) {
  * @param {object} filters - { page, limit }
  * @returns {Promise<{ data: Array, meta: object }>}
  */
-async function getUserTransactions(userId, filters) {
+async function getUserTransactions(userId, filters, organizationId = null) {
   const { page = 1, limit = 20 } = filters;
   const { offset, limit: safeLimit } = getPagination(page, limit);
-
-  // Verify user exists
-  const [user] = await sequelize.query(
-    'SELECT id FROM auth_users WHERE id = :userId AND deleted_at IS NULL',
-    { replacements: { userId }, type: QueryTypes.SELECT }
-  );
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
+  const scope = await resolveUserBusinessScope(userId, organizationId);
+  const scopeId = scope.scope_id;
 
   try {
     const [countResult] = await sequelize.query(
-      'SELECT COUNT(*) AS total FROM wallet_transactions WHERE user_id = :userId',
-      { replacements: { userId }, type: QueryTypes.SELECT }
+      'SELECT COUNT(*) AS total FROM wallet_transactions WHERE user_id = :scopeId',
+      { replacements: { scopeId }, type: QueryTypes.SELECT }
     );
     const total = parseInt(countResult.total, 10);
 
     const transactions = await sequelize.query(
       `SELECT id, type, amount, balance_after, description, reference_id, reference_type, created_at
        FROM wallet_transactions
-       WHERE user_id = :userId
+       WHERE user_id = :scopeId
        ORDER BY created_at DESC
        LIMIT :limit OFFSET :offset`,
       {
-        replacements: { userId, limit: safeLimit, offset },
+        replacements: { scopeId, limit: safeLimit, offset },
         type: QueryTypes.SELECT,
       }
     );
@@ -668,23 +792,16 @@ async function getUserTransactions(userId, filters) {
  * @param {object} filters - { page, limit }
  * @returns {Promise<{ data: Array, meta: object }>}
  */
-async function getUserSubscriptions(userId, filters) {
+async function getUserSubscriptions(userId, filters, organizationId = null) {
   const { page = 1, limit = 20 } = filters;
   const { offset, limit: safeLimit } = getPagination(page, limit);
-
-  // Verify user exists
-  const [user] = await sequelize.query(
-    'SELECT id FROM auth_users WHERE id = :userId AND deleted_at IS NULL',
-    { replacements: { userId }, type: QueryTypes.SELECT }
-  );
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
+  const scope = await resolveUserBusinessScope(userId, organizationId);
+  const scopeId = scope.scope_id;
 
   try {
     const [countResult] = await sequelize.query(
-      'SELECT COUNT(*) AS total FROM sub_subscriptions WHERE user_id = :userId AND deleted_at IS NULL',
-      { replacements: { userId }, type: QueryTypes.SELECT }
+      'SELECT COUNT(*) AS total FROM sub_subscriptions WHERE user_id = :scopeId',
+      { replacements: { scopeId }, type: QueryTypes.SELECT }
     );
     const total = parseInt(countResult.total, 10);
 
@@ -693,11 +810,11 @@ async function getUserSubscriptions(userId, filters) {
               p.name AS plan_name, p.type AS plan_type, p.price AS plan_price
        FROM sub_subscriptions s
        LEFT JOIN sub_plans p ON p.id = s.plan_id
-       WHERE s.user_id = :userId AND s.deleted_at IS NULL
+       WHERE s.user_id = :scopeId
        ORDER BY s.created_at DESC
        LIMIT :limit OFFSET :offset`,
       {
-        replacements: { userId, limit: safeLimit, offset },
+        replacements: { scopeId, limit: safeLimit, offset },
         type: QueryTypes.SELECT,
       }
     );
@@ -716,23 +833,16 @@ async function getUserSubscriptions(userId, filters) {
  * @param {object} filters - { page, limit }
  * @returns {Promise<{ data: Array, meta: object }>}
  */
-async function getUserInvoices(userId, filters) {
+async function getUserInvoices(userId, filters, organizationId = null) {
   const { page = 1, limit = 20 } = filters;
   const { offset, limit: safeLimit } = getPagination(page, limit);
-
-  // Verify user exists
-  const [user] = await sequelize.query(
-    'SELECT id FROM auth_users WHERE id = :userId AND deleted_at IS NULL',
-    { replacements: { userId }, type: QueryTypes.SELECT }
-  );
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
+  const scope = await resolveUserBusinessScope(userId, organizationId);
+  const scopeId = scope.scope_id;
 
   try {
     const [countResult] = await sequelize.query(
-      'SELECT COUNT(*) AS total FROM wallet_invoices WHERE user_id = :userId',
-      { replacements: { userId }, type: QueryTypes.SELECT }
+      'SELECT COUNT(*) AS total FROM wallet_invoices WHERE user_id = :scopeId',
+      { replacements: { scopeId }, type: QueryTypes.SELECT }
     );
     const total = parseInt(countResult.total, 10);
 
@@ -740,11 +850,11 @@ async function getUserInvoices(userId, filters) {
       `SELECT id, invoice_number, amount, tax_amount, total_amount, status,
               payment_method, paid_at, created_at
        FROM wallet_invoices
-       WHERE user_id = :userId
+       WHERE user_id = :scopeId
        ORDER BY created_at DESC
        LIMIT :limit OFFSET :offset`,
       {
-        replacements: { userId, limit: safeLimit, offset },
+        replacements: { scopeId, limit: safeLimit, offset },
         type: QueryTypes.SELECT,
       }
     );
@@ -788,7 +898,7 @@ async function createPlan(data) {
     'max_contacts', 'max_templates', 'max_campaigns_per_month', 'max_messages_per_month',
     'max_team_members', 'max_organizations', 'max_whatsapp_numbers',
     'has_priority_support', 'marketing_message_price', 'utility_message_price',
-    'auth_message_price', 'service_message_price', 'referral_conversion_message_price',
+    'auth_message_price',
     'features', 'sort_order', 'is_active',
     'created_at', 'updated_at',
   ];
@@ -812,8 +922,6 @@ async function createPlan(data) {
     marketing_message_price: data.marketing_message_price || 0,
     utility_message_price: data.utility_message_price || 0,
     auth_message_price: data.auth_message_price || 0,
-    service_message_price: data.service_message_price || 0,
-    referral_conversion_message_price: data.referral_conversion_message_price || 0,
     features: data.features ? JSON.stringify(data.features) : null,
     sort_order: data.sort_order || 0,
     is_active: data.is_active ?? true,
@@ -854,7 +962,7 @@ async function listPlans(filters) {
               max_contacts, max_templates, max_campaigns_per_month, max_messages_per_month,
               max_team_members, max_organizations, max_whatsapp_numbers,
               has_priority_support, marketing_message_price, utility_message_price,
-              auth_message_price, service_message_price, referral_conversion_message_price,
+              auth_message_price,
               features, sort_order, is_active, created_at, updated_at
        FROM sub_plans
        WHERE deleted_at IS NULL
@@ -891,7 +999,7 @@ async function getPlan(planId) {
             max_contacts, max_templates, max_campaigns_per_month, max_messages_per_month,
             max_team_members, max_organizations, max_whatsapp_numbers,
             has_priority_support, marketing_message_price, utility_message_price,
-            auth_message_price, service_message_price, referral_conversion_message_price,
+            auth_message_price,
             features, sort_order, is_active, created_at, updated_at
      FROM sub_plans
      WHERE id = :planId AND deleted_at IS NULL`,
@@ -931,7 +1039,7 @@ async function updatePlan(planId, data) {
     'max_contacts', 'max_templates', 'max_campaigns_per_month', 'max_messages_per_month',
     'max_team_members', 'max_organizations', 'max_whatsapp_numbers',
     'has_priority_support', 'marketing_message_price', 'utility_message_price',
-    'auth_message_price', 'service_message_price', 'referral_conversion_message_price',
+    'auth_message_price',
     'sort_order', 'is_active',
   ];
 

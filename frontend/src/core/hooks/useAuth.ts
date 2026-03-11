@@ -4,6 +4,7 @@ import { setCredentials, logout as logoutAction, setLoading } from '@/core/store
 import { apiClient, refreshSession } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import type { User, ApiResponse } from '@/core/types';
+import { clearStoredActiveOrganization } from '@/modules/organizations/context';
 
 export function useAuth() {
   const dispatch = useDispatch<AppDispatch>();
@@ -22,6 +23,7 @@ export function useAuth() {
     try {
       await apiClient.post(ENDPOINTS.AUTH.LOGOUT);
     } finally {
+      clearStoredActiveOrganization();
       dispatch(logoutAction());
     }
   };
@@ -31,6 +33,7 @@ export function useAuth() {
       dispatch(setLoading(true));
       await refreshSession();
     } catch {
+      clearStoredActiveOrganization();
       dispatch(logoutAction());
     }
   };

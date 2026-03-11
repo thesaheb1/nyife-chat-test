@@ -1,0 +1,777 @@
+import { useMemo, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { ColumnDef } from '@tanstack/react-table';
+import { toast } from 'sonner';
+import { Loader2, Mail, RefreshCcw, Trash2, UserPlus, Users } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DataTable } from '@/shared/components/DataTable';
+import { apiClient } from '@/core/api/client';
+import { ENDPOINTS } from '@/core/api/endpoints';
+import { getApiErrorMessage } from '@/core/errors/apiError';
+import type { ApiResponse, OrganizationInvitation, PaginationMeta, Permissions, Subscription, TeamMember } from '@/core/types';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import { TEAM_ACTIONS, TEAM_RESOURCES, createEmptyPermissions, normalizePermissions } from './permissions';
+
+type MemberFormState = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  role_title: string;
+  temporary_password: string;
+  permissions: Permissions;
+};
+
+type InviteFormState = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  role_title: string;
+  permissions: Permissions;
+};
+
+const EMPTY_MEMBER_FORM = (): MemberFormState => ({
+  first_name: '',
+  last_name: '',
+  email: '',
+  role_title: '',
+  temporary_password: '',
+  permissions: createEmptyPermissions(),
+});
+
+const EMPTY_INVITE_FORM = (): InviteFormState => ({
+  first_name: '',
+  last_name: '',
+  email: '',
+  role_title: '',
+  permissions: createEmptyPermissions(),
+});
+
+function useTeamMembers(orgId: string | undefined, page = 1, enabled = true) {
+  return useQuery<{ data: TeamMember[]; meta: PaginationMeta }>({
+    queryKey: ['team-members', orgId, page],
+    enabled: Boolean(orgId) && enabled,
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<TeamMember[]>>(
+        `${ENDPOINTS.ORGANIZATIONS.MEMBERS(orgId!)}?page=${page}&limit=20`
+      );
+      return { data: data.data, meta: data.meta! };
+    },
+  });
+}
+
+function useInvitations(orgId: string | undefined, page = 1, enabled = true) {
+  return useQuery<{ data: OrganizationInvitation[]; meta: PaginationMeta }>({
+    queryKey: ['team-invitations', orgId, page],
+    enabled: Boolean(orgId) && enabled,
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<OrganizationInvitation[]>>(
+        `${ENDPOINTS.ORGANIZATIONS.INVITATIONS(orgId!)}?page=${page}&limit=20`
+      );
+      return { data: data.data, meta: data.meta! };
+    },
+  });
+}
+
+function useCurrentSubscription(enabled = true) {
+  return useQuery<Subscription | null>({
+    queryKey: ['subscription', 'current'],
+    enabled,
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<{ subscription: Subscription | null }>>(
+        ENDPOINTS.SUBSCRIPTIONS.CURRENT
+      );
+      return data.data.subscription;
+    },
+  });
+}
+
+function PermissionMatrix({
+  value,
+  onToggle,
+}: {
+  value: Permissions;
+  onToggle: (resource: string, action: keyof Permissions['resources'][string]) => void;
+}) {
+  return (
+    <div className="max-h-72 overflow-auto rounded-md border">
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-muted">
+          <tr className="border-b">
+            <th className="p-2 text-left">Resource</th>
+            {TEAM_ACTIONS.map((action) => (
+              <th key={action} className="p-2 text-center capitalize">
+                {action}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {TEAM_RESOURCES.map((resource) => (
+            <tr key={resource} className="border-b">
+              <td className="p-2 capitalize">{resource.replace('_', ' ')}</td>
+              {TEAM_ACTIONS.map((action) => (
+                <td key={action} className="p-2 text-center">
+                  <Checkbox
+                    checked={Boolean(value.resources?.[resource]?.[action])}
+                    onCheckedChange={() => onToggle(resource, action)}
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function TeamMembersPage() {
+  const queryClient = useQueryClient();
+  const { activeOrganization } = useOrganizationContext();
+  const organizationId = activeOrganization?.id;
+  const isOwner = activeOrganization?.organization_role === 'owner';
+  const canRead = isOwner || activeOrganization?.permissions?.resources?.team_members?.read === true;
+  const [memberPage, setMemberPage] = useState(1);
+  const [invitePage, setInvitePage] = useState(1);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [editMember, setEditMember] = useState<TeamMember | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<{ id: string; type: 'member' | 'invitation' } | null>(null);
+  const [memberForm, setMemberForm] = useState<MemberFormState>(EMPTY_MEMBER_FORM);
+  const [inviteForm, setInviteForm] = useState<InviteFormState>(EMPTY_INVITE_FORM);
+  const [editRoleTitle, setEditRoleTitle] = useState('');
+  const [editStatus, setEditStatus] = useState<'active' | 'inactive' | 'invited'>('active');
+  const [editPermissions, setEditPermissions] = useState<Permissions>(createEmptyPermissions());
+
+  const membersQuery = useTeamMembers(organizationId, memberPage, canRead);
+  const invitationsQuery = useInvitations(organizationId, invitePage, isOwner);
+  const subscriptionQuery = useCurrentSubscription(canRead);
+
+  const members = membersQuery.data?.data || [];
+  const invitations = invitationsQuery.data?.data || [];
+  const memberMeta = membersQuery.data?.meta;
+  const invitationMeta = invitationsQuery.data?.meta;
+  const subscription = subscriptionQuery.data;
+  const activeMemberCount = members.filter((member) => member.status === 'active').length;
+  const pendingInvitationCount = invitations.filter((invitation) => invitation.status === 'pending').length;
+  const seatsUsed = subscription?.usage?.team_members_used ?? activeMemberCount + pendingInvitationCount;
+  const maxSeats = subscription?.plan?.max_team_members ?? 0;
+  const availableSeats = maxSeats === 0 ? null : Math.max(0, maxSeats - seatsUsed);
+
+  const refreshQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['team-members'] }),
+      queryClient.invalidateQueries({ queryKey: ['team-invitations'] }),
+      queryClient.invalidateQueries({ queryKey: ['subscription', 'current'] }),
+    ]);
+  };
+
+  const createMemberMutation = useMutation({
+    mutationFn: async (payload: MemberFormState) => {
+      const { data } = await apiClient.post<ApiResponse<TeamMember>>(
+        ENDPOINTS.ORGANIZATIONS.CREATE_MEMBER_ACCOUNT(organizationId!),
+        payload
+      );
+      return data.data;
+    },
+    onSuccess: async () => {
+      await refreshQueries();
+    },
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: async (payload: InviteFormState) => {
+      const { data } = await apiClient.post<ApiResponse<OrganizationInvitation>>(
+        ENDPOINTS.ORGANIZATIONS.MEMBERS(organizationId!),
+        payload
+      );
+      return data.data;
+    },
+    onSuccess: async () => {
+      await refreshQueries();
+    },
+  });
+
+  const updateMemberMutation = useMutation({
+    mutationFn: async (payload: { memberId: string; role_title: string; status: 'active' | 'inactive' | 'invited'; permissions: Permissions }) => {
+      const { data } = await apiClient.put<ApiResponse<TeamMember>>(
+        `${ENDPOINTS.ORGANIZATIONS.MEMBERS(organizationId!)}/${payload.memberId}`,
+        {
+          role_title: payload.role_title,
+          status: payload.status,
+          permissions: payload.permissions,
+        }
+      );
+      return data.data;
+    },
+    onSuccess: async () => {
+      await refreshQueries();
+    },
+  });
+
+  const resendMutation = useMutation({
+    mutationFn: async (invitationId: string) => {
+      await apiClient.post(ENDPOINTS.ORGANIZATIONS.RESEND_INVITATION(organizationId!, invitationId));
+    },
+    onSuccess: async () => {
+      await refreshQueries();
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: async (invitationId: string) => {
+      await apiClient.delete(ENDPOINTS.ORGANIZATIONS.REVOKE_INVITATION(organizationId!, invitationId));
+    },
+    onSuccess: async () => {
+      await refreshQueries();
+    },
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: async (memberId: string) => {
+      await apiClient.delete(`${ENDPOINTS.ORGANIZATIONS.MEMBERS(organizationId!)}/${memberId}`);
+    },
+    onSuccess: async () => {
+      await refreshQueries();
+    },
+  });
+
+  const toggleMemberPermission = (resource: string, action: keyof Permissions['resources'][string]) => {
+    setMemberForm((current) => ({
+      ...current,
+      permissions: {
+        resources: {
+          ...current.permissions.resources,
+          [resource]: {
+            ...current.permissions.resources[resource],
+            [action]: !current.permissions.resources[resource][action],
+          },
+        },
+      },
+    }));
+  };
+
+  const toggleInvitePermission = (resource: string, action: keyof Permissions['resources'][string]) => {
+    setInviteForm((current) => ({
+      ...current,
+      permissions: {
+        resources: {
+          ...current.permissions.resources,
+          [resource]: {
+            ...current.permissions.resources[resource],
+            [action]: !current.permissions.resources[resource][action],
+          },
+        },
+      },
+    }));
+  };
+
+  const toggleEditPermission = (resource: string, action: keyof Permissions['resources'][string]) => {
+    setEditPermissions((current) => ({
+      resources: {
+        ...current.resources,
+        [resource]: {
+          ...current.resources[resource],
+          [action]: !current.resources[resource][action],
+        },
+      },
+    }));
+  };
+
+  const handleCreateMember = async () => {
+    try {
+      await createMemberMutation.mutateAsync(memberForm);
+      toast.success('Team account created. Share the temporary password securely.');
+      setCreateOpen(false);
+      setMemberForm(EMPTY_MEMBER_FORM());
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to create the team account.'));
+    }
+  };
+
+  const handleInviteMember = async () => {
+    try {
+      await inviteMutation.mutateAsync(inviteForm);
+      toast.success('Invitation sent successfully.');
+      setInviteOpen(false);
+      setInviteForm(EMPTY_INVITE_FORM());
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to send the invitation.'));
+    }
+  };
+
+  const handleUpdateMember = async () => {
+    if (!editMember) {
+      return;
+    }
+
+    try {
+      await updateMemberMutation.mutateAsync({
+        memberId: editMember.id,
+        role_title: editRoleTitle,
+        status: editStatus,
+        permissions: editPermissions,
+      });
+      toast.success('Team member updated successfully.');
+      setEditMember(null);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to update this team member.'));
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!removeTarget) {
+      return;
+    }
+
+    try {
+      if (removeTarget.type === 'member') {
+        await removeMemberMutation.mutateAsync(removeTarget.id);
+        toast.success('Team member removed successfully.');
+      } else {
+        await revokeMutation.mutateAsync(removeTarget.id);
+        toast.success('Invitation revoked successfully.');
+      }
+      setRemoveTarget(null);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to complete this action.'));
+    }
+  };
+
+  const memberColumns = useMemo<ColumnDef<TeamMember, unknown>[]>(() => [
+    {
+      accessorKey: 'member.email',
+      header: 'Member',
+      cell: ({ row }) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">
+            {row.original.member?.first_name} {row.original.member?.last_name}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">{row.original.member?.email}</p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'role_title',
+      header: 'Role Title',
+      cell: ({ row }) => row.original.role_title,
+    },
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => (
+        <Badge variant="outline" className="capitalize">
+          {row.original.status}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: 'joined_at',
+      header: 'Joined',
+      cell: ({ row }) => row.original.joined_at ? new Date(row.original.joined_at).toLocaleDateString() : 'Pending',
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => (
+        <div className="flex items-center justify-end gap-2">
+          {isOwner ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setEditMember(row.original);
+                  setEditRoleTitle(row.original.role_title);
+                  setEditStatus(row.original.status);
+                  setEditPermissions(normalizePermissions(row.original.permissions));
+                }}
+              >
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setRemoveTarget({ id: row.original.id, type: 'member' })}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">View only</span>
+          )}
+        </div>
+      ),
+    },
+  ], [isOwner]);
+
+  const invitationColumns = useMemo<ColumnDef<OrganizationInvitation, unknown>[]>(() => [
+    {
+      accessorKey: 'email',
+      header: 'Invitee',
+      cell: ({ row }) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">
+            {row.original.first_name} {row.original.last_name}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">{row.original.email}</p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'role_title',
+      header: 'Role Title',
+      cell: ({ row }) => row.original.role_title,
+    },
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => (
+        <Badge variant="outline" className="capitalize">
+          {row.original.status}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: 'expires_at',
+      header: 'Expires',
+      cell: ({ row }) => new Date(row.original.expires_at).toLocaleDateString(),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => (
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={resendMutation.isPending || row.original.status !== 'pending'}
+            onClick={async () => {
+              try {
+                await resendMutation.mutateAsync(row.original.id);
+                toast.success('Invitation resent successfully.');
+              } catch (error) {
+                toast.error(getApiErrorMessage(error, 'Unable to resend the invitation.'));
+              }
+            }}
+          >
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Resend
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={row.original.status !== 'pending'}
+            onClick={() => setRemoveTarget({ id: row.original.id, type: 'invitation' })}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
+  ], [resendMutation]);
+
+  if (!canRead) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold tracking-tight">Team Members</h1>
+        <Card>
+          <CardContent className="py-10 text-sm text-muted-foreground">
+            You do not have permission to view team members in this organization.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Team Members</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage organization members, reserved seats, invitations, and resource access.
+          </p>
+        </div>
+        {isOwner ? (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setInviteOpen(true)}>
+              <Mail className="mr-2 h-4 w-4" />
+              Invite by Email
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Create Team Account
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Active Members</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">{activeMemberCount}</div>
+            <p className="text-xs text-muted-foreground">Currently active in this organization</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Pending Invitations</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">{pendingInvitationCount}</div>
+            <p className="text-xs text-muted-foreground">Reserved seats waiting for acceptance</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Available Seats</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">{availableSeats === null ? 'Unlimited' : availableSeats}</div>
+            <p className="text-xs text-muted-foreground">
+              {maxSeats === 0 ? 'No seat limit on the current plan' : `${seatsUsed}/${maxSeats} seats in use`}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="members" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="members">
+            <Users className="mr-2 h-4 w-4" />
+            Members
+          </TabsTrigger>
+          {isOwner ? (
+            <TabsTrigger value="invitations">
+              <Mail className="mr-2 h-4 w-4" />
+              Invitations
+            </TabsTrigger>
+          ) : null}
+        </TabsList>
+
+        <TabsContent value="members">
+          <Card>
+            <CardContent className="pt-6">
+              <DataTable
+                columns={memberColumns}
+                data={members}
+                isLoading={membersQuery.isLoading}
+                page={memberMeta?.page ?? 1}
+                totalPages={memberMeta?.totalPages ?? 1}
+                total={memberMeta?.total}
+                onPageChange={setMemberPage}
+                emptyMessage="No team members found for this organization."
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {isOwner ? (
+          <TabsContent value="invitations">
+            <Card>
+              <CardContent className="pt-6">
+                <DataTable
+                  columns={invitationColumns}
+                  data={invitations}
+                  isLoading={invitationsQuery.isLoading}
+                  page={invitationMeta?.page ?? 1}
+                  totalPages={invitationMeta?.totalPages ?? 1}
+                  total={invitationMeta?.total}
+                  onPageChange={setInvitePage}
+                  emptyMessage="No invitations have been sent yet."
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+      </Tabs>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Create Team Account</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>First Name</Label>
+                <Input value={memberForm.first_name} onChange={(event) => setMemberForm((current) => ({ ...current, first_name: event.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Last Name</Label>
+                <Input value={memberForm.last_name} onChange={(event) => setMemberForm((current) => ({ ...current, last_name: event.target.value }))} />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input type="email" value={memberForm.email} onChange={(event) => setMemberForm((current) => ({ ...current, email: event.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Role Title</Label>
+                <Input value={memberForm.role_title} onChange={(event) => setMemberForm((current) => ({ ...current, role_title: event.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Temporary Password</Label>
+              <Input
+                type="password"
+                value={memberForm.temporary_password}
+                onChange={(event) => setMemberForm((current) => ({ ...current, temporary_password: event.target.value }))}
+                placeholder="Minimum 8 characters with uppercase, lowercase, number, and symbol"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Permissions</Label>
+              <PermissionMatrix value={memberForm.permissions} onToggle={toggleMemberPermission} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button
+              disabled={
+                createMemberMutation.isPending ||
+                !memberForm.first_name.trim() ||
+                !memberForm.last_name.trim() ||
+                !memberForm.email.trim() ||
+                !memberForm.role_title.trim() ||
+                !memberForm.temporary_password.trim()
+              }
+              onClick={handleCreateMember}
+            >
+              {createMemberMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Create Account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Invite Team Member</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>First Name</Label>
+                <Input value={inviteForm.first_name} onChange={(event) => setInviteForm((current) => ({ ...current, first_name: event.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Last Name</Label>
+                <Input value={inviteForm.last_name} onChange={(event) => setInviteForm((current) => ({ ...current, last_name: event.target.value }))} />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input type="email" value={inviteForm.email} onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Role Title</Label>
+                <Input value={inviteForm.role_title} onChange={(event) => setInviteForm((current) => ({ ...current, role_title: event.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Permissions</Label>
+              <PermissionMatrix value={inviteForm.permissions} onToggle={toggleInvitePermission} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
+            <Button
+              disabled={
+                inviteMutation.isPending ||
+                !inviteForm.first_name.trim() ||
+                !inviteForm.last_name.trim() ||
+                !inviteForm.email.trim() ||
+                !inviteForm.role_title.trim()
+              }
+              onClick={handleInviteMember}
+            >
+              {inviteMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Send Invitation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(editMember)} onOpenChange={(open) => (!open ? setEditMember(null) : null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Team Member</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Role Title</Label>
+                <Input value={editRoleTitle} onChange={(event) => setEditRoleTitle(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={editStatus} onValueChange={(value) => setEditStatus(value as 'active' | 'inactive' | 'invited')}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="invited">Invited</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Permissions</Label>
+              <PermissionMatrix value={editPermissions} onToggle={toggleEditPermission} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
+            <Button
+              disabled={updateMemberMutation.isPending || !editRoleTitle.trim()}
+              onClick={handleUpdateMember}
+            >
+              {updateMemberMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={Boolean(removeTarget)} onOpenChange={(open) => (!open ? setRemoveTarget(null) : null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {removeTarget?.type === 'member' ? 'Remove team member?' : 'Revoke invitation?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeTarget?.type === 'member'
+                ? 'This member will lose access to the organization and any assigned conversations will be unassigned.'
+                : 'This invitation will stop working immediately and its reserved seat will be released.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRemove}>
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}

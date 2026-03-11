@@ -4,9 +4,11 @@ const express = require('express');
 const router = express.Router();
 const mediaController = require('../controllers/media.controller');
 const { upload } = require('../middlewares/upload');
-const { asyncHandler } = require('@nyife/shared-middleware');
+const { organizationResolver, asyncHandler } = require('@nyife/shared-middleware');
 
 // User routes (authenticated via gateway x-user-id header)
+router.use(organizationResolver);
+
 router.post('/upload', upload.single('file'), asyncHandler(mediaController.uploadFile));
 router.get('/', asyncHandler(mediaController.listMedia));
 router.get('/:id', asyncHandler(mediaController.getFile));

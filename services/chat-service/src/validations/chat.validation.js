@@ -20,7 +20,7 @@ const listConversationsSchema = z.object({
     .transform((val) => parseInt(val, 10))
     .pipe(z.number().int().positive().max(100)),
   status: z.enum(['open', 'closed', 'pending']).optional(),
-  assigned_to: z.string().uuid().optional(),
+  assigned_to: z.union([z.string().uuid(), z.literal('unassigned')]).optional(),
   unread: z
     .string()
     .optional()
@@ -68,7 +68,7 @@ const sendMessageSchema = z.object({
  * Used on POST /conversations/:id/assign
  */
 const assignConversationSchema = z.object({
-  member_user_id: z.string().uuid('Invalid member user ID format'),
+  member_user_id: z.string().uuid('Invalid member user ID format').nullable(),
 });
 
 /**

@@ -49,6 +49,7 @@ const adminListTicketsSchema = z.object({
   category: z.enum(['billing', 'technical', 'account', 'whatsapp', 'other']).optional(),
   assigned_to: z.string().uuid().optional(),
   user_id: z.string().uuid().optional(),
+  organization_id: z.string().uuid().optional(),
   search: z.string().max(255).optional(),
   date_from: z.string().optional(),
   date_to: z.string().optional(),

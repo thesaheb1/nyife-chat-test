@@ -90,9 +90,13 @@ function getMetaEmbeddedSignupOriginError() {
   return `Meta embedded signup requires HTTPS. Restart the frontend and open https://${window.location.host}${window.location.pathname}.`;
 }
 
-function preselectPhoneNumbers(preview: EmbeddedSignupPreviewResult) {
+function preselectPhoneNumbers(preview: EmbeddedSignupPreviewResult, selectedWabaId: string | null) {
+  if (!selectedWabaId) {
+    return [];
+  }
+
   const eligibleAccounts = preview.accounts.filter(
-    (account) => account.eligible && !account.already_connected
+    (account) => account.eligible && !account.already_connected && account.waba_id === selectedWabaId
   );
 
   if (preview.remaining_slots === null) {
@@ -114,6 +118,7 @@ export function WhatsAppOnboardingPage() {
   const [sdkReady, setSdkReady] = useState(false);
   const [sdkError, setSdkError] = useState<string | null>(null);
   const [preview, setPreview] = useState<EmbeddedSignupPreviewResult | null>(null);
+  const [selectedWabaId, setSelectedWabaId] = useState<string | null>(null);
   const [selectedPhoneIds, setSelectedPhoneIds] = useState<string[]>([]);
   const [completionResult, setCompletionResult] = useState<EmbeddedSignupCompleteResult | null>(null);
 
@@ -164,19 +169,36 @@ export function WhatsAppOnboardingPage() {
 
   const maxSelectable = preview?.remaining_slots ?? Number.POSITIVE_INFINITY;
   const selectedCount = selectedPhoneIds.length;
+  const previewAccountsForSelectedWaba = useMemo(
+    () => preview?.accounts.filter((account) => !selectedWabaId || account.waba_id === selectedWabaId) ?? [],
+    [preview, selectedWabaId]
+  );
   const hasEligiblePreviewAccounts = Boolean(
-    preview?.accounts.some((account) => account.eligible && !account.already_connected)
+    previewAccountsForSelectedWaba.some((account) => account.eligible && !account.already_connected)
   );
 
   const closePreviewDialog = () => {
     setPreview(null);
+    setSelectedWabaId(null);
     setSelectedPhoneIds([]);
     setCompletionResult(null);
   };
 
   const openPreviewDialog = (result: EmbeddedSignupPreviewResult) => {
+    const initialWabaId = result.organization_waba_id || (result.wabas.length === 1 ? result.wabas[0].waba_id : null);
     setPreview(result);
-    setSelectedPhoneIds(preselectPhoneNumbers(result));
+    setSelectedWabaId(initialWabaId);
+    setSelectedPhoneIds(preselectPhoneNumbers(result, initialWabaId));
+    setCompletionResult(null);
+  };
+
+  const handleWabaSelection = (wabaId: string) => {
+    if (!preview) {
+      return;
+    }
+
+    setSelectedWabaId(wabaId);
+    setSelectedPhoneIds(preselectPhoneNumbers(preview, wabaId));
     setCompletionResult(null);
   };
 
@@ -265,9 +287,15 @@ export function WhatsAppOnboardingPage() {
       return;
     }
 
+    if (!selectedWabaId) {
+      toast.error('Select the WhatsApp Business Account you want to use for this organization.');
+      return;
+    }
+
     try {
       const result = await completeSignup.mutateAsync({
         signup_session_id: preview.signup_session_id,
+        waba_id: selectedWabaId,
         phone_number_ids: selectedPhoneIds,
       });
 
@@ -476,7 +504,7 @@ export function WhatsAppOnboardingPage() {
           <DialogHeader>
             <DialogTitle>Review discovered WhatsApp numbers</DialogTitle>
             <DialogDescription>
-              Select the phone numbers you want to connect in Nyife. {preview ? getRemainingSlotsLabel(preview.remaining_slots) : ''}
+              Select one WhatsApp Business Account for this organization, then choose the phone numbers you want to connect in Nyife. {preview ? getRemainingSlotsLabel(preview.remaining_slots) : ''}
             </DialogDescription>
           </DialogHeader>
 
@@ -485,7 +513,7 @@ export function WhatsAppOnboardingPage() {
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border p-3">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Discovered</p>
-                  <p className="mt-1 text-xl font-semibold">{preview.accounts.length}</p>
+                  <p className="mt-1 text-xl font-semibold">{previewAccountsForSelectedWaba.length || preview.accounts.length}</p>
                 </div>
                 <div className="rounded-lg border p-3">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Selected</p>
@@ -503,35 +531,66 @@ export function WhatsAppOnboardingPage() {
 
             {preview?.wabas.length ? (
               <div className="rounded-lg border p-3 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground">Shared WABAs</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {preview.wabas.map((waba) => (
-                    <Badge key={waba.waba_id} variant="outline">
-                      {waba.name || waba.waba_id} · {waba.phone_count}
-                    </Badge>
-                  ))}
+                <p className="font-medium text-foreground">Organization WhatsApp Business Account</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {preview.wabas.map((waba) => {
+                    const isLocked = preview.organization_waba_id === waba.waba_id;
+                    const isSelected = selectedWabaId === waba.waba_id;
+
+                    return (
+                      <button
+                        key={waba.waba_id}
+                        type="button"
+                        className={`rounded-lg border p-3 text-left transition-colors ${isSelected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
+                        onClick={() => handleWabaSelection(waba.waba_id)}
+                        disabled={Boolean(preview.organization_waba_id) && !isLocked}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-foreground">{waba.name || waba.waba_id}</span>
+                          <Badge variant="outline">{waba.phone_count} number(s)</Badge>
+                          {isLocked ? <Badge variant="secondary">Already connected in this organization</Badge> : null}
+                        </div>
+                        <p className="mt-2 text-[11px] text-muted-foreground">{waba.waba_id}</p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
 
-            {!hasEligiblePreviewAccounts ? (
+            {preview?.warnings?.length ? (
+              <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 p-3 text-xs text-amber-900">
+                {preview.warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            ) : null}
+
+            {!selectedWabaId ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                Meta returned phone numbers, but none of them can be newly connected right now. They may already be active in this tenant or your plan has no remaining slots.
+                Select a WhatsApp Business Account to review its phone numbers.
+              </div>
+            ) : null}
+
+            {selectedWabaId && !hasEligiblePreviewAccounts ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                Meta returned phone numbers for this WABA, but none of them can be newly connected right now. They may already be active in this organization or your plan has no remaining slots.
               </div>
             ) : null}
 
             <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
-              {preview?.accounts.map((account) => {
+              {previewAccountsForSelectedWaba.map((account) => {
+                const remainingSlots = preview?.remaining_slots ?? null;
                 const isSelected = selectedPhoneIds.includes(account.phone_number_id);
                 const limitReached =
-                  preview.remaining_slots !== null
-                  && selectedPhoneIds.length >= preview.remaining_slots
+                  remainingSlots !== null
+                  && selectedPhoneIds.length >= remainingSlots
                   && !isSelected;
                 const disabled =
                   account.already_connected
                   || !account.eligible
                   || limitReached
-                  || (preview.remaining_slots === 0);
+                  || (remainingSlots === 0);
 
                 return (
                   <label
@@ -560,6 +619,9 @@ export function WhatsAppOnboardingPage() {
                       </div>
                       <div className="space-y-1 text-xs text-muted-foreground">
                         <p>Display phone: {account.display_phone || 'Unknown'}</p>
+                        {account.eligibility_reason === 'organization_waba_locked' ? (
+                          <p>This organization already uses a different WABA.</p>
+                        ) : null}
                       </div>
                     </div>
                   </label>

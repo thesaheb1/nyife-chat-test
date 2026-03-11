@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '@/core/store';
 
 export function AuthGuard() {
-  const { isAuthenticated, isLoading } = useSelector((state: RootState) => state.auth);
+  const { isAuthenticated, isLoading, user } = useSelector((state: RootState) => state.auth);
   const location = useLocation();
 
   if (isLoading) {
@@ -16,6 +16,14 @@ export function AuthGuard() {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (user?.must_change_password && location.pathname !== '/force-change-password') {
+    return <Navigate to="/force-change-password" replace />;
+  }
+
+  if (!user?.must_change_password && location.pathname === '/force-change-password') {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <Outlet />;

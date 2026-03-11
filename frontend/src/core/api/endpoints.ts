@@ -15,6 +15,7 @@ export const ENDPOINTS = {
   USERS: {
     PROFILE: '/api/v1/users/profile',
     PASSWORD: '/api/v1/users/password',
+    FORCE_CHANGE_PASSWORD: '/api/v1/users/password/force-change',
     SETTINGS: '/api/v1/users/settings',
     API_TOKENS: '/api/v1/users/api-tokens',
   },
@@ -62,6 +63,15 @@ export const ENDPOINTS = {
   },
   ORGANIZATIONS: {
     BASE: '/api/v1/organizations',
+    ME: '/api/v1/organizations/me',
+    ACCEPT_INVITATION: '/api/v1/organizations/invitations/accept',
+    MEMBERS: (id: string) => `/api/v1/organizations/${id}/members`,
+    CREATE_MEMBER_ACCOUNT: (id: string) => `/api/v1/organizations/${id}/members/create-account`,
+    INVITATIONS: (id: string) => `/api/v1/organizations/${id}/invitations`,
+    RESEND_INVITATION: (id: string, invitationId: string) =>
+      `/api/v1/organizations/${id}/invitations/${invitationId}/resend`,
+    REVOKE_INVITATION: (id: string, invitationId: string) =>
+      `/api/v1/organizations/${id}/invitations/${invitationId}`,
   },
   SUBSCRIPTIONS: {
     PLANS: '/api/v1/subscriptions/plans',

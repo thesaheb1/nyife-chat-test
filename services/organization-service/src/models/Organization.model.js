@@ -58,6 +58,10 @@ module.exports = (sequelize) => {
       foreignKey: 'organization_id',
       as: 'teamMembers',
     });
+    Organization.hasMany(models.Invitation, {
+      foreignKey: 'organization_id',
+      as: 'invitations',
+    });
   };
 
   return Organization;

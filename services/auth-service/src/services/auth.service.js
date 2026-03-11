@@ -2,9 +2,44 @@
 
 const crypto = require('crypto');
 const { Op } = require('sequelize');
-const { User, RefreshToken } = require('../models');
-const { AppError } = require('@nyife/shared-utils');
+const { User, RefreshToken, sequelize } = require('../models');
+const { AppError, slugify } = require('@nyife/shared-utils');
 const config = require('../config');
+
+async function createDefaultOrganizationForUser(user, transaction) {
+  const baseSlug = slugify(`default-${user.id.slice(0, 8)}`);
+  const now = new Date();
+  const organizationId = crypto.randomUUID();
+
+  await sequelize.query(
+    `INSERT INTO org_organizations (id, user_id, name, slug, description, status, logo_url, created_at, updated_at)
+     VALUES (:id, :userId, :name, :slug, :description, 'active', NULL, :now, :now)`,
+    {
+      replacements: {
+        id: organizationId,
+        userId: user.id,
+        name: 'default',
+        slug: baseSlug,
+        description: 'default organization',
+        now,
+      },
+      transaction,
+    }
+  );
+
+  await sequelize.query(
+    `INSERT INTO wallet_wallets (id, user_id, balance, currency, created_at, updated_at)
+     VALUES (:id, :userId, 0, 'INR', :now, :now)`,
+    {
+      replacements: {
+        id: crypto.randomUUID(),
+        userId: organizationId,
+        now,
+      },
+      transaction,
+    }
+  );
+}
 
 /**
  * Register a new user.
@@ -18,16 +53,21 @@ async function register({ email, password, first_name, last_name, phone }) {
   const emailVerificationToken = crypto.randomBytes(32).toString('hex');
   const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-  const user = await User.create({
-    email,
-    password,
-    first_name,
-    last_name,
-    phone: phone || null,
-    role: 'user',
-    status: 'pending_verification',
-    email_verification_token: emailVerificationToken,
-    email_verification_expires: emailVerificationExpires,
+  const user = await sequelize.transaction(async (transaction) => {
+    const createdUser = await User.create({
+      email,
+      password,
+      first_name,
+      last_name,
+      phone: phone || null,
+      role: 'user',
+      status: 'pending_verification',
+      email_verification_token: emailVerificationToken,
+      email_verification_expires: emailVerificationExpires,
+    }, { transaction });
+
+    await createDefaultOrganizationForUser(createdUser, transaction);
+    return createdUser;
   });
 
   return {
@@ -295,15 +335,20 @@ async function findOrCreateOAuthUser({ provider, providerId, email, firstName, l
   }
 
   // Create new user from OAuth
-  user = await User.create({
-    email,
-    first_name: firstName,
-    last_name: lastName,
-    avatar_url: avatarUrl || null,
-    role: 'user',
-    status: 'active',
-    email_verified_at: new Date(),
-    [providerField]: providerId,
+  user = await sequelize.transaction(async (transaction) => {
+    const createdUser = await User.create({
+      email,
+      first_name: firstName,
+      last_name: lastName,
+      avatar_url: avatarUrl || null,
+      role: 'user',
+      status: 'active',
+      email_verified_at: new Date(),
+      [providerField]: providerId,
+    }, { transaction });
+
+    await createDefaultOrganizationForUser(createdUser, transaction);
+    return createdUser;
   });
 
   const accessToken = user.generateAccessToken();

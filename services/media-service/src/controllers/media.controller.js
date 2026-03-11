@@ -15,7 +15,7 @@ async function uploadFile(req, res) {
     throw AppError.badRequest('No file uploaded');
   }
 
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   if (!userId) {
     throw AppError.unauthorized('User ID is required');
   }
@@ -26,7 +26,7 @@ async function uploadFile(req, res) {
 }
 
 async function listMedia(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   if (!userId) {
     throw AppError.unauthorized('User ID is required');
   }
@@ -38,7 +38,7 @@ async function listMedia(req, res) {
 }
 
 async function getFile(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   if (!userId) {
     throw AppError.unauthorized('User ID is required');
   }
@@ -50,7 +50,7 @@ async function getFile(req, res) {
 }
 
 async function downloadFile(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   if (!userId) {
     throw AppError.unauthorized('User ID is required');
   }
@@ -66,7 +66,7 @@ async function downloadFile(req, res) {
 }
 
 async function deleteFile(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   if (!userId) {
     throw AppError.unauthorized('User ID is required');
   }
@@ -78,7 +78,7 @@ async function deleteFile(req, res) {
 }
 
 async function uploadToWhatsApp(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   if (!userId) {
     throw AppError.unauthorized('User ID is required');
   }

@@ -41,6 +41,7 @@ export function useEmbeddedSignupComplete() {
   return useMutation({
     mutationFn: async (payload: {
       signup_session_id: string;
+      waba_id?: string | null;
       phone_number_ids: string[];
     }) => {
       const { data } = await apiClient.post<ApiResponse<EmbeddedSignupCompleteResult>>(

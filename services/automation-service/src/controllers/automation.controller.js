@@ -23,7 +23,7 @@ const {
  * Creates a new automation in draft status.
  */
 async function createAutomation(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const data = createAutomationSchema.parse(req.body);
 
   const automation = await automationService.createAutomation(userId, data);
@@ -36,7 +36,7 @@ async function createAutomation(req, res) {
  * Lists automations for the authenticated user with pagination and filters.
  */
 async function listAutomations(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const filters = listAutomationsSchema.parse(req.query);
 
   const { automations, meta } = await automationService.listAutomations(userId, filters);
@@ -49,7 +49,7 @@ async function listAutomations(req, res) {
  * Gets a single automation by ID.
  */
 async function getAutomation(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = automationIdSchema.parse(req.params);
 
   const automation = await automationService.getAutomation(userId, id);
@@ -62,7 +62,7 @@ async function getAutomation(req, res) {
  * Updates an automation.
  */
 async function updateAutomation(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = automationIdSchema.parse(req.params);
   const data = updateAutomationSchema.parse(req.body);
 
@@ -76,7 +76,7 @@ async function updateAutomation(req, res) {
  * Soft-deletes an automation.
  */
 async function deleteAutomation(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = automationIdSchema.parse(req.params);
 
   const result = await automationService.deleteAutomation(userId, id);
@@ -89,7 +89,7 @@ async function deleteAutomation(req, res) {
  * Changes automation status (active/inactive/draft).
  */
 async function updateAutomationStatus(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = automationIdSchema.parse(req.params);
   const { status } = updateAutomationStatusSchema.parse(req.body);
 
@@ -103,7 +103,7 @@ async function updateAutomationStatus(req, res) {
  * Gets paginated logs for a specific automation.
  */
 async function getAutomationLogs(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = automationIdSchema.parse(req.params);
   const filters = listLogsSchema.parse(req.query);
 
@@ -121,7 +121,7 @@ async function getAutomationLogs(req, res) {
  * Creates a new webhook.
  */
 async function createWebhook(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const data = createWebhookSchema.parse(req.body);
 
   const webhook = await automationService.createWebhook(userId, data);
@@ -134,7 +134,7 @@ async function createWebhook(req, res) {
  * Lists webhooks for the authenticated user.
  */
 async function listWebhooks(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const filters = listLogsSchema.parse(req.query);
 
   const { webhooks, meta } = await automationService.listWebhooks(userId, filters);
@@ -147,7 +147,7 @@ async function listWebhooks(req, res) {
  * Gets a single webhook by ID.
  */
 async function getWebhook(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = webhookIdSchema.parse(req.params);
 
   const webhook = await automationService.getWebhook(userId, id);
@@ -160,7 +160,7 @@ async function getWebhook(req, res) {
  * Updates a webhook.
  */
 async function updateWebhook(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = webhookIdSchema.parse(req.params);
   const data = updateWebhookSchema.parse(req.body);
 
@@ -174,7 +174,7 @@ async function updateWebhook(req, res) {
  * Soft-deletes a webhook.
  */
 async function deleteWebhook(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = webhookIdSchema.parse(req.params);
 
   const result = await automationService.deleteWebhook(userId, id);
@@ -187,7 +187,7 @@ async function deleteWebhook(req, res) {
  * Tests a webhook by sending a test payload.
  */
 async function testWebhook(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = webhookIdSchema.parse(req.params);
 
   const result = await automationService.testWebhook(userId, id);

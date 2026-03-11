@@ -14,6 +14,9 @@ export function GuestGuard() {
   }
 
   if (isAuthenticated) {
+    if (user?.must_change_password) {
+      return <Navigate to="/force-change-password" replace />;
+    }
     const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
     return <Navigate to={isAdmin ? '/admin/dashboard' : '/dashboard'} replace />;
   }

@@ -28,7 +28,7 @@ const {
  * and stores a short-lived signup session in Redis.
  */
 async function previewEmbeddedSignup(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const data = embeddedSignupPreviewSchema.parse(req.body);
   const redis = req.app.locals.redis || null;
 
@@ -47,7 +47,7 @@ async function previewEmbeddedSignup(req, res) {
  * phone number selection. Nyife registers each selected number server-side.
  */
 async function handleEmbeddedSignup(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const data = embeddedSignupCompleteSchema.parse(req.body);
   const redis = req.app.locals.redis || null;
   const kafkaProducer = req.app.locals.kafkaProducer || null;
@@ -55,6 +55,7 @@ async function handleEmbeddedSignup(req, res) {
   const result = await accountService.completeEmbeddedSignup(
     userId,
     data.signup_session_id,
+    data.waba_id || null,
     data.phone_number_ids,
     redis,
     kafkaProducer
@@ -73,7 +74,7 @@ async function handleEmbeddedSignup(req, res) {
  * Lists all WhatsApp accounts for the authenticated user.
  */
 async function listAccounts(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const accounts = await accountService.listAccounts(userId);
   return successResponse(res, { accounts }, 'WhatsApp accounts retrieved');
 }
@@ -83,7 +84,7 @@ async function listAccounts(req, res) {
  * Gets a single WhatsApp account by ID for the authenticated user.
  */
 async function getAccount(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = accountIdParamSchema.parse(req.params);
 
   const account = await accountService.getAccount(userId, id);
@@ -95,7 +96,7 @@ async function getAccount(req, res) {
  * Deactivates (soft-disables) a WhatsApp account.
  */
 async function deactivateAccount(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = accountIdParamSchema.parse(req.params);
   const kafkaProducer = req.app.locals.kafkaProducer || null;
 
@@ -104,7 +105,7 @@ async function deactivateAccount(req, res) {
 }
 
 async function getAccountHealth(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = accountIdParamSchema.parse(req.params);
   const kafkaProducer = req.app.locals.kafkaProducer || null;
 
@@ -113,7 +114,7 @@ async function getAccountHealth(req, res) {
 }
 
 async function reconcileAccount(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = accountIdParamSchema.parse(req.params);
   reconcileAccountSchema.parse(req.body ?? {});
   const kafkaProducer = req.app.locals.kafkaProducer || null;
@@ -127,7 +128,7 @@ async function reconcileAccount(req, res) {
  * Fetches phone numbers for a WhatsApp account from Meta API.
  */
 async function getPhoneNumbers(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = accountIdParamSchema.parse(req.params);
 
   const phoneNumbers = await accountService.getPhoneNumbers(userId, id);
@@ -143,7 +144,7 @@ async function getPhoneNumbers(req, res) {
  * Sends a direct (non-template) message via WhatsApp.
  */
 async function sendMessage(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const data = sendMessageSchema.parse(req.body);
 
   const message = await messageService.sendMessage(userId, data);
@@ -156,7 +157,7 @@ async function sendMessage(req, res) {
  * Sends a pre-configured template message via WhatsApp.
  */
 async function sendTemplateMessage(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const data = sendTemplateSchema.parse(req.body);
 
   const message = await messageService.sendTemplateMessage(userId, data);
@@ -169,7 +170,7 @@ async function sendTemplateMessage(req, res) {
  * Sends a standalone WhatsApp Flow message.
  */
 async function sendFlowMessage(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const data = sendFlowSchema.parse(req.body);
 
   const message = await messageService.sendFlowMessage(userId, data);
@@ -182,7 +183,7 @@ async function sendFlowMessage(req, res) {
  * Lists messages with filters and pagination.
  */
 async function listMessages(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const filters = listMessagesSchema.parse(req.query);
 
   const { messages, meta } = await messageService.listMessages(userId, filters);
@@ -196,7 +197,7 @@ async function listMessages(req, res) {
  * Requires wa_account_id as a query parameter.
  */
 async function getConversation(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { contactPhone } = contactPhoneParamSchema.parse(req.params);
   const waAccountId = req.query.wa_account_id;
 
@@ -279,7 +280,7 @@ async function handleFlowDataExchange(req, res) {
  * Uses the same sendMessage logic — the auth middleware provides x-user-id.
  */
 async function developerSend(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const data = sendMessageSchema.parse(req.body);
 
   const message = await messageService.sendMessage(userId, data);

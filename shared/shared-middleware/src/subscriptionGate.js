@@ -1,15 +1,16 @@
 'use strict';
 
 const { AppError } = require('@nyife/shared-utils');
+const { resolveUserId } = require('./tenantMiddleware');
 
-function resolveUserId(req) {
-  return req.headers['x-user-id'] || req.user?.id || req.user?.userId || null;
+function resolveSubscriptionScopeId(req) {
+  return req.organizationId || req.headers['x-organization-id'] || resolveUserId(req);
 }
 
-async function fetchActiveSubscription(userId) {
+async function fetchActiveSubscription(scopeId) {
   const subscriptionServiceUrl = process.env.SUBSCRIPTION_SERVICE_URL || 'http://localhost:3003';
   const response = await fetch(
-    `${subscriptionServiceUrl}/api/v1/subscriptions/internal/active/${userId}`,
+    `${subscriptionServiceUrl}/api/v1/subscriptions/internal/active/${scopeId}`,
     {
       method: 'GET',
       headers: {
@@ -17,6 +18,8 @@ async function fetchActiveSubscription(userId) {
       },
     }
   );
+
+
 
   if (!response.ok) {
     throw AppError.internal(
@@ -32,12 +35,12 @@ async function fetchActiveSubscription(userId) {
 function requireActiveSubscription(action = 'continue') {
   return async (req, _res, next) => {
     try {
-      const userId = resolveUserId(req);
-      if (!userId) {
+      const scopeId = resolveSubscriptionScopeId(req);
+      if (!scopeId) {
         throw AppError.unauthorized('Authentication is required.', 'AUTH_REQUIRED');
       }
 
-      const subscription = await fetchActiveSubscription(userId);
+      const subscription = await fetchActiveSubscription(scopeId);
       if (!subscription?.plan || subscription.status !== 'active') {
         throw AppError.forbidden(
           `An active subscription is required to ${action}.`,

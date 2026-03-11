@@ -55,6 +55,7 @@ const updateUserStatusSchema = z.object({
 const walletActionSchema = z.object({
   amount: z.number().int().positive('Amount must be a positive integer'),
   remarks: z.string().min(1, 'Remarks are required').max(500),
+  organization_id: z.string().uuid('Invalid organization ID').optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -83,8 +84,6 @@ const createPlanSchema = z.object({
   marketing_message_price: z.number().int().min(0).default(0),
   utility_message_price: z.number().int().min(0).default(0),
   auth_message_price: z.number().int().min(0).default(0),
-  service_message_price: z.number().int().min(0).default(0),
-  referral_conversion_message_price: z.number().int().min(0).default(0),
   features: z.record(z.any()).optional(),
   sort_order: z.number().int().min(0).default(0),
   is_active: z.boolean().default(true),

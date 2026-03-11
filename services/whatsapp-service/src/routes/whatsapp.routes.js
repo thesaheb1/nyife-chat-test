@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const whatsappController = require('../controllers/whatsapp.controller');
-const { authenticate, asyncHandler, requireActiveSubscription } = require('@nyife/shared-middleware');
+const { authenticate, organizationResolver, asyncHandler, requireActiveSubscription, rbac } = require('@nyife/shared-middleware');
 const { verifyWebhookSignature } = require('../middlewares/webhookSignature');
 
 // ────────────────────────────────────────────────
@@ -20,56 +20,59 @@ router.post('/flows/data-exchange', asyncHandler(whatsappController.handleFlowDa
 // ────────────────────────────────────────────────
 // Account routes (authenticated)
 // ────────────────────────────────────────────────
+router.use(authenticate);
+router.use(organizationResolver);
+
 router.post(
   '/accounts/embedded-signup/preview',
-  authenticate,
+  rbac('whatsapp', 'create'),
   requireActiveSubscription('connect WhatsApp accounts'),
   asyncHandler(whatsappController.previewEmbeddedSignup)
 );
 
 router.post(
   '/accounts/embedded-signup',
-  authenticate,
+  rbac('whatsapp', 'create'),
   requireActiveSubscription('connect WhatsApp accounts'),
   asyncHandler(whatsappController.handleEmbeddedSignup)
 );
 
 router.get(
   '/accounts',
-  authenticate,
+  rbac('whatsapp', 'read'),
   asyncHandler(whatsappController.listAccounts)
 );
 
 router.get(
   '/accounts/:id',
-  authenticate,
+  rbac('whatsapp', 'read'),
   asyncHandler(whatsappController.getAccount)
 );
 
 router.delete(
   '/accounts/:id',
-  authenticate,
+  rbac('whatsapp', 'delete'),
   requireActiveSubscription('disconnect WhatsApp accounts'),
   asyncHandler(whatsappController.deactivateAccount)
 );
 
 router.get(
   '/accounts/:id/health',
-  authenticate,
+  rbac('whatsapp', 'update'),
   requireActiveSubscription('refresh WhatsApp account health'),
   asyncHandler(whatsappController.getAccountHealth)
 );
 
 router.post(
   '/accounts/:id/reconcile',
-  authenticate,
+  rbac('whatsapp', 'update'),
   requireActiveSubscription('repair WhatsApp account connections'),
   asyncHandler(whatsappController.reconcileAccount)
 );
 
 router.get(
   '/accounts/:id/phone-numbers',
-  authenticate,
+  rbac('whatsapp', 'read'),
   asyncHandler(whatsappController.getPhoneNumbers)
 );
 
@@ -79,31 +82,31 @@ router.get(
 
 router.post(
   '/send',
-  authenticate,
+  rbac('whatsapp', 'update'),
   asyncHandler(whatsappController.sendMessage)
 );
 
 router.post(
   '/send/template',
-  authenticate,
+  rbac('whatsapp', 'update'),
   asyncHandler(whatsappController.sendTemplateMessage)
 );
 
 router.post(
   '/send/flow',
-  authenticate,
+  rbac('whatsapp', 'update'),
   asyncHandler(whatsappController.sendFlowMessage)
 );
 
 router.get(
   '/messages',
-  authenticate,
+  rbac('whatsapp', 'read'),
   asyncHandler(whatsappController.listMessages)
 );
 
 router.get(
   '/messages/:contactPhone',
-  authenticate,
+  rbac('whatsapp', 'read'),
   asyncHandler(whatsappController.getConversation)
 );
 
@@ -113,7 +116,7 @@ router.get(
 
 router.post(
   '/developer/send',
-  authenticate,
+  rbac('developer', 'create'),
   asyncHandler(whatsappController.developerSend)
 );
 

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSelector } from 'react-redux';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Search,
@@ -38,6 +40,7 @@ import {
   useConversations,
   useMessages,
   useSendMessage,
+  useAssignConversation,
   useMarkAsRead,
   useUpdateConversationStatus,
   useChatSocket,
@@ -45,7 +48,8 @@ import {
 import { useDebounce } from '@/core/hooks';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import { formatPhone } from '@/shared/utils/formatters';
-import type { Conversation, ChatMessage } from '@/core/types';
+import type { Conversation, ChatMessage, ApiResponse, TeamMember } from '@/core/types';
+import type { RootState } from '@/core/store';
 import {
   buildActiveWhatsAppAccountOptions,
   findWhatsAppAccount,
@@ -53,14 +57,35 @@ import {
   getWhatsAppAccountLabel,
 } from '@/modules/whatsapp/accountOptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
+import { apiClient } from '@/core/api/client';
+import { ENDPOINTS } from '@/core/api/endpoints';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+
+function useAssignableTeamMembers(organizationId: string | undefined, enabled: boolean) {
+  return useQuery<TeamMember[]>({
+    queryKey: ['team-members', 'chat-assignable', organizationId],
+    enabled: Boolean(organizationId) && enabled,
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<TeamMember[]>>(
+        `${ENDPOINTS.ORGANIZATIONS.MEMBERS(organizationId!)}?page=1&limit=100&status=active&resource=chat&permission=update`
+      );
+      return data.data;
+    },
+  });
+}
 
 export function ChatPage() {
+  const currentUser = useSelector((state: RootState) => state.auth.user);
+  const { activeOrganization } = useOrganizationContext();
+  const isOwner = activeOrganization?.organization_role === 'owner';
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [statusFilter, setStatusFilter] = useState('');
   const [accountFilterId, setAccountFilterId] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState('');
   const { data: waAccounts } = useWhatsAppAccounts();
+  const { data: assignableMembers = [] } = useAssignableTeamMembers(activeOrganization?.id, Boolean(isOwner));
   const activeAccountOptions = useMemo(() => buildActiveWhatsAppAccountOptions(waAccounts), [waAccounts]);
   const accountsById = useMemo(
     () => new Map((waAccounts || []).map((account) => [account.id, account])),
@@ -72,6 +97,7 @@ export function ChatPage() {
     search: debouncedSearch || undefined,
     status: statusFilter || undefined,
     wa_account_id: accountFilterId || undefined,
+    assigned_to: isOwner ? (assigneeFilter || undefined) : undefined,
   });
   const conversations = convoData?.data?.conversations ?? [];
 
@@ -132,6 +158,25 @@ export function ChatPage() {
               ))}
             </SelectContent>
           </Select>
+          {isOwner ? (
+            <Select
+              value={assigneeFilter || 'all'}
+              onValueChange={(value) => setAssigneeFilter(value === 'all' ? '' : value)}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder="All assignees" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All assignees</SelectItem>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
+                {assignableMembers.map((member) => (
+                  <SelectItem key={member.member_user_id} value={member.member_user_id}>
+                    {member.member?.first_name} {member.member?.last_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
         </div>
 
         {/* Conversation Items */}
@@ -178,6 +223,9 @@ export function ChatPage() {
           <MessagePanel
             conversation={selected}
             account={accountsById.get(selected.wa_account_id) || null}
+            assignableMembers={assignableMembers}
+            isOwner={Boolean(isOwner)}
+            currentUserId={currentUser?.id || null}
             onBack={() => setSelectedId(null)}
           />
         ) : (
@@ -209,6 +257,9 @@ function ConversationItem({
   const accountLabel = getWhatsAppAccountLabel(account);
   const accountDescription = getWhatsAppAccountDescription(account);
   const accountIsActive = account?.status === 'active';
+  const assignedMember = c.assigned_member
+    ? `${c.assigned_member.first_name} ${c.assigned_member.last_name}`.trim()
+    : null;
 
   return (
     <button
@@ -241,6 +292,11 @@ function ConversationItem({
                 {account?.status || 'disconnected'}
               </Badge>
             ) : null}
+            {assignedMember ? (
+              <Badge variant="outline" className="h-5 text-[10px]">
+                {assignedMember}
+              </Badge>
+            ) : null}
           </div>
           <div className="flex items-center justify-between">
             <span className="truncate text-xs text-muted-foreground">
@@ -263,16 +319,23 @@ function ConversationItem({
 function MessagePanel({
   conversation,
   account,
+  assignableMembers,
+  isOwner,
+  currentUserId,
   onBack,
 }: {
   conversation: Conversation;
   account: ReturnType<typeof findWhatsAppAccount>;
+  assignableMembers: TeamMember[];
+  isOwner: boolean;
+  currentUserId: string | null;
   onBack: () => void;
 }) {
   const [text, setText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { data: msgData, isLoading } = useMessages(conversation.id, { limit: 50 });
   const sendMessage = useSendMessage();
+  const assignConversation = useAssignConversation();
   const markAsRead = useMarkAsRead();
   const updateStatus = useUpdateConversationStatus();
 
@@ -285,6 +348,9 @@ function MessagePanel({
   const isReadOnly = account?.status !== 'active';
   const accountLabel = getWhatsAppAccountLabel(account);
   const accountDescription = getWhatsAppAccountDescription(account);
+  const assigneeName = conversation.assigned_member
+    ? `${conversation.assigned_member.first_name} ${conversation.assigned_member.last_name}`.trim()
+    : null;
 
   // Mark as read when opening
   useEffect(() => {
@@ -312,6 +378,18 @@ function MessagePanel({
       });
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Unable to send this message right now.'));
+    }
+  };
+
+  const handleAssignmentChange = async (value: string) => {
+    try {
+      await assignConversation.mutateAsync({
+        id: conversation.id,
+        member_user_id: value === 'unassigned' ? null : value,
+      });
+      toast.success(value === 'unassigned' ? 'Conversation unassigned.' : 'Conversation assigned successfully.');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to update the conversation assignee.'));
     }
   };
 
@@ -360,7 +438,30 @@ function MessagePanel({
           <p className="truncate text-[11px] text-muted-foreground">
             {accountDescription ? `${accountLabel} / ${accountDescription}` : accountLabel}
           </p>
+          {assigneeName ? (
+            <p className="truncate text-[11px] text-muted-foreground">
+              Assigned to {assigneeName}
+            </p>
+          ) : null}
         </div>
+        {isOwner ? (
+          <Select
+            value={conversation.assigned_to || 'unassigned'}
+            onValueChange={handleAssignmentChange}
+          >
+            <SelectTrigger className="h-8 w-[180px]">
+              <SelectValue placeholder="Assign chat" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              {assignableMembers.map((member) => (
+                <SelectItem key={member.member_user_id} value={member.member_user_id}>
+                  {member.member?.first_name} {member.member?.last_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
         <Badge variant="outline" className="text-[10px] capitalize">
           {conversation.status}
         </Badge>
@@ -435,6 +536,10 @@ function MessagePanel({
         {isReadOnly ? (
           <div className="mb-2 text-xs text-amber-700 dark:text-amber-300">
             This conversation is read-only because the connected WhatsApp account is {account?.status || 'disconnected'}.
+          </div>
+        ) : !isOwner && conversation.assigned_to && conversation.assigned_to !== currentUserId ? (
+          <div className="mb-2 text-xs text-amber-700 dark:text-amber-300">
+            This conversation is assigned to another team member.
           </div>
         ) : null}
         <div className="flex items-center gap-2">

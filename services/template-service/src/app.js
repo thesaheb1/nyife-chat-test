@@ -44,6 +44,7 @@ app.use(
       'Authorization',
       'X-Requested-With',
       'x-user-id',
+      'X-Organization-Id',
       'x-tenant-user-id',
       'x-user-role',
       'x-wa-access-token',

@@ -28,8 +28,9 @@ export interface User {
   last_name: string;
   phone: string | null;
   avatar_url: string | null;
-  role: 'user' | 'admin' | 'super_admin';
+  role: 'user' | 'team' | 'admin' | 'super_admin';
   status: 'active' | 'inactive' | 'suspended' | 'pending_verification';
+  must_change_password: boolean;
   last_login_at: string | null;
   created_at: string;
   updated_at: string;
@@ -338,6 +339,12 @@ export interface Conversation {
   assigned_to: string | null;
   assigned_at: string | null;
   assigned_by: string | null;
+  assigned_member: {
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+  } | null;
   status: 'open' | 'closed' | 'pending';
   tags: string[] | null;
   created_at: string;
@@ -395,6 +402,7 @@ export interface EmbeddedSignupPreviewAccount {
   quality_rating: 'GREEN' | 'YELLOW' | 'RED' | null;
   already_connected: boolean;
   eligible: boolean;
+  eligibility_reason?: 'already_connected' | 'organization_waba_locked' | null;
   existing_account_id: string | null;
   onboarding_status: WaAccount['onboarding_status'] | null;
   credential_source: WaAccount['credential_source'] | null;
@@ -439,9 +447,11 @@ export interface EmbeddedSignupPreviewResult {
   signup_session_id: string;
   business_id: string | null;
   remaining_slots: number | null;
+  organization_waba_id: string | null;
   wabas: EmbeddedSignupPreviewWaba[];
   provider_readiness: EmbeddedSignupProviderReadiness;
   accounts: EmbeddedSignupPreviewAccount[];
+  warnings?: string[];
 }
 
 export interface EmbeddedSignupCompleteResult {
@@ -488,8 +498,6 @@ export interface Plan {
   marketing_message_price: number;
   utility_message_price: number;
   auth_message_price: number;
-  service_message_price: number;
-  referral_conversion_message_price: number;
   features: Record<string, unknown> | null;
   is_active: boolean;
   sort_order: number;
@@ -605,11 +613,14 @@ export interface Invoice {
 export interface Organization {
   id: string;
   user_id: string;
+  owner_user_id?: string;
   name: string;
   slug: string;
   description: string | null;
   logo_url: string | null;
   status: 'active' | 'inactive';
+  organization_role?: 'owner' | 'team';
+  permissions?: Permissions;
   created_at: string;
   updated_at: string;
 }
@@ -624,6 +635,31 @@ export interface TeamMember {
   status: 'active' | 'inactive' | 'invited';
   invited_at: string;
   joined_at: string | null;
+  created_at: string;
+  updated_at: string;
+  member?: {
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    status: 'active' | 'inactive' | 'suspended' | 'pending_verification';
+  };
+}
+
+export interface OrganizationInvitation {
+  id: string;
+  organization_id: string;
+  invited_by_user_id: string;
+  accepted_user_id: string | null;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role_title: string;
+  permissions: Permissions;
+  invite_token: string;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  expires_at: string;
+  accepted_at: string | null;
   created_at: string;
   updated_at: string;
 }

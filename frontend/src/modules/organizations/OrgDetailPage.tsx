@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, Plus, Trash2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2, Loader2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -21,6 +22,13 @@ import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { Organization, TeamMember, ApiResponse, PaginationMeta } from '@/core/types';
+import {
+  getStoredActiveOrganizationId,
+  resolvePreferredOrganization,
+  setStoredActiveOrganization,
+  syncStoredOrganizationRegistry,
+} from './context';
+import { ACCESSIBLE_ORGANIZATIONS_QUERY_KEY } from './useOrganizationContext';
 
 function useOrg(id: string | undefined) {
   return useQuery<Organization>({
@@ -44,7 +52,25 @@ function useMembers(orgId: string | undefined, page = 1) {
   });
 }
 
-const RESOURCES = ['contacts', 'chat', 'campaigns', 'templates', 'finance', 'automations'] as const;
+const RESOURCES = [
+  'dashboard',
+  'contacts',
+  'templates',
+  'flows',
+  'campaigns',
+  'automations',
+  'chat',
+  'wallet',
+  'support',
+  'analytics',
+  'settings',
+  'billing',
+  'subscription',
+  'organizations',
+  'team_members',
+  'whatsapp',
+  'developer',
+] as const;
 const ACTIONS = ['create', 'read', 'update', 'delete'] as const;
 
 export function OrgDetailPage() {
@@ -56,6 +82,10 @@ export function OrgDetailPage() {
   const { data: membersData, isLoading: membersLoading } = useMembers(id, memberPage);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [removeId, setRemoveId] = useState<string | null>(null);
+  const [orgName, setOrgName] = useState('');
+  const [orgDescription, setOrgDescription] = useState('');
+  const [orgLogoUrl, setOrgLogoUrl] = useState('');
+  const [savingOrg, setSavingOrg] = useState(false);
 
   // Invite form state
   const [firstName, setFirstName] = useState('');
@@ -68,6 +98,16 @@ export function OrgDetailPage() {
     return p;
   });
   const [inviting, setInviting] = useState(false);
+
+  useEffect(() => {
+    if (!org) {
+      return;
+    }
+
+    setOrgName(org.name);
+    setOrgDescription(org.description || '');
+    setOrgLogoUrl(org.logo_url || '');
+  }, [org]);
 
   const togglePerm = (resource: string, action: string) => {
     setPerms((prev) => ({
@@ -94,6 +134,54 @@ export function OrgDetailPage() {
     setInviting(false);
   };
 
+  const handleOrganizationSave = async () => {
+    if (!id) {
+      return;
+    }
+
+    setSavingOrg(true);
+    try {
+      const { data } = await apiClient.put<ApiResponse<Organization>>(
+        `${ENDPOINTS.ORGANIZATIONS.BASE}/${id}`,
+        {
+          name: orgName.trim(),
+          description: orgDescription.trim() || undefined,
+          logo_url: orgLogoUrl.trim() || undefined,
+        }
+      );
+
+      const updatedOrganization = data.data;
+      toast.success('Organization updated');
+      qc.invalidateQueries({ queryKey: ['organizations', id] });
+      qc.invalidateQueries({ queryKey: ['organizations'] });
+      qc.invalidateQueries({ queryKey: ACCESSIBLE_ORGANIZATIONS_QUERY_KEY });
+
+      const cachedAccessibleOrganizations =
+        qc.getQueryData<Organization[]>(ACCESSIBLE_ORGANIZATIONS_QUERY_KEY) || [];
+
+      const organizations = cachedAccessibleOrganizations.length
+        ? (
+            cachedAccessibleOrganizations.some((organization) => organization.id === updatedOrganization.id)
+              ? cachedAccessibleOrganizations.map((organization) =>
+                  organization.id === updatedOrganization.id ? { ...organization, ...updatedOrganization } : organization
+                )
+              : [...cachedAccessibleOrganizations, updatedOrganization]
+          )
+        : [updatedOrganization];
+
+      syncStoredOrganizationRegistry(organizations);
+
+      if ((getStoredActiveOrganizationId() || updatedOrganization.id) === updatedOrganization.id) {
+        const activeOrganization = resolvePreferredOrganization(organizations, updatedOrganization.slug) || updatedOrganization;
+        setStoredActiveOrganization(activeOrganization);
+      }
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to update the organization.'));
+    } finally {
+      setSavingOrg(false);
+    }
+  };
+
   const handleRemove = async () => {
     if (!id || !removeId) return;
     try {
@@ -110,7 +198,20 @@ export function OrgDetailPage() {
   const memberMeta = membersData?.meta;
 
   const memberColumns = useMemo<ColumnDef<TeamMember, unknown>[]>(() => [
-    { accessorKey: 'member_user_id', header: 'Member ID', cell: ({ getValue }) => <span className="font-mono text-xs">{(getValue() as string).slice(0, 8)}...</span> },
+    {
+      id: 'member',
+      header: 'Member',
+      cell: ({ row }) => {
+        const member = row.original.member;
+        const fullName = [member?.first_name, member?.last_name].filter(Boolean).join(' ').trim();
+        return (
+          <div className="space-y-1">
+            <p className="font-medium">{fullName || row.original.member_user_id.slice(0, 8)}</p>
+            <p className="text-xs text-muted-foreground">{member?.email || row.original.member_user_id}</p>
+          </div>
+        );
+      },
+    },
     { accessorKey: 'role_title', header: 'Role' },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge variant="secondary" className="text-xs capitalize">{getValue() as string}</Badge> },
     { accessorKey: 'created_at', header: 'Invited', cell: ({ getValue }) => new Date(getValue() as string).toLocaleDateString() },
@@ -139,9 +240,69 @@ export function OrgDetailPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-lg">Organization Profile</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-[96px_1fr]">
+            <div className="flex justify-center sm:justify-start">
+              {orgLogoUrl ? (
+                <img
+                  src={orgLogoUrl}
+                  alt={orgName || org.name}
+                  className="h-24 w-24 rounded-xl border object-cover"
+                />
+              ) : (
+                <div className="flex h-24 w-24 items-center justify-center rounded-xl border bg-muted text-3xl font-semibold uppercase text-muted-foreground">
+                  {(orgName || org.name).slice(0, 1)}
+                </div>
+              )}
+            </div>
+            <div className="grid gap-4">
+              <div className="space-y-2">
+                <Label>Name</Label>
+                <Input value={orgName} onChange={(event) => setOrgName(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  rows={3}
+                  value={orgDescription}
+                  onChange={(event) => setOrgDescription(event.target.value)}
+                  placeholder="Describe this organization"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Logo URL</Label>
+                <Input
+                  value={orgLogoUrl}
+                  onChange={(event) => setOrgLogoUrl(event.target.value)}
+                  placeholder="https://example.com/logo.png"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              onClick={handleOrganizationSave}
+              disabled={savingOrg || !orgName.trim()}
+            >
+              {savingOrg ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Save Organization
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">Team Members</CardTitle>
-            <Button size="sm" onClick={() => setInviteOpen(true)}><Plus className="mr-2 h-4 w-4" />Invite</Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => navigate(`/org/${org.slug}/team`)}>
+                Manage Team
+              </Button>
+              <Button size="sm" onClick={() => setInviteOpen(true)}><Plus className="mr-2 h-4 w-4" />Invite</Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

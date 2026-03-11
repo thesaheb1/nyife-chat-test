@@ -59,12 +59,11 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
       max_campaigns_per_month: 5,
       max_messages_per_month: 1000,
       max_team_members: 1,
+      max_organizations: 1,
       max_whatsapp_numbers: 1,
       marketing_message_price: 0,
       utility_message_price: 0,
       auth_message_price: 0,
-      service_message_price: 0,
-      referral_conversion_message_price: 0,
     },
   });
 
@@ -82,13 +81,12 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
         max_campaigns_per_month: existingPlan.max_campaigns_per_month,
         max_messages_per_month: existingPlan.max_messages_per_month,
         max_team_members: existingPlan.max_team_members,
+        max_organizations: existingPlan.max_organizations,
         max_whatsapp_numbers: existingPlan.max_whatsapp_numbers,
         has_priority_support: existingPlan.has_priority_support,
         marketing_message_price: existingPlan.marketing_message_price,
         utility_message_price: existingPlan.utility_message_price,
         auth_message_price: existingPlan.auth_message_price,
-        service_message_price: existingPlan.service_message_price,
-        referral_conversion_message_price: existingPlan.referral_conversion_message_price,
         sort_order: existingPlan.sort_order,
         is_active: existingPlan.is_active,
       });
@@ -167,6 +165,7 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
               {numField('max_campaigns_per_month', t('admin.plans.maxCampaigns'))}
               {numField('max_messages_per_month', t('admin.plans.maxMessages'))}
               {numField('max_team_members', t('admin.plans.maxTeamMembers'))}
+              {numField('max_organizations', 'Max organizations')}
               {numField('max_whatsapp_numbers', t('admin.plans.maxWhatsappNumbers'))}
             </div>
 
@@ -175,8 +174,6 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
               {numField('marketing_message_price', 'Marketing')}
               {numField('utility_message_price', 'Utility')}
               {numField('auth_message_price', 'Authentication')}
-              {numField('service_message_price', 'Service')}
-              {numField('referral_conversion_message_price', 'Referral conversion')}
             </div>
 
             <div className="flex items-center gap-4 pt-2">

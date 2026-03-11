@@ -84,11 +84,12 @@ async function findWaAccountById(userId, waAccountId, requireActive = false) {
   return accounts[0] || null;
 }
 
-async function validateAssignableMember(userId, memberUserId) {
+async function validateAssignableMember(userId, memberUserId, organizationId) {
   try {
     const response = await axios.post(
       `${config.organizationServiceUrl}/api/v1/organizations/internal/team-members/validate`,
       {
+        organization_id: organizationId,
         member_user_id: memberUserId,
         resource: 'chat',
         permission: 'update',
@@ -109,6 +110,112 @@ async function validateAssignableMember(userId, memberUserId) {
   }
 }
 
+async function fetchOrganizationOwnerUserId(organizationId) {
+  const organizations = await sequelize.query(
+    `SELECT user_id
+     FROM org_organizations
+     WHERE id = :organizationId
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    {
+      replacements: { organizationId },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return organizations[0]?.user_id || null;
+}
+
+async function fetchAssignedMemberSummaries(memberUserIds) {
+  if (!memberUserIds.length) {
+    return new Map();
+  }
+
+  const members = await sequelize.query(
+    `SELECT id, email, first_name, last_name
+     FROM auth_users
+     WHERE id IN (:memberUserIds)
+       AND deleted_at IS NULL`,
+    {
+      replacements: { memberUserIds },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return new Map(
+    members.map((member) => [
+      String(member.id),
+      {
+        id: member.id,
+        email: member.email,
+        first_name: member.first_name,
+        last_name: member.last_name,
+      },
+    ])
+  );
+}
+
+async function attachAssignedMembers(conversations) {
+  const list = Array.isArray(conversations) ? conversations : [conversations];
+  const assignedIds = [...new Set(list.map((conversation) => conversation?.assigned_to).filter(Boolean).map(String))];
+  const summaries = await fetchAssignedMemberSummaries(assignedIds);
+
+  const attach = (conversation) => {
+    if (!conversation) {
+      return conversation;
+    }
+
+    const payload = typeof conversation.toJSON === 'function' ? conversation.toJSON() : { ...conversation };
+    payload.assigned_member = payload.assigned_to ? summaries.get(String(payload.assigned_to)) || null : null;
+    return payload;
+  };
+
+  if (Array.isArray(conversations)) {
+    return conversations.map(attach);
+  }
+
+  return attach(conversations);
+}
+
+function assertConversationAccess(conversation, actor) {
+  if (!conversation) {
+    throw AppError.notFound('Conversation not found');
+  }
+
+  if (actor?.role === 'team' && String(conversation.assigned_to || '') !== String(actor.userId || '')) {
+    throw AppError.forbidden('Only conversations assigned to you are available in your workspace.');
+  }
+}
+
+async function emitConversationUpdate(io, organizationId, conversation) {
+  if (!io || !conversation) {
+    return;
+  }
+
+  const ownerUserId = await fetchOrganizationOwnerUserId(organizationId);
+  const hydratedConversation = await attachAssignedMembers(conversation);
+  const roomRecipients = new Set([ownerUserId, hydratedConversation.assigned_to].filter(Boolean).map(String));
+
+  const payload = {
+    conversation_id: hydratedConversation.id,
+    contact_phone: hydratedConversation.contact_phone,
+    contact_name: hydratedConversation.contact_name,
+    last_message_at: hydratedConversation.last_message_at,
+    last_message_preview: hydratedConversation.last_message_preview,
+    unread_count: hydratedConversation.unread_count,
+    status: hydratedConversation.status,
+    wa_account_id: hydratedConversation.wa_account_id,
+    assigned_to: hydratedConversation.assigned_to,
+    assigned_at: hydratedConversation.assigned_at,
+    assigned_by: hydratedConversation.assigned_by,
+    assigned_member: hydratedConversation.assigned_member || null,
+  };
+
+  for (const roomUserId of roomRecipients) {
+    io.to(`user:${roomUserId}`).emit('conversation:updated', payload);
+  }
+}
+
 // ────────────────────────────────────────────────
 // Conversation List & Detail
 // ────────────────────────────────────────────────
@@ -120,17 +227,21 @@ async function validateAssignableMember(userId, memberUserId) {
  * @param {object} filters - Query filters (status, assigned_to, unread, search, wa_account_id, page, limit)
  * @returns {Promise<{ conversations: Conversation[], meta: object }>}
  */
-async function listConversations(userId, filters) {
+async function listConversations(scopeId, actor, filters) {
   const { page, limit, status, assigned_to, unread, search, wa_account_id } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
 
-  const where = { user_id: userId };
+  const where = { user_id: scopeId };
 
   if (status) {
     where.status = status;
   }
 
-  if (assigned_to) {
+  if (actor?.role === 'team') {
+    where.assigned_to = actor.userId;
+  } else if (assigned_to === 'unassigned') {
+    where.assigned_to = null;
+  } else if (assigned_to) {
     where.assigned_to = assigned_to;
   }
 
@@ -158,7 +269,7 @@ async function listConversations(userId, filters) {
 
   const meta = getPaginationMeta(count, page, limit);
 
-  return { conversations: rows, meta };
+  return { conversations: await attachAssignedMembers(rows), meta };
 }
 
 /**
@@ -168,16 +279,14 @@ async function listConversations(userId, filters) {
  * @param {string} conversationId - Conversation UUID
  * @returns {Promise<Conversation>}
  */
-async function getConversation(userId, conversationId) {
+async function getConversation(scopeId, actor, conversationId) {
   const conversation = await Conversation.findOne({
-    where: { id: conversationId, user_id: userId },
+    where: { id: conversationId, user_id: scopeId },
   });
 
-  if (!conversation) {
-    throw AppError.notFound('Conversation not found');
-  }
+  assertConversationAccess(conversation, actor);
 
-  return conversation;
+  return attachAssignedMembers(conversation);
 }
 
 // ────────────────────────────────────────────────
@@ -193,23 +302,21 @@ async function getConversation(userId, conversationId) {
  * @param {object} filters - Query filters (page, limit, before)
  * @returns {Promise<{ messages: ChatMessage[], meta: object }>}
  */
-async function getConversationMessages(userId, conversationId, filters) {
+async function getConversationMessages(scopeId, actor, conversationId, filters) {
   const { page, limit, before } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
 
   // Verify conversation belongs to this tenant
   const conversation = await Conversation.findOne({
-    where: { id: conversationId, user_id: userId },
-    attributes: ['id'],
+    where: { id: conversationId, user_id: scopeId },
+    attributes: ['id', 'assigned_to'],
   });
 
-  if (!conversation) {
-    throw AppError.notFound('Conversation not found');
-  }
+  assertConversationAccess(conversation, actor);
 
   const where = {
     conversation_id: conversationId,
-    user_id: userId,
+    user_id: scopeId,
   };
 
   // For infinite scroll: load messages older than the given timestamp
@@ -244,23 +351,21 @@ async function getConversationMessages(userId, conversationId, filters) {
  * @param {object} io - Socket.IO server instance
  * @returns {Promise<ChatMessage>}
  */
-async function sendMessage(userId, conversationId, data, io) {
+async function sendMessage(scopeId, actor, conversationId, data, io) {
   const { type, message, wa_account_id } = data;
 
   // Verify conversation belongs to user
   const conversation = await Conversation.findOne({
-    where: { id: conversationId, user_id: userId },
+    where: { id: conversationId, user_id: scopeId },
   });
 
-  if (!conversation) {
-    throw AppError.notFound('Conversation not found');
-  }
+  assertConversationAccess(conversation, actor);
 
   if (String(conversation.wa_account_id) !== String(wa_account_id)) {
     throw AppError.badRequest('Messages can only be sent from the WhatsApp account bound to this conversation.');
   }
 
-  const activeAccount = await findWaAccountById(userId, wa_account_id, true);
+  const activeAccount = await findWaAccountById(scopeId, wa_account_id, true);
   if (!activeAccount) {
     throw AppError.badRequest('The WhatsApp account for this conversation is inactive and cannot send new messages.');
   }
@@ -268,10 +373,10 @@ async function sendMessage(userId, conversationId, data, io) {
   // Create the outbound chat message record
   const chatMessage = await ChatMessage.create({
     conversation_id: conversationId,
-    user_id: userId,
+    user_id: scopeId,
     direction: 'outbound',
-    sender_type: 'user',
-    sender_id: userId,
+    sender_type: actor?.role === 'team' ? 'team_member' : 'user',
+    sender_id: actor?.userId || scopeId,
     type,
     content: message,
     status: 'pending',
@@ -290,7 +395,7 @@ async function sendMessage(userId, conversationId, data, io) {
       },
       {
         headers: {
-          'x-user-id': userId,
+          'x-user-id': scopeId,
           'Content-Type': 'application/json',
         },
         timeout: 30000,
@@ -350,13 +455,7 @@ async function sendMessage(userId, conversationId, data, io) {
     io.to(`conversation:${conversationId}`).emit('new:message', {
       message: chatMessage.toJSON(),
     });
-
-    io.to(`user:${userId}`).emit('conversation:updated', {
-      conversation_id: conversationId,
-      last_message_at: conversation.last_message_at,
-      last_message_preview: preview,
-      unread_count: conversation.unread_count,
-    });
+    await emitConversationUpdate(io, scopeId, conversation);
   }
 
   return chatMessage;
@@ -374,26 +473,30 @@ async function sendMessage(userId, conversationId, data, io) {
  * @param {string} memberUserId - Team member's user ID to assign to
  * @returns {Promise<Conversation>}
  */
-async function assignConversation(userId, conversationId, memberUserId) {
-  const conversation = await Conversation.findOne({
-    where: { id: conversationId, user_id: userId },
-  });
-
-  if (!conversation) {
-    throw AppError.notFound('Conversation not found');
+async function assignConversation(scopeId, actor, conversationId, memberUserId) {
+  if (!actor || actor.role === 'team') {
+    throw AppError.forbidden('Only the organization owner can assign conversations.');
   }
 
-  await validateAssignableMember(userId, memberUserId);
+  const conversation = await Conversation.findOne({
+    where: { id: conversationId, user_id: scopeId },
+  });
+
+  assertConversationAccess(conversation, actor);
+
+  if (memberUserId) {
+    await validateAssignableMember(actor.userId, memberUserId, scopeId);
+  }
 
   await conversation.update({
-    assigned_to: memberUserId,
-    assigned_at: new Date(),
-    assigned_by: userId,
+    assigned_to: memberUserId || null,
+    assigned_at: memberUserId ? new Date() : null,
+    assigned_by: memberUserId ? actor.userId : null,
   });
 
   await conversation.reload();
 
-  return conversation;
+  return attachAssignedMembers(conversation);
 }
 
 // ────────────────────────────────────────────────
@@ -408,19 +511,17 @@ async function assignConversation(userId, conversationId, memberUserId) {
  * @param {string} status - New status ('open' | 'closed' | 'pending')
  * @returns {Promise<Conversation>}
  */
-async function updateConversationStatus(userId, conversationId, status) {
+async function updateConversationStatus(scopeId, actor, conversationId, status) {
   const conversation = await Conversation.findOne({
-    where: { id: conversationId, user_id: userId },
+    where: { id: conversationId, user_id: scopeId },
   });
 
-  if (!conversation) {
-    throw AppError.notFound('Conversation not found');
-  }
+  assertConversationAccess(conversation, actor);
 
   await conversation.update({ status });
   await conversation.reload();
 
-  return conversation;
+  return attachAssignedMembers(conversation);
 }
 
 // ────────────────────────────────────────────────
@@ -434,19 +535,17 @@ async function updateConversationStatus(userId, conversationId, status) {
  * @param {string} conversationId - Conversation UUID
  * @returns {Promise<Conversation>}
  */
-async function markAsRead(userId, conversationId) {
+async function markAsRead(scopeId, actor, conversationId) {
   const conversation = await Conversation.findOne({
-    where: { id: conversationId, user_id: userId },
+    where: { id: conversationId, user_id: scopeId },
   });
 
-  if (!conversation) {
-    throw AppError.notFound('Conversation not found');
-  }
+  assertConversationAccess(conversation, actor);
 
   await conversation.update({ unread_count: 0 });
   await conversation.reload();
 
-  return conversation;
+  return attachAssignedMembers(conversation);
 }
 
 // ────────────────────────────────────────────────
@@ -568,18 +667,7 @@ async function handleInboundMessage(eventData, io) {
     io.to(`conversation:${conversation.id}`).emit('new:message', {
       message: chatMessage.toJSON(),
     });
-
-    // Emit conversation update to the user's dashboard
-    io.to(`user:${account.user_id}`).emit('conversation:updated', {
-      conversation_id: conversation.id,
-      contact_phone: conversation.contact_phone,
-      contact_name: conversation.contact_name,
-      last_message_at: conversation.last_message_at,
-      last_message_preview: conversation.last_message_preview,
-      unread_count: conversation.unread_count,
-      status: conversation.status,
-      wa_account_id: conversation.wa_account_id,
-    });
+    await emitConversationUpdate(io, account.user_id, conversation);
   }
 
   return { conversation, message: chatMessage };

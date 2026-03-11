@@ -28,6 +28,11 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING(255),
         allowNull: true,
       },
+      must_change_password: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       first_name: {
         type: DataTypes.STRING(100),
         allowNull: false,
@@ -45,7 +50,7 @@ module.exports = (sequelize) => {
         allowNull: true,
       },
       role: {
-        type: DataTypes.ENUM('user', 'admin', 'super_admin'),
+        type: DataTypes.ENUM('user', 'team', 'admin', 'super_admin'),
         allowNull: false,
         defaultValue: 'user',
       },
@@ -158,6 +163,8 @@ module.exports = (sequelize) => {
       role: this.role,
       firstName: this.first_name,
       lastName: this.last_name,
+      mustChangePassword: this.must_change_password,
+      must_change_password: this.must_change_password,
     };
     return jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn: process.env.JWT_EXPIRY || '15m',
@@ -187,9 +194,11 @@ module.exports = (sequelize) => {
       avatar_url: this.avatar_url,
       role: this.role,
       status: this.status,
+      must_change_password: this.must_change_password,
       email_verified_at: this.email_verified_at,
       last_login_at: this.last_login_at,
       created_at: this.created_at,
+      updated_at: this.updated_at,
     };
   };
 

@@ -33,6 +33,11 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 'active',
       },
+      role: {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+        defaultValue: 'user',
+      },
     },
     {
       tableName: 'auth_users',

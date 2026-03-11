@@ -1,7 +1,9 @@
+import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bell, Moon, Sun, Monitor, LogOut, User, Settings, CreditCard } from 'lucide-react';
+import { Bell, Moon, Sun, Monitor, LogOut, User, Settings, CreditCard, Building2, Check } from 'lucide-react';
+import { useQueryClient, type Query } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -17,13 +19,65 @@ import type { RootState, AppDispatch } from '@/core/store';
 import { setTheme } from '@/core/store/uiSlice';
 import { useAuth } from '@/core/hooks/useAuth';
 import { formatCurrency } from '@/shared/utils/formatters';
+import { buildOrganizationNavigationTarget, buildOrganizationPath, setStoredActiveOrganization } from '@/modules/organizations/context';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import type { Organization } from '@/core/types';
+
+const ORG_SCOPED_QUERY_ROOTS = new Set([
+  'dashboard',
+  'unreadChatsCount',
+  'contacts',
+  'tags',
+  'groups',
+  'templates',
+  'flows',
+  'campaigns',
+  'campaign-analytics',
+  'campaign-messages',
+  'conversations',
+  'messages',
+  'team-members',
+  'team-invitations',
+  'automations',
+  'webhooks',
+  'tickets',
+  'wa-accounts',
+  'wallet',
+  'transactions',
+  'invoices',
+  'settings',
+  'subscription',
+  'subscriptions',
+]);
+
+function hasReadPermission(organization: Organization | null | undefined, resource: string) {
+  if (!organization) {
+    return true;
+  }
+
+  if (organization.organization_role === 'owner') {
+    return true;
+  }
+
+  return organization.permissions?.resources?.[resource]?.read === true;
+}
+
+function isOrganizationScopedQuery(query: Query) {
+  const [root] = query.queryKey;
+  return typeof root === 'string' && ORG_SCOPED_QUERY_ROOTS.has(root);
+}
 
 export function Topbar() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const theme = useSelector((state: RootState) => state.ui.theme);
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const { organizations, activeOrganization } = useOrganizationContext(null, !isAdmin);
+  const previousOrganizationIdRef = useRef<string | null>(null);
 
   const initials = user
     ? `${user.first_name?.charAt(0) || ''}${user.last_name?.charAt(0) || ''}`.toUpperCase()
@@ -34,19 +88,100 @@ export function Topbar() {
     navigate('/login');
   };
 
+  const navigateToScopedPath = (path: string) => {
+    if (!activeOrganization || isAdmin) {
+      navigate(path);
+      return;
+    }
+
+    navigate(buildOrganizationPath(activeOrganization.slug, path));
+  };
+
+  const handleOrganizationSwitch = (organization: Organization) => {
+    setStoredActiveOrganization(organization);
+
+    if (location.pathname.startsWith('/organizations')) {
+      return;
+    }
+
+    navigate(
+      buildOrganizationNavigationTarget(
+        organization.slug,
+        location.pathname,
+        location.search,
+        location.hash
+      )
+    );
+  };
+
+  useEffect(() => {
+    if (isAdmin) {
+      return;
+    }
+
+    const currentOrganizationId = activeOrganization?.id || null;
+    const previousOrganizationId = previousOrganizationIdRef.current;
+
+    if (!currentOrganizationId) {
+      previousOrganizationIdRef.current = null;
+      return;
+    }
+
+    if (previousOrganizationId && previousOrganizationId !== currentOrganizationId) {
+      void queryClient.cancelQueries({ predicate: isOrganizationScopedQuery });
+      queryClient.removeQueries({
+        predicate: (query) => isOrganizationScopedQuery(query) && query.getObserversCount() === 0,
+      });
+      void queryClient.resetQueries({ predicate: isOrganizationScopedQuery });
+    }
+
+    previousOrganizationIdRef.current = currentOrganizationId;
+  }, [activeOrganization?.id, isAdmin, queryClient]);
+
   return (
     <header className="flex h-14 items-center justify-between border-b bg-background px-4">
       {/* Left: Breadcrumbs placeholder */}
       <div className="flex items-center gap-2">
+        {!isAdmin ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="max-w-[220px] justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Building2 className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{activeOrganization?.name || 'Organization'}</span>
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuLabel>Switch organization</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {organizations.map((organization) => (
+                <DropdownMenuItem
+                  key={organization.id}
+                  className="flex items-center justify-between"
+                  onClick={() => handleOrganizationSwitch(organization)}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{organization.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{organization.slug}</p>
+                  </div>
+                  {activeOrganization?.id === organization.id ? <Check className="h-4 w-4" /> : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
         <Breadcrumbs />
       </div>
 
       {/* Right: Actions */}
       <div className="flex items-center gap-2">
         {/* Wallet Balance */}
-        <Button variant="outline" size="sm" className="hidden sm:flex" onClick={() => navigate('/wallet')}>
-          <span className="text-xs">{formatCurrency(0)}</span>
-        </Button>
+        {hasReadPermission(activeOrganization, 'wallet') ? (
+          <Button variant="outline" size="sm" className="hidden sm:flex" onClick={() => navigateToScopedPath('/wallet')}>
+            <span className="text-xs">{formatCurrency(0)}</span>
+          </Button>
+        ) : null}
 
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative" onClick={() => navigate('/notifications')}>
@@ -104,18 +239,24 @@ export function Topbar() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate('/settings')}>
-              <User className="mr-2 h-4 w-4" />
-              {t('settings.profile')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate('/subscription')}>
-              <CreditCard className="mr-2 h-4 w-4" />
-              {t('nav.subscription')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate('/settings')}>
-              <Settings className="mr-2 h-4 w-4" />
-              {t('nav.settings')}
-            </DropdownMenuItem>
+            {hasReadPermission(activeOrganization, 'settings') ? (
+              <DropdownMenuItem onClick={() => navigateToScopedPath('/settings')}>
+                <User className="mr-2 h-4 w-4" />
+                {t('settings.profile')}
+              </DropdownMenuItem>
+            ) : null}
+            {hasReadPermission(activeOrganization, 'subscription') ? (
+              <DropdownMenuItem onClick={() => navigateToScopedPath('/subscription')}>
+                <CreditCard className="mr-2 h-4 w-4" />
+                {t('nav.subscription')}
+              </DropdownMenuItem>
+            ) : null}
+            {hasReadPermission(activeOrganization, 'settings') ? (
+              <DropdownMenuItem onClick={() => navigateToScopedPath('/settings')}>
+                <Settings className="mr-2 h-4 w-4" />
+                {t('nav.settings')}
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} className="text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
@@ -130,7 +271,10 @@ export function Topbar() {
 
 function Breadcrumbs() {
   const { pathname } = useLocation();
-  const segments = pathname.split('/').filter(Boolean);
+  const segments = pathname
+    .split('/')
+    .filter(Boolean)
+    .filter((_, index, values) => !(values[0] === 'org' && (index === 0 || index === 1)));
 
   if (segments.length === 0) return null;
 

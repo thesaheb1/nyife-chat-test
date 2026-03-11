@@ -123,12 +123,21 @@ function sanitizeConnectedAccount(account) {
   return account ? account.toSafeJSON() : null;
 }
 
-function serializeDiscoveredPhone(phone, existingAccount) {
+function serializeDiscoveredPhone(phone, existingAccount, organizationWabaId = null) {
   const alreadyConnected = Boolean(
     existingAccount
     && !existingAccount.deleted_at
     && existingAccount.status === 'active'
   );
+  const wabaMismatch = Boolean(
+    organizationWabaId
+    && String(phone.waba_id) !== String(organizationWabaId)
+  );
+  const eligibilityReason = alreadyConnected
+    ? 'already_connected'
+    : wabaMismatch
+      ? 'organization_waba_locked'
+      : null;
 
   return {
     waba_id: String(phone.waba_id),
@@ -137,7 +146,8 @@ function serializeDiscoveredPhone(phone, existingAccount) {
     verified_name: phone.verified_name || null,
     quality_rating: phone.quality_rating || null,
     already_connected: alreadyConnected,
-    eligible: !alreadyConnected,
+    eligible: !alreadyConnected && !wabaMismatch,
+    eligibility_reason: eligibilityReason,
     existing_account_id: existingAccount?.id || null,
     onboarding_status: existingAccount?.onboarding_status || null,
     credential_source: existingAccount?.credential_source || null,
@@ -254,6 +264,21 @@ async function getActiveAccountCount(userId) {
       status: 'active',
     },
   });
+}
+
+async function getConnectedOrganizationWabas(userId) {
+  const records = await WaAccount.findAll({
+    attributes: ['waba_id'],
+    where: {
+      user_id: userId,
+      status: 'active',
+    },
+    group: ['waba_id'],
+  });
+
+  return records
+    .map((record) => String(record.waba_id || ''))
+    .filter(Boolean);
 }
 
 async function getRemainingWhatsAppSlots(userId) {
@@ -516,9 +541,20 @@ async function previewEmbeddedSignup(userId, code, redis) {
   const accessToken = await exchangeCodeForAccessToken(code);
   const discovery = await discoverEmbeddedSignupAccounts(accessToken);
   const phoneNumberIds = discovery.discoveredPhones.map((phone) => phone.phone_number_id);
-  const existingAccounts = await getExistingAccountsByPhoneNumber(userId, phoneNumberIds);
+  const [existingAccounts, connectedWabas] = await Promise.all([
+    getExistingAccountsByPhoneNumber(userId, phoneNumberIds),
+    getConnectedOrganizationWabas(userId),
+  ]);
   const slotStatus = await getRemainingWhatsAppSlots(userId);
   const providerReadiness = buildProviderReadiness(Boolean(redis));
+  const organizationWabaId = connectedWabas[0] || null;
+  const warnings = [...providerReadiness.warnings];
+
+  if (connectedWabas.length > 1) {
+    warnings.push(
+      'This organization currently has more than one WABA connected. Finish migration before adding more phone numbers.'
+    );
+  }
 
   const signupSessionId = await saveSignupSession(redis, {
     userId,
@@ -532,11 +568,17 @@ async function previewEmbeddedSignup(userId, code, redis) {
     signup_session_id: signupSessionId,
     business_id: discovery.businessId,
     remaining_slots: slotStatus.remainingSlots,
+    organization_waba_id: organizationWabaId,
     wabas: summarizeWabas(discovery.discoveredPhones),
     provider_readiness: providerReadiness,
     accounts: discovery.discoveredPhones.map((phone) =>
-      serializeDiscoveredPhone(phone, existingAccounts.get(String(phone.phone_number_id)))
+      serializeDiscoveredPhone(
+        phone,
+        existingAccounts.get(String(phone.phone_number_id)),
+        organizationWabaId
+      )
     ),
+    warnings,
   };
 }
 
@@ -974,7 +1016,7 @@ async function publishAccountLifecycle(kafkaProducer, account, lifecycleType, ex
   }
 }
 
-async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, redis, kafkaProducer = null) {
+async function completeEmbeddedSignup(userId, signupSessionId, selectedWabaId, phoneNumberIds, redis, kafkaProducer = null) {
   const session = await loadSignupSession(redis, signupSessionId);
 
   if (session.userId !== userId) {
@@ -999,10 +1041,47 @@ async function completeEmbeddedSignup(userId, signupSessionId, phoneNumberIds, r
     return phone;
   });
 
-  const existingAccounts = await getExistingAccountsByPhoneNumber(userId, uniquePhoneNumberIds);
+  const [existingAccounts, connectedWabas] = await Promise.all([
+    getExistingAccountsByPhoneNumber(userId, uniquePhoneNumberIds),
+    getConnectedOrganizationWabas(userId),
+  ]);
   const slotStatus = await getRemainingWhatsAppSlots(userId);
   const providerReadiness = buildProviderReadiness(Boolean(redis));
   const providerConfigured = providerReadiness.provider_configured;
+  const organizationWabaId = connectedWabas[0] || null;
+
+  if (connectedWabas.length > 1) {
+    throw AppError.badRequest(
+      'This organization already has multiple WABAs connected. Finish the migration before connecting more phone numbers.'
+    );
+  }
+
+  if (organizationWabaId && selectedWabaId && String(selectedWabaId) !== String(organizationWabaId)) {
+    throw AppError.badRequest(
+      'This organization already has a WhatsApp Business Account connected. You can only add phone numbers from that same WABA.'
+    );
+  }
+
+  const resolvedWabaId = organizationWabaId || selectedWabaId || null;
+  const distinctSelectedWabas = [...new Set(selectedPhones.map((phone) => String(phone.waba_id)))];
+
+  if (!resolvedWabaId && distinctSelectedWabas.length > 1) {
+    throw AppError.badRequest('Select exactly one WhatsApp Business Account before connecting phone numbers.');
+  }
+
+  const enforcedWabaId = resolvedWabaId || distinctSelectedWabas[0] || null;
+  if (!enforcedWabaId) {
+    throw AppError.badRequest('Select a WhatsApp Business Account before connecting phone numbers.');
+  }
+
+  const hasCrossWabaSelection = selectedPhones.some(
+    (phone) => String(phone.waba_id) !== String(enforcedWabaId)
+  );
+  if (hasCrossWabaSelection) {
+    throw AppError.badRequest(
+      'Choose phone numbers from a single WhatsApp Business Account for this organization.'
+    );
+  }
 
   if (!slotStatus.hasActiveSubscription) {
     throw AppError.forbidden('An active subscription is required before connecting WhatsApp numbers.');

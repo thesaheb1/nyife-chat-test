@@ -20,6 +20,10 @@ module.exports = (sequelize) => {
         type: DataTypes.UUID,
         allowNull: false,
       },
+      organization_id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+      },
       subject: {
         type: DataTypes.STRING(500),
         allowNull: false,

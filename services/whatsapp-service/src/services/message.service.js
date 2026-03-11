@@ -241,10 +241,6 @@ function getPlanPriceForCategory(plan, category) {
       return Number(plan.utility_message_price || 0);
     case 'authentication':
       return Number(plan.auth_message_price || 0);
-    case 'service':
-      return Number(plan.service_message_price || 0);
-    case 'referral_conversion':
-      return Number(plan.referral_conversion_message_price || 0);
     default:
       return 0;
   }
@@ -271,15 +267,7 @@ function isWalletBilledMessage(message) {
     return false;
   }
 
-  if (message.type === 'template') {
-    return true;
-  }
-
-  if (message.type === 'interactive' && isStandaloneFlowContent(message.content)) {
-    return true;
-  }
-
-  return Boolean(message.wallet_debit_transaction_id);
+  return message.type === 'template' || Boolean(message.wallet_debit_transaction_id);
 }
 
 function serializeMessageRecord(messageRecord) {
@@ -857,8 +845,8 @@ async function sendFlowMessage(userId, data) {
     content: interactive,
     payload,
     to,
-    billingMode: BILLING_MODE_BILLABLE,
-    estimatedCategory: 'service',
+    billingMode: BILLING_MODE_FREE_DIRECT,
+    estimatedCategory: null,
     description: `WhatsApp flow message to ${to}`,
   });
 

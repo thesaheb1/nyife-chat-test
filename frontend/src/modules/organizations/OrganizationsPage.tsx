@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Loader2 } from 'lucide-react';
@@ -15,6 +15,8 @@ import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { Organization, ApiResponse, PaginationMeta } from '@/core/types';
+import { syncStoredOrganizationRegistry } from './context';
+import { ACCESSIBLE_ORGANIZATIONS_QUERY_KEY } from './useOrganizationContext';
 
 function useOrganizations(page = 1) {
   return useQuery<{ data: Organization[]; meta: PaginationMeta }>({
@@ -29,11 +31,14 @@ function useOrganizations(page = 1) {
 function useCreateOrg() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { name: string; description?: string }) => {
+    mutationFn: async (body: { name: string; description?: string; logo_url?: string }) => {
       const { data } = await apiClient.post<ApiResponse<Organization>>(ENDPOINTS.ORGANIZATIONS.BASE, body);
       return data.data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['organizations'] }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['organizations'] });
+      await qc.invalidateQueries({ queryKey: ACCESSIBLE_ORGANIZATIONS_QUERY_KEY });
+    },
   });
 }
 
@@ -45,18 +50,31 @@ export function OrganizationsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
 
   const orgs = data?.data ?? [];
   const meta = data?.meta;
 
+  useEffect(() => {
+    if (orgs.length) {
+      syncStoredOrganizationRegistry(orgs);
+    }
+  }, [orgs]);
+
   const handleCreate = async () => {
     if (!name.trim()) return;
     try {
-      await createOrg.mutateAsync({ name: name.trim(), description: description.trim() || undefined });
+      const created = await createOrg.mutateAsync({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        logo_url: logoUrl.trim() || undefined,
+      });
       toast.success('Organization created');
       setCreateOpen(false);
       setName('');
       setDescription('');
+      setLogoUrl('');
+      navigate(`/organizations/${created.id}`);
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to create organization.'));
     }
@@ -67,9 +85,25 @@ export function OrganizationsPage() {
       accessorKey: 'name',
       header: 'Organization',
       cell: ({ row }) => (
-        <button className="font-medium hover:underline" onClick={() => navigate(`/organizations/${row.original.id}`)}>
-          {row.original.name}
-        </button>
+        <div className="flex items-center gap-3">
+          {row.original.logo_url ? (
+            <img
+              src={row.original.logo_url}
+              alt={row.original.name}
+              className="h-8 w-8 rounded-md border object-cover"
+            />
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-md border bg-muted text-xs font-semibold uppercase text-muted-foreground">
+              {row.original.name.slice(0, 1)}
+            </div>
+          )}
+          <div className="min-w-0">
+            <button className="truncate font-medium hover:underline" onClick={() => navigate(`/organizations/${row.original.id}`)}>
+              {row.original.name}
+            </button>
+            <p className="truncate text-xs text-muted-foreground">{row.original.slug}</p>
+          </div>
+        </div>
       ),
     },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge variant="secondary" className="text-xs capitalize">{getValue() as string}</Badge> },
@@ -91,6 +125,7 @@ export function OrganizationsPage() {
           <div className="space-y-4">
             <div className="space-y-2"><Label>Name *</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Organization" /></div>
             <div className="space-y-2"><Label>Description</Label><Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" rows={2} /></div>
+            <div className="space-y-2"><Label>Logo URL</Label><Input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://example.com/logo.png" /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>

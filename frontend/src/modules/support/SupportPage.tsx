@@ -15,7 +15,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DataTable } from '@/shared/components/DataTable';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { SupportTicket, ApiResponse, PaginationMeta } from '@/core/types';
+import { buildOrganizationPath } from '@/modules/organizations/context';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
 const STATUS_COLORS: Record<string, string> = {
   open: 'bg-blue-100 text-blue-700',
@@ -35,12 +38,14 @@ export function SupportPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const { activeOrganization } = useOrganizationContext();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const organizationId = activeOrganization?.id || 'global';
 
   const { data, isLoading } = useQuery<{ data: { tickets: SupportTicket[] }; meta: PaginationMeta }>({
-    queryKey: ['tickets', page, statusFilter],
+    queryKey: ['tickets', organizationId, page, statusFilter],
     queryFn: async () => {
       const q = new URLSearchParams();
       q.set('page', String(page));
@@ -65,10 +70,10 @@ export function SupportPage() {
       toast.success('Ticket created');
       setCreateOpen(false);
       setSubject(''); setDescription('');
-      qc.invalidateQueries({ queryKey: ['tickets'] });
-      navigate(`/support/${ticket.id}`);
+      qc.invalidateQueries({ queryKey: ['tickets', organizationId] });
+      navigate(activeOrganization ? buildOrganizationPath(activeOrganization.slug, `/support/${ticket.id}`) : `/support/${ticket.id}`);
     },
-    onError: () => toast.error('Failed to create ticket'),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Failed to create the support ticket.')),
   });
 
   const tickets = data?.data?.tickets ?? [];
@@ -79,7 +84,16 @@ export function SupportPage() {
       accessorKey: 'subject',
       header: 'Subject',
       cell: ({ row }) => (
-        <button className="text-left font-medium hover:underline" onClick={() => navigate(`/support/${row.original.id}`)}>
+        <button
+          className="text-left font-medium hover:underline"
+          onClick={() =>
+            navigate(
+              activeOrganization
+                ? buildOrganizationPath(activeOrganization.slug, `/support/${row.original.id}`)
+                : `/support/${row.original.id}`
+            )
+          }
+        >
           <div>{row.original.subject}</div>
           <div className="text-[10px] text-muted-foreground">#{row.original.ticket_number}</div>
         </button>
@@ -89,7 +103,7 @@ export function SupportPage() {
     { accessorKey: 'priority', header: 'Priority', cell: ({ getValue }) => { const p = getValue() as string; return <Badge className={`${PRIORITY_COLORS[p]} text-xs`} variant="secondary">{p}</Badge>; } },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => { const s = getValue() as string; return <Badge className={`${STATUS_COLORS[s]} text-xs`} variant="secondary">{s.replace('_', ' ')}</Badge>; } },
     { accessorKey: 'created_at', header: 'Created', cell: ({ getValue }) => new Date(getValue() as string).toLocaleDateString() },
-  ], [navigate]);
+  ], [activeOrganization, navigate]);
 
   return (
     <div className="space-y-4">
@@ -110,7 +124,7 @@ export function SupportPage() {
         </SelectContent>
       </Select>
 
-      <DataTable columns={columns} data={tickets} isLoading={isLoading} page={meta?.page ?? 1} totalPages={meta?.totalPages ?? 1} total={meta?.total} onPageChange={setPage} emptyMessage="No tickets." />
+      <DataTable columns={columns} data={tickets} isLoading={isLoading} page={meta?.page ?? 1} totalPages={meta?.totalPages ?? 1} total={meta?.total} onPageChange={setPage} emptyMessage="No tickets for this organization." />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>

@@ -16,6 +16,7 @@ const embeddedSignupPreviewSchema = z.object({
  */
 const embeddedSignupCompleteSchema = z.object({
   signup_session_id: z.string().uuid('Invalid signup session ID'),
+  waba_id: z.string().min(1, 'WABA ID is required').optional(),
   phone_number_ids: z
     .array(z.string().min(1, 'Phone number ID is required'))
     .min(1, 'Select at least one phone number'),

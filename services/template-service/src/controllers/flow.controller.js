@@ -15,28 +15,28 @@ const {
 } = require('../validations/flow.validation');
 
 async function createFlow(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const payload = createFlowSchema.parse(req.body || {});
   const flow = await flowService.createFlow(userId, payload);
   return successResponse(res, { flow }, 'Flow created successfully', 201);
 }
 
 async function listFlows(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const filters = listFlowsSchema.parse(req.query || {});
   const { flows, meta } = await flowService.listFlows(userId, filters);
   return successResponse(res, { flows }, 'Flows retrieved successfully', 200, meta);
 }
 
 async function getFlow(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
   const flow = await flowService.getFlow(userId, id);
   return successResponse(res, { flow }, 'Flow retrieved successfully');
 }
 
 async function updateFlow(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
   const payload = updateFlowSchema.parse(req.body || {});
   const flow = await flowService.updateFlow(userId, id, payload);
@@ -44,21 +44,21 @@ async function updateFlow(req, res) {
 }
 
 async function deleteFlow(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
   await flowService.deleteFlow(userId, id);
   return successResponse(res, null, 'Flow deleted successfully');
 }
 
 async function duplicateFlow(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
   const flow = await flowService.duplicateFlow(userId, id);
   return successResponse(res, { flow }, 'Flow duplicated successfully', 201);
 }
 
 async function saveFlowToMeta(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
   const { waba_id } = flowMetaActionSchema.parse(req.body || {});
   const accessToken = req.headers['x-wa-access-token'] || null;
@@ -67,7 +67,7 @@ async function saveFlowToMeta(req, res) {
 }
 
 async function publishFlow(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
   const { waba_id } = flowMetaActionSchema.parse(req.body || {});
   const accessToken = req.headers['x-wa-access-token'] || null;
@@ -76,7 +76,7 @@ async function publishFlow(req, res) {
 }
 
 async function deprecateFlow(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
   const accessToken = req.headers['x-wa-access-token'] || null;
   const flow = await flowService.deprecateFlow(userId, id, accessToken);
@@ -84,7 +84,7 @@ async function deprecateFlow(req, res) {
 }
 
 async function syncFlows(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { waba_id, force } = syncFlowsSchema.parse(req.body || {});
   const accessToken = req.headers['x-wa-access-token'] || null;
   const result = await flowService.syncFlows(userId, waba_id, accessToken, force);
@@ -92,7 +92,7 @@ async function syncFlows(req, res) {
 }
 
 async function listSubmissions(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
   const filters = listFlowSubmissionsSchema.parse(req.query || {});
   const { submissions, meta } = await flowService.listSubmissions(userId, id, filters);
@@ -100,7 +100,7 @@ async function listSubmissions(req, res) {
 }
 
 async function getSubmission(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { submissionId } = submissionIdSchema.parse(req.params);
   const submission = await flowService.getSubmission(userId, submissionId);
   return successResponse(res, { submission }, 'Flow submission retrieved successfully');

@@ -20,7 +20,7 @@ const {
  * Creates a new campaign in draft status.
  */
 async function createCampaign(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const data = createCampaignSchema.parse(req.body);
 
   const campaign = await campaignService.createCampaign(userId, data);
@@ -33,7 +33,7 @@ async function createCampaign(req, res) {
  * Lists campaigns for the authenticated user with pagination and filters.
  */
 async function listCampaigns(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const filters = listCampaignsSchema.parse(req.query);
 
   const { campaigns, meta } = await campaignService.listCampaigns(userId, filters);
@@ -46,7 +46,7 @@ async function listCampaigns(req, res) {
  * Gets a single campaign by ID.
  */
 async function getCampaign(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = campaignIdSchema.parse(req.params);
 
   const campaign = await campaignService.getCampaign(userId, id);
@@ -59,7 +59,7 @@ async function getCampaign(req, res) {
  * Updates a draft campaign.
  */
 async function updateCampaign(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = campaignIdSchema.parse(req.params);
   const data = updateCampaignSchema.parse(req.body);
 
@@ -73,7 +73,7 @@ async function updateCampaign(req, res) {
  * Soft-deletes a draft campaign.
  */
 async function deleteCampaign(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = campaignIdSchema.parse(req.params);
 
   const result = await campaignService.deleteCampaign(userId, id);
@@ -90,7 +90,7 @@ async function deleteCampaign(req, res) {
  * Starts campaign execution: resolves contacts, publishes to Kafka.
  */
 async function startCampaign(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = campaignIdSchema.parse(req.params);
   const kafkaProducer = req.app.locals.kafkaProducer;
 
@@ -104,7 +104,7 @@ async function startCampaign(req, res) {
  * Pauses a running campaign.
  */
 async function pauseCampaign(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = campaignIdSchema.parse(req.params);
 
   const campaign = await campaignService.pauseCampaign(userId, id);
@@ -117,7 +117,7 @@ async function pauseCampaign(req, res) {
  * Resumes a paused campaign.
  */
 async function resumeCampaign(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = campaignIdSchema.parse(req.params);
   const kafkaProducer = req.app.locals.kafkaProducer;
 
@@ -131,7 +131,7 @@ async function resumeCampaign(req, res) {
  * Cancels a campaign and marks pending messages as failed.
  */
 async function cancelCampaign(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = campaignIdSchema.parse(req.params);
 
   const campaign = await campaignService.cancelCampaign(userId, id);
@@ -144,7 +144,7 @@ async function cancelCampaign(req, res) {
  * Retries failed messages in a campaign.
  */
 async function retryCampaign(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = retryCampaignSchema.parse(req.params);
   const kafkaProducer = req.app.locals.kafkaProducer;
 
@@ -162,7 +162,7 @@ async function retryCampaign(req, res) {
  * Lists messages for a campaign with pagination.
  */
 async function getCampaignMessages(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = campaignIdSchema.parse(req.params);
   const filters = listCampaignMessagesSchema.parse(req.query);
 
@@ -176,7 +176,7 @@ async function getCampaignMessages(req, res) {
  * Gets detailed analytics for a campaign.
  */
 async function getCampaignAnalytics(req, res) {
-  const userId = req.headers['x-user-id'];
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = campaignIdSchema.parse(req.params);
 
   const analytics = await campaignService.getCampaignAnalytics(userId, id);

@@ -8,6 +8,7 @@ import {
   Workflow,
   Megaphone,
   MessageSquare,
+  UserCog,
   Zap,
   Building2,
   LifeBuoy,
@@ -24,28 +25,48 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import type { RootState } from '@/core/store';
 import { toggleSidebar } from '@/core/store/uiSlice';
+import { buildOrganizationPath } from '@/modules/organizations/context';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import type { Organization } from '@/core/types';
 
 const NAV_ITEMS = [
-  { path: '/dashboard', i18nKey: 'nav.dashboard', icon: LayoutDashboard },
-  { path: '/contacts', i18nKey: 'nav.contacts', icon: Users },
-  { path: '/templates', i18nKey: 'nav.templates', icon: FileText },
-  { path: '/flows', i18nKey: 'nav.flows', icon: Workflow },
-  { path: '/campaigns', i18nKey: 'nav.campaigns', icon: Megaphone },
-  { path: '/chat', i18nKey: 'nav.chat', icon: MessageSquare, badge: true },
-  { path: '/automations', i18nKey: 'nav.automations', icon: Zap },
-  { path: '/organizations', i18nKey: 'nav.organizations', icon: Building2 },
-  { path: '/support', i18nKey: 'nav.support', icon: LifeBuoy },
-  { path: '/wallet', i18nKey: 'nav.wallet', icon: Wallet },
-  { path: '/subscription', i18nKey: 'nav.subscription', icon: CreditCard },
-  { path: '/settings', i18nKey: 'nav.settings', icon: Settings },
-  { path: '/developer', i18nKey: 'nav.developer', icon: Code2 },
+  { path: '/dashboard', i18nKey: 'nav.dashboard', icon: LayoutDashboard, resource: 'dashboard' },
+  { path: '/contacts', i18nKey: 'nav.contacts', icon: Users, resource: 'contacts' },
+  { path: '/templates', i18nKey: 'nav.templates', icon: FileText, resource: 'templates' },
+  { path: '/flows', i18nKey: 'nav.flows', icon: Workflow, resource: 'flows' },
+  { path: '/campaigns', i18nKey: 'nav.campaigns', icon: Megaphone, resource: 'campaigns' },
+  { path: '/chat', i18nKey: 'nav.chat', icon: MessageSquare, badge: true, resource: 'chat' },
+  { path: '/team', i18nKey: 'nav.teamMembers', icon: UserCog, resource: 'team_members' },
+  { path: '/automations', i18nKey: 'nav.automations', icon: Zap, resource: 'automations' },
+  { path: '/organizations', i18nKey: 'nav.organizations', icon: Building2, resource: 'organizations' },
+  { path: '/support', i18nKey: 'nav.support', icon: LifeBuoy, resource: 'support' },
+  { path: '/wallet', i18nKey: 'nav.wallet', icon: Wallet, resource: 'wallet' },
+  { path: '/subscription', i18nKey: 'nav.subscription', icon: CreditCard, resource: 'subscription' },
+  { path: '/settings', i18nKey: 'nav.settings', icon: Settings, resource: 'settings' },
+  { path: '/developer', i18nKey: 'nav.developer', icon: Code2, resource: 'developer' },
 ] as const;
+
+function hasReadPermission(organization: Organization | null | undefined, resource: string) {
+  if (!organization) {
+    return true;
+  }
+
+  if (organization.organization_role === 'owner') {
+    return true;
+  }
+
+  return organization.permissions?.resources?.[resource]?.read === true;
+}
 
 export function Sidebar() {
   const location = useLocation();
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const collapsed = useSelector((state: RootState) => state.ui.sidebarCollapsed);
+  const currentScopedPath = location.pathname.startsWith('/org/')
+    ? location.pathname.replace(/^\/org\/[^/]+/, '') || '/dashboard'
+    : location.pathname;
+  const { activeOrganization } = useOrganizationContext();
 
   return (
     <aside
@@ -70,16 +91,19 @@ export function Sidebar() {
       {/* Navigation */}
       <ScrollArea className="flex-1 py-2">
         <nav className="flex flex-col gap-1 px-2">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => hasReadPermission(activeOrganization, item.resource)).map((item) => {
+            const resolvedPath = item.path === '/organizations' || !activeOrganization
+              ? item.path
+              : buildOrganizationPath(activeOrganization.slug, item.path);
             const isActive =
-              location.pathname === item.path ||
-              (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
+              currentScopedPath === item.path ||
+              (item.path !== '/dashboard' && currentScopedPath.startsWith(item.path));
             const Icon = item.icon;
             const label = t(item.i18nKey);
 
             const linkContent = (
               <Link
-                to={item.path}
+                to={resolvedPath}
                 className={cn(
                   'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                   isActive

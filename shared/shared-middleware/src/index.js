@@ -2,7 +2,7 @@
 
 const { authenticate, authenticateOptional } = require('./authMiddleware');
 const { rbac } = require('./rbacMiddleware');
-const { tenantResolver } = require('./tenantMiddleware');
+const { tenantResolver, organizationResolver, resolveUserId } = require('./tenantMiddleware');
 const { errorHandler, AppError } = require('./errorHandler');
 const { asyncHandler } = require('./asyncHandler');
 const { createRateLimiter } = require('./rateLimiter');
@@ -14,6 +14,8 @@ module.exports = {
   authenticateOptional,
   rbac,
   tenantResolver,
+  organizationResolver,
+  resolveUserId,
   errorHandler,
   AppError,
   asyncHandler,

@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type {
   EmbeddedSignupCompleteResult,
   EmbeddedSignupPreviewAccount,
@@ -192,10 +193,7 @@ export function WhatsAppOnboardingPage() {
         const result = await previewSignup.mutateAsync(code);
         openPreviewDialog(result);
       } catch (error) {
-        const message =
-          (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-          'Failed to start embedded signup.';
-        toast.error(message);
+        toast.error(getApiErrorMessage(error, 'Failed to start embedded signup.'));
       }
     })();
   };
@@ -229,8 +227,7 @@ export function WhatsAppOnboardingPage() {
         },
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to open Meta embedded signup.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to open Meta embedded signup.'));
     }
   };
 
@@ -281,10 +278,7 @@ export function WhatsAppOnboardingPage() {
       toast.success(`Connected ${result.connected_count} WhatsApp number(s).${skippedText}`);
       setCompletionResult(result);
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to complete embedded signup.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to complete embedded signup.'));
     }
   };
 
@@ -293,10 +287,7 @@ export function WhatsAppOnboardingPage() {
       await disconnectMutation.mutateAsync(id);
       toast.success('WhatsApp number disconnected.');
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to disconnect account.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to disconnect the WhatsApp account.'));
     }
   };
 
@@ -305,10 +296,7 @@ export function WhatsAppOnboardingPage() {
       const result = await refreshHealthMutation.mutateAsync(id);
       toast.success(getAccountRefreshMessage(result.account));
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to refresh account details.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to refresh WhatsApp account details.'));
     }
   };
 

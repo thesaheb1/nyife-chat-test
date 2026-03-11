@@ -18,6 +18,9 @@ export interface DashboardData {
     balance: number;
     recent_transactions: RecentTransaction[];
   };
+  chats: {
+    unread: number;
+  };
   subscription: DashboardSubscription | null;
   team_members: { total: number };
   organizations: { total: number };
@@ -46,6 +49,13 @@ export interface DashboardSubscription {
   status: string;
   starts_at: string;
   expires_at: string | null;
+  max_contacts: number;
+  max_templates: number;
+  max_campaigns_per_month: number;
+  max_messages_per_month: number;
+  max_team_members: number;
+  max_organizations: number;
+  max_whatsapp_numbers: number;
   usage: {
     contacts_used: number;
     templates_used: number;

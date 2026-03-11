@@ -113,9 +113,17 @@ const createApiTokenSchema = z.object({
     .nullable(),
 });
 
+const resolveApiTokenSchema = z.object({
+  token: z
+    .string()
+    .trim()
+    .min(1, 'API token is required'),
+});
+
 module.exports = {
   updateProfileSchema,
   changePasswordSchema,
   updateSettingsSchema,
   createApiTokenSchema,
+  resolveApiTokenSchema,
 };

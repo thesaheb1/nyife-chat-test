@@ -82,6 +82,7 @@ export function MessagesChart({ timeline, isLoading }: MessagesChartProps) {
               <Line type="monotone" dataKey="sent" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} name="Sent" />
               <Line type="monotone" dataKey="delivered" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} name="Delivered" />
               <Line type="monotone" dataKey="read" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={false} name="Read" />
+              <Line type="monotone" dataKey="failed" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} name="Failed" />
             </LineChart>
           </ResponsiveContainer>
         )}

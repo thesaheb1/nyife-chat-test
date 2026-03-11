@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DataTable } from '@/shared/components/DataTable';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { ApiToken, ApiResponse, PaginationMeta } from '@/core/types';
 
 function useApiTokens(page = 1) {
@@ -48,7 +49,7 @@ export function DeveloperPage() {
       setTokenName('');
       qc.invalidateQueries({ queryKey: ['api-tokens'] });
     },
-    onError: () => toast.error('Failed to create token'),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'Failed to create the API token.')),
   });
 
   const revokeToken = useMutation({
@@ -223,6 +224,26 @@ puts JSON.parse(res.body)`,
 }, headers={'Authorization': 'Bearer YOUR_API_TOKEN'})`,
       },
     },
+    {
+      title: 'Send Flow Message',
+      endpoint: 'POST /api/v1/whatsapp/send/flow',
+      samples: {
+        'Node.js': `const res = await axios.post('${baseUrl}/whatsapp/send/flow', {
+  wa_account_id: 'YOUR_WA_ACCOUNT_ID',
+  to: '+919876543210',
+  flow_id: 'YOUR_FLOW_ID',
+  flow_cta: 'Open form'
+}, {
+  headers: { 'Authorization': 'Bearer YOUR_API_TOKEN' }
+});`,
+        Python: `res = requests.post('${baseUrl}/whatsapp/send/flow', json={
+    'wa_account_id': 'YOUR_WA_ACCOUNT_ID',
+    'to': '+919876543210',
+    'flow_id': 'YOUR_FLOW_ID',
+    'flow_cta': 'Open form'
+}, headers={'Authorization': 'Bearer YOUR_API_TOKEN'})`,
+      },
+    },
   ];
 
   const [activeLang, setActiveLang] = useState<Record<number, string>>({});
@@ -234,6 +255,15 @@ puts JSON.parse(res.body)`,
         <CardContent>
           <p className="text-sm mb-2">Include your API token in the <code className="bg-muted px-1 rounded text-xs">Authorization</code> header:</p>
           <pre className="rounded bg-muted p-3 text-xs overflow-auto">Authorization: Bearer YOUR_API_TOKEN</pre>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-lg">Commercial Rules</CardTitle></CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>Direct non-template sends require an active subscription, but they do not deduct wallet money.</p>
+          <p>Template sends require both an active subscription and enough wallet balance for the selected template category.</p>
+          <p>Standalone Flow sends require both an active subscription and enough wallet balance at your plan&apos;s service message price.</p>
         </CardContent>
       </Card>
 

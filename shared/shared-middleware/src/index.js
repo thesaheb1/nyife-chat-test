@@ -7,6 +7,7 @@ const { errorHandler, AppError } = require('./errorHandler');
 const { asyncHandler } = require('./asyncHandler');
 const { createRateLimiter } = require('./rateLimiter');
 const { requestLogger } = require('./requestLogger');
+const { requireActiveSubscription } = require('./subscriptionGate');
 
 module.exports = {
   authenticate,
@@ -18,4 +19,5 @@ module.exports = {
   asyncHandler,
   createRateLimiter,
   requestLogger,
+  requireActiveSubscription,
 };

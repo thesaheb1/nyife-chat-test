@@ -60,6 +60,7 @@ npm run stack:up:build
 # Run all migrations
 npm run migrate:all
 
+
 # Seed local test user and admin accounts
 # Requires AUTH_TEST_PASSWORD in .env
 (cd services/auth-service && npx sequelize-cli db:seed --seed src/seeders/20260309120000-seed-auth-manual-test-accounts.js)
@@ -71,6 +72,7 @@ npm run kafka:setup
 # Start the frontend separately
 cd frontend && npm run dev
 ```
+
 
 Stop any locally running services on ports `3000-3017`, `3307`, `6379`, `9092`, or `2181` before starting the Docker dev stack.
 

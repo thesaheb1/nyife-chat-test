@@ -6,6 +6,11 @@ const userController = require('../controllers/user.controller');
 
 const router = Router();
 
+router.post(
+  '/internal/api-tokens/resolve',
+  asyncHandler(userController.resolveApiToken)
+);
+
 // ---------------------------------------------------------------------------
 // All user routes require authentication and tenant resolution.
 // The authenticate middleware verifies the JWT and sets req.user.

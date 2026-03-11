@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 import type {
   HeaderFormat,
@@ -230,10 +231,7 @@ export function HeaderFields({
       });
       toast.success('Header sample uploaded.');
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message
-        || 'Failed to upload the header sample.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to upload the header sample.'));
     } finally {
       if (inputRef.current) {
         inputRef.current.value = '';

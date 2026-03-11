@@ -16,6 +16,7 @@ export interface PaginationMeta {
 export interface ApiError {
   success: false;
   message: string;
+  code?: string;
   errors?: Array<{ field: string; message: string }>;
 }
 

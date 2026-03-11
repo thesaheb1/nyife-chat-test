@@ -1,22 +1,41 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { SummaryCards, UsageProgress } from './SummaryCards';
 import { MessagesChart } from './MessagesChart';
 import { CampaignPieChart } from './CampaignPieChart';
 import { QuickActions } from './QuickActions';
 import { RecentActivity } from './RecentActivity';
-import { useDashboardData, useUnreadChatsCount } from './useDashboardData';
+import { useDashboardData } from './useDashboardData';
 import { DateRangeFilter } from './DateRangeFilter';
 
 export function DashboardPage() {
   const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({});
+  const [selectedWaAccountId, setSelectedWaAccountId] = useState<string>('all');
+  const { data: waAccounts = [] } = useWhatsAppAccounts();
+  const waAccountOptions = useMemo(
+    () => waAccounts
+      .filter((account) => account.status === 'active')
+      .map((account) => ({
+        value: account.id,
+        label: account.display_phone || account.verified_name || account.waba_id,
+      })),
+    [waAccounts]
+  );
+  const dashboardWaAccountId = selectedWaAccountId === 'all' ? undefined : selectedWaAccountId;
 
   const { data, isLoading } = useDashboardData({
     dateFrom: dateRange.from,
     dateTo: dateRange.to,
+    waAccountId: dashboardWaAccountId,
   });
-
-  const { data: unreadChats = 0 } = useUnreadChatsCount();
   const { t } = useTranslation();
 
   return (
@@ -29,11 +48,26 @@ export function DashboardPage() {
             {t('dashboard.subtitle')}
           </p>
         </div>
-        <DateRangeFilter value={dateRange} onChange={setDateRange} />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Select value={selectedWaAccountId} onValueChange={setSelectedWaAccountId}>
+            <SelectTrigger className="min-w-[220px]">
+              <SelectValue placeholder="All phone numbers" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All phone numbers</SelectItem>
+              {waAccountOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DateRangeFilter value={dateRange} onChange={setDateRange} />
+        </div>
       </div>
 
       {/* Summary Cards */}
-      <SummaryCards data={data} unreadChats={unreadChats} isLoading={isLoading} />
+      <SummaryCards data={data} unreadChats={data?.chats.unread ?? 0} isLoading={isLoading} />
 
       {/* Charts Row */}
       <div className="grid gap-4 lg:grid-cols-3">

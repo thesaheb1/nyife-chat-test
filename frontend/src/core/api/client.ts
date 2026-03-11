@@ -6,6 +6,7 @@ import { resolveApiBaseUrl } from '@/core/api/baseUrl';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { ensureCsrfToken, getCsrfTokenFromCookie } from '@/core/security/csrf';
 import type { ApiResponse, User } from '@/core/types';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 
 const API_BASE_URL = resolveApiBaseUrl();
 const PUBLIC_AUTH_PATHS = [
@@ -130,12 +131,26 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
 
+    const applyFriendlyMessage = (targetError: unknown) => {
+      const friendlyMessage = getApiErrorMessage(targetError);
+
+      if ((targetError as { response?: { data?: { message?: string } } })?.response?.data) {
+        (targetError as { response: { data: { message?: string } } }).response.data.message = friendlyMessage;
+      }
+
+      if (targetError && typeof targetError === 'object' && 'message' in targetError) {
+        (targetError as Error).message = friendlyMessage;
+      }
+    };
+
     if (error.response?.status !== 401 || originalRequest._retry) {
+      applyFriendlyMessage(error);
       return Promise.reject(error);
     }
 
     // Don't retry refresh or login requests
     if (originalRequest.url?.includes('/auth/refresh') || originalRequest.url?.includes('/auth/login')) {
+      applyFriendlyMessage(error);
       return Promise.reject(error);
     }
 
@@ -157,6 +172,7 @@ apiClient.interceptors.response.use(
       });
     } catch (refreshError) {
       window.location.href = '/login';
+      applyFriendlyMessage(refreshError);
       return Promise.reject(refreshError);
     }
   }

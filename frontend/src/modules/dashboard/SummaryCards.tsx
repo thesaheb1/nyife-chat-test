@@ -118,12 +118,11 @@ export function UsageProgress({ data, isLoading }: UsageProgressProps) {
   if (isLoading || !data?.subscription) return null;
 
   const sub = data.subscription;
-  // We'd ideally get plan limits from subscription/current, but we can show usage counts
   const usageItems = [
-    { label: 'Contacts', used: sub.usage.contacts_used },
-    { label: 'Templates', used: sub.usage.templates_used },
-    { label: 'Campaigns (month)', used: sub.usage.campaigns_this_month },
-    { label: 'Messages (month)', used: sub.usage.messages_this_month },
+    { label: 'Contacts', used: Number(sub.usage.contacts_used || 0), limit: Number(sub.max_contacts || 0) },
+    { label: 'Templates', used: Number(sub.usage.templates_used || 0), limit: Number(sub.max_templates || 0) },
+    { label: 'Campaigns (month)', used: Number(sub.usage.campaigns_this_month || 0), limit: Number(sub.max_campaigns_per_month || 0) },
+    { label: 'Messages (month)', used: Number(sub.usage.messages_this_month || 0), limit: Number(sub.max_messages_per_month || 0) },
   ];
 
   return (
@@ -136,9 +135,14 @@ export function UsageProgress({ data, isLoading }: UsageProgressProps) {
           <div key={item.label} className="space-y-1">
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>{item.label}</span>
-              <span>{item.used.toLocaleString()} used</span>
+              <span>
+                {item.used.toLocaleString()} / {item.limit === 0 ? 'Unlimited' : item.limit.toLocaleString()}
+              </span>
             </div>
-            <Progress value={0} className="h-2" />
+            <Progress
+              value={item.limit === 0 ? 0 : Math.min(100, (item.used / item.limit) * 100)}
+              className="h-2"
+            />
           </div>
         ))}
       </CardContent>

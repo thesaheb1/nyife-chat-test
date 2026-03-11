@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import {
   Select,
   SelectContent,
@@ -313,8 +314,8 @@ export function ContactListPage() {
       }
       setSelectedContacts([]);
       setBulkDeleteContactsOpen(false);
-    } catch {
-      toast.error('Failed to delete contacts');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to delete the selected contacts.'));
     }
   };
 
@@ -329,8 +330,8 @@ export function ContactListPage() {
       }
       setSelectedGroups([]);
       setBulkDeleteGroupsOpen(false);
-    } catch {
-      toast.error('Failed to delete groups');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to delete the selected groups.'));
     }
   };
 
@@ -349,8 +350,8 @@ export function ContactListPage() {
         toast.success('Tag created');
       }
       resetTagEditor();
-    } catch {
-      toast.error('Failed to save tag');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to save the tag.'));
     }
   };
 
@@ -379,8 +380,8 @@ export function ContactListPage() {
       }
       setGroupEditorOpen(false);
       resetGroupEditor();
-    } catch {
-      toast.error('Failed to save group');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to save the group.'));
     }
   };
 
@@ -406,8 +407,8 @@ export function ContactListPage() {
       }
       setSelectedTagIds([]);
       setBulkTagMode(null);
-    } catch {
-      toast.error('Failed to update tags');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to update contact tags.'));
     }
   };
 
@@ -433,8 +434,8 @@ export function ContactListPage() {
       }
       setSelectedDialogGroupIds([]);
       setBulkGroupMode(null);
-    } catch {
-      toast.error('Failed to update group memberships');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to update group memberships.'));
     }
   };
 
@@ -482,8 +483,8 @@ export function ContactListPage() {
       setSelectedDialogContactIds([]);
       setGroupMemberMode(null);
       setSelectedMemberIds([]);
-    } catch {
-      toast.error('Failed to update group members');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to update group members.'));
     }
   };
 
@@ -499,8 +500,8 @@ export function ContactListPage() {
       });
       toast.success(`${result.removed_count} member(s) removed`);
       setSelectedMemberIds([]);
-    } catch {
-      toast.error('Failed to remove members');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to remove the selected members.'));
     }
   };
 
@@ -876,8 +877,8 @@ export function ContactListPage() {
             if (editingTag?.id === tagId) {
               resetTagEditor();
             }
-          } catch {
-            toast.error('Failed to delete tag');
+          } catch (error) {
+            toast.error(getApiErrorMessage(error, 'Failed to delete the tag.'));
           }
         }}
       />

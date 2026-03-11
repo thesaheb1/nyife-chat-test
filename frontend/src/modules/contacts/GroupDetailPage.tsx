@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { DataTable } from '@/shared/components/DataTable';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useGroup, useRemoveGroupMembers, useDeleteGroup } from './useContacts';
 import type { Contact } from '@/core/types';
 
@@ -37,8 +38,8 @@ export function GroupDetailPage() {
       toast.success(`${ids.length} member(s) removed`);
       setSelectedMembers([]);
       setRemoveOpen(false);
-    } catch {
-      toast.error('Failed to remove members');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to remove the selected members.'));
     }
   };
 
@@ -47,8 +48,8 @@ export function GroupDetailPage() {
       await deleteGroup.mutateAsync(id!);
       toast.success('Group deleted');
       navigate('/contacts/groups');
-    } catch {
-      toast.error('Failed to delete group');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to delete the group.'));
     }
   };
 

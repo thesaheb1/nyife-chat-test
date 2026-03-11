@@ -8,6 +8,9 @@ const { AppError, getPagination, getPaginationMeta } = require('@nyife/shared-ut
 const config = require('../config');
 const { requireResolvedMetaCredential } = require('./metaAccess.service');
 
+const BILLING_MODE_FREE_DIRECT = 'free_direct';
+const BILLING_MODE_BILLABLE = 'billable';
+
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
 }
@@ -247,6 +250,38 @@ function getPlanPriceForCategory(plan, category) {
   }
 }
 
+function forbiddenError(message, code) {
+  return AppError.forbidden(message, code);
+}
+
+function badRequestError(message, code, errors = []) {
+  return AppError.badRequest(message, errors, code);
+}
+
+function isStandaloneFlowContent(content) {
+  if (!content || typeof content !== 'object') {
+    return false;
+  }
+
+  return content.type === 'flow' || content?.action?.name === 'flow';
+}
+
+function isWalletBilledMessage(message) {
+  if (!message || message.direction !== 'outbound') {
+    return false;
+  }
+
+  if (message.type === 'template') {
+    return true;
+  }
+
+  if (message.type === 'interactive' && isStandaloneFlowContent(message.content)) {
+    return true;
+  }
+
+  return Boolean(message.wallet_debit_transaction_id);
+}
+
 function serializeMessageRecord(messageRecord) {
   return {
     id: messageRecord.id,
@@ -316,7 +351,15 @@ async function getWalletBalance(userId) {
   }
 }
 
-async function debitWalletForMessage(userId, amount, messageRecord, description, category) {
+async function debitWalletForMessage(
+  userId,
+  amount,
+  messageRecord,
+  source,
+  description,
+  category,
+  meta = {}
+) {
   if (!amount) {
     return null;
   }
@@ -326,7 +369,7 @@ async function debitWalletForMessage(userId, amount, messageRecord, description,
     {
       user_id: userId,
       amount,
-      source: 'message_debit',
+      source,
       reference_type: 'wa_message',
       reference_id: messageRecord.id,
       description,
@@ -334,6 +377,7 @@ async function debitWalletForMessage(userId, amount, messageRecord, description,
         wa_message_id: messageRecord.id,
         wa_account_id: messageRecord.wa_account_id,
         billing_category: category,
+        ...meta,
       },
     },
     {
@@ -417,6 +461,7 @@ async function performAccountedSend({
   content,
   payload,
   to,
+  billingMode,
   estimatedCategory,
   description,
   templateId = null,
@@ -425,21 +470,30 @@ async function performAccountedSend({
   const credential = requireResolvedMetaCredential(account);
   const subscription = await fetchActiveSubscription(userId);
   if (!subscription || !subscription.plan) {
-    throw AppError.forbidden('An active subscription is required to send WhatsApp messages.');
+    throw forbiddenError('An active subscription is required to send WhatsApp messages.', 'SUBSCRIPTION_REQUIRED');
   }
 
   const messageLimit = getMessageLimitState(subscription);
   if (!messageLimit.allowed) {
-    throw AppError.forbidden('Monthly message limit reached. Please upgrade your plan.');
+    throw forbiddenError('You have reached your monthly message limit. Upgrade your plan to continue sending.', 'MESSAGE_LIMIT_REACHED');
   }
 
-  const normalizedEstimatedCategory = normalizeBillingCategory(estimatedCategory);
-  const estimatedAmount = getPlanPriceForCategory(subscription.plan, normalizedEstimatedCategory);
-  const walletBalance = await getWalletBalance(userId);
-  if (estimatedAmount > Number(walletBalance.balance || 0)) {
-    throw AppError.badRequest(
-      `Insufficient wallet balance. Required: ${estimatedAmount} paise, Available: ${walletBalance.balance || 0} paise.`
-    );
+  const isBillable = billingMode === BILLING_MODE_BILLABLE;
+  const normalizedEstimatedCategory = isBillable
+    ? normalizeBillingCategory(estimatedCategory)
+    : null;
+  const estimatedAmount = isBillable
+    ? getPlanPriceForCategory(subscription.plan, normalizedEstimatedCategory)
+    : 0;
+
+  if (isBillable && estimatedAmount > 0) {
+    const walletBalance = await getWalletBalance(userId);
+    if (estimatedAmount > Number(walletBalance.balance || 0)) {
+      throw badRequestError(
+        'Recharge your wallet before sending this message.',
+        'WALLET_INSUFFICIENT'
+      );
+    }
   }
 
   const messageRecord = await WaMessage.create({
@@ -454,25 +508,34 @@ async function performAccountedSend({
     campaign_id: campaignId,
     billing_category_estimated: normalizedEstimatedCategory,
     billing_amount_estimated: estimatedAmount,
-    billing_status: estimatedAmount > 0 ? 'pending_debit' : 'pending_reconcile',
+    pricing_billable: isBillable ? null : false,
+    billing_status: isBillable
+      ? (estimatedAmount > 0 ? 'pending_debit' : 'pending_reconcile')
+      : 'free_pending',
   });
 
   let debitResult = null;
-  try {
-    debitResult = await debitWalletForMessage(
-      userId,
-      estimatedAmount,
-      messageRecord,
-      description,
-      normalizedEstimatedCategory
-    );
-  } catch (err) {
-    await messageRecord.update({
-      status: 'failed',
-      error_message: err.response?.data?.message || err.message,
-      billing_status: 'debit_failed',
-    });
-    throw AppError.badRequest(err.response?.data?.message || err.message);
+  if (isBillable && estimatedAmount > 0) {
+    try {
+      debitResult = await debitWalletForMessage(
+        userId,
+        estimatedAmount,
+        messageRecord,
+        'message_debit',
+        description,
+        normalizedEstimatedCategory
+      );
+    } catch (err) {
+      await messageRecord.update({
+        status: 'failed',
+        error_message: err.response?.data?.message || err.message,
+        billing_status: 'debit_failed',
+      });
+      throw badRequestError(
+        err.response?.data?.message || 'Unable to charge your wallet for this message.',
+        err.response?.data?.code || 'WALLET_DEBIT_FAILED'
+      );
+    }
   }
 
   if (debitResult?.transaction_id) {
@@ -489,7 +552,16 @@ async function performAccountedSend({
     await messageRecord.update({
       meta_message_id: metaMessageId,
       status: 'sent',
-      billing_status: estimatedAmount > 0 ? 'debited_pending_reconcile' : 'pending_reconcile',
+      ...(isBillable
+        ? {
+            billing_status: estimatedAmount > 0 ? 'debited_pending_reconcile' : 'pending_reconcile',
+          }
+        : {
+            billing_status: 'free',
+            billing_amount_actual: 0,
+            billing_reconciled_at: new Date(),
+            pricing_billable: false,
+          }),
     });
 
     await incrementMessageUsage(userId, messageRecord);
@@ -502,7 +574,7 @@ async function performAccountedSend({
     const errorMessage = errData.message || err.message || 'Unknown Meta API error';
 
     let refundTransactionId = null;
-    if (estimatedAmount > 0 && messageRecord.wallet_debit_transaction_id) {
+    if (isBillable && estimatedAmount > 0 && messageRecord.wallet_debit_transaction_id) {
       try {
         const refundResult = await creditWalletForMessage(
           userId,
@@ -525,13 +597,21 @@ async function performAccountedSend({
       status: 'failed',
       error_code: errorCode,
       error_message: errorMessage,
-      billing_status: refundTransactionId ? 'refunded_failed_send' : 'refund_pending',
+      billing_status: isBillable
+        ? (refundTransactionId ? 'refunded_failed_send' : 'refund_pending')
+        : 'free_failed',
       wallet_adjustment_transaction_id: refundTransactionId,
       billing_amount_actual: 0,
-      billing_reconciled_at: refundTransactionId ? new Date() : null,
+      billing_reconciled_at: isBillable
+        ? (refundTransactionId ? new Date() : null)
+        : new Date(),
+      pricing_billable: isBillable ? messageRecord.pricing_billable : false,
     });
 
-    throw AppError.badRequest(`Failed to send ${type === 'template' ? 'template message' : 'message'}: ${errorMessage}`);
+    throw badRequestError(
+      `Failed to send ${type === 'template' ? 'template message' : 'message'}: ${errorMessage}`,
+      errorCode
+    );
   }
 }
 
@@ -557,6 +637,14 @@ async function performAccountedSend({
 async function sendMessage(userId, data) {
   const { wa_account_id, to, type, message, context } = data;
 
+  if (type === 'template') {
+    throw badRequestError('Use the template send endpoint for template messages.', 'INVALID_MESSAGE_TYPE');
+  }
+
+  if (type === 'interactive' && isStandaloneFlowContent(message)) {
+    throw badRequestError('Use the dedicated flow send endpoint for WhatsApp Flows.', 'FLOW_SEND_ROUTE_REQUIRED');
+  }
+
   // Get WA account with access token
   const account = await WaAccount.scope('withToken').findOne({
     where: { id: wa_account_id, user_id: userId },
@@ -565,7 +653,7 @@ async function sendMessage(userId, data) {
     throw AppError.notFound('WhatsApp account not found');
   }
   if (account.status !== 'active') {
-    throw AppError.forbidden('WhatsApp account is not active');
+    throw forbiddenError('This WhatsApp account is inactive and cannot send messages.', 'WHATSAPP_ACCOUNT_INACTIVE');
   }
 
   const payload = buildMessagePayload(type, to, message, context);
@@ -577,7 +665,8 @@ async function sendMessage(userId, data) {
     content: message,
     payload,
     to,
-    estimatedCategory: 'service',
+    billingMode: BILLING_MODE_FREE_DIRECT,
+    estimatedCategory: null,
     description: `WhatsApp ${type} message to ${to}`,
   });
 
@@ -613,7 +702,7 @@ async function sendTemplateMessage(userId, data) {
     throw AppError.notFound('WhatsApp account not found');
   }
   if (account.status !== 'active') {
-    throw AppError.forbidden('WhatsApp account is not active');
+    throw forbiddenError('This WhatsApp account is inactive and cannot send messages.', 'WHATSAPP_ACCOUNT_INACTIVE');
   }
 
   // Fetch template from template-service
@@ -684,6 +773,7 @@ async function sendTemplateMessage(userId, data) {
     },
     payload: fullPayload,
     to,
+    billingMode: BILLING_MODE_BILLABLE,
     estimatedCategory: template.category,
     description: `WhatsApp template "${template.name}" to ${to}`,
     templateId: template_id,
@@ -742,12 +832,34 @@ async function sendFlowMessage(userId, data) {
       },
     },
   };
+  const account = await WaAccount.scope('withToken').findOne({
+    where: { id: wa_account_id, user_id: userId },
+  });
+  if (!account) {
+    throw AppError.notFound('WhatsApp account not found');
+  }
+  if (account.status !== 'active') {
+    throw forbiddenError('This WhatsApp account is inactive and cannot send messages.', 'WHATSAPP_ACCOUNT_INACTIVE');
+  }
 
-  const sent = await sendMessage(userId, {
-    wa_account_id,
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
     to,
     type: 'interactive',
-    message: interactive,
+    interactive,
+  };
+
+  const sentRecord = await performAccountedSend({
+    userId,
+    account,
+    type: 'interactive',
+    content: interactive,
+    payload,
+    to,
+    billingMode: BILLING_MODE_BILLABLE,
+    estimatedCategory: 'service',
+    description: `WhatsApp flow message to ${to}`,
   });
 
   const enrichedContent = {
@@ -762,12 +874,12 @@ async function sendFlowMessage(userId, data) {
       content: enrichedContent,
     },
     {
-      where: { id: sent.id },
+      where: { id: sentRecord.id },
     }
   );
 
   return {
-    ...sent,
+    ...serializeMessageRecord(sentRecord),
     content: enrichedContent,
   };
 }
@@ -1005,12 +1117,36 @@ async function reconcileMessageBilling(message, pricingInfo) {
   const actualCategory = normalizeBillingCategory(
     pricingInfo.category,
     message.billing_category_estimated || message.pricing_category
-  );
+  ) || normalizeBillingCategory(message.billing_category_estimated || message.pricing_category);
   const billable = typeof pricingInfo.billable === 'boolean'
     ? pricingInfo.billable
     : message.pricing_billable !== null
       ? Boolean(message.pricing_billable)
       : true;
+
+  if (!isWalletBilledMessage(message)) {
+    await message.update({
+      billing_category_actual: actualCategory,
+      billing_amount_actual: 0,
+      billing_status: 'free',
+      pricing_billable: typeof pricingInfo.billable === 'boolean' ? pricingInfo.billable : false,
+      billing_reconciled_at: message.billing_reconciled_at || new Date(),
+    });
+
+    return message;
+  }
+
+  const subscription = await fetchActiveSubscription(message.user_id);
+  if (!subscription?.plan) {
+    throw badRequestError(
+      'Unable to reconcile message billing without an active subscription.',
+      'SUBSCRIPTION_REQUIRED'
+    );
+  }
+
+  const actualAmount = billable
+    ? getPlanPriceForCategory(subscription.plan, actualCategory)
+    : 0;
 
   const currentActualAmount = message.billing_amount_actual === null
     ? null
@@ -1022,22 +1158,12 @@ async function reconcileMessageBilling(message, pricingInfo) {
 
   if (
     message.billing_reconciled_at
-    && currentActualAmount !== null
-    && currentActualAmount === (billable ? currentActualAmount : 0)
+    && currentActualAmount === actualAmount
     && currentActualCategory === actualCategory
     && message.pricing_billable === billable
   ) {
     return message;
   }
-
-  const subscription = await fetchActiveSubscription(message.user_id);
-  if (!subscription?.plan) {
-    throw AppError.badRequest('Unable to reconcile message billing without an active subscription.');
-  }
-
-  const actualAmount = billable
-    ? getPlanPriceForCategory(subscription.plan, actualCategory)
-    : 0;
   const estimatedAmount = Number(message.billing_amount_estimated || 0);
   const delta = estimatedAmount - actualAmount;
 
@@ -1045,27 +1171,41 @@ async function reconcileMessageBilling(message, pricingInfo) {
   let billingStatus = 'reconciled';
 
   if (delta > 0) {
-    const adjustment = await creditWalletForMessage(
-      message.user_id,
-      delta,
-      message,
-      'message_refund',
-      `Billing reconciliation refund for WhatsApp message ${message.id}`,
-      {
-        estimated_amount: estimatedAmount,
-        actual_amount: actualAmount,
-        pricing_category: actualCategory,
-      }
-    );
-    adjustmentTransactionId = adjustment?.transaction_id || adjustmentTransactionId;
+    try {
+      const adjustment = await creditWalletForMessage(
+        message.user_id,
+        delta,
+        message,
+        'message_refund',
+        `Billing reconciliation refund for WhatsApp message ${message.id}`,
+        {
+          estimated_amount: estimatedAmount,
+          actual_amount: actualAmount,
+          pricing_category: actualCategory,
+        }
+      );
+      adjustmentTransactionId = adjustment?.transaction_id || adjustmentTransactionId;
+    } catch (err) {
+      console.error(
+        '[whatsapp-service] Failed to apply billing refund:',
+        err.response?.data?.message || err.message
+      );
+      billingStatus = 'adjustment_failed';
+    }
   } else if (delta < 0) {
     try {
       const adjustment = await debitWalletForMessage(
         message.user_id,
         Math.abs(delta),
         message,
+        'message_adjustment',
         `Billing reconciliation adjustment for WhatsApp message ${message.id}`,
-        actualCategory
+        actualCategory,
+        {
+          estimated_amount: estimatedAmount,
+          actual_amount: actualAmount,
+          pricing_category: actualCategory,
+        }
       );
       adjustmentTransactionId = adjustment?.transaction_id || adjustmentTransactionId;
       billingStatus = 'adjusted';
@@ -1145,7 +1285,21 @@ async function updateMessageStatus(metaMessageId, status, errorInfo, pricingInfo
   }
 
   if (pricingInfo) {
-    await reconcileMessageBilling(message, pricingInfo);
+    if (isWalletBilledMessage(message)) {
+      await reconcileMessageBilling(message, pricingInfo);
+    } else {
+      const actualCategory = normalizeBillingCategory(
+        pricingInfo.category,
+        message.billing_category_estimated || message.pricing_category
+      );
+      await message.update({
+        billing_category_actual: actualCategory,
+        billing_amount_actual: 0,
+        billing_status: 'free',
+        pricing_billable: typeof pricingInfo.billable === 'boolean' ? pricingInfo.billable : false,
+        billing_reconciled_at: message.billing_reconciled_at || new Date(),
+      });
+    }
   }
 
   await message.reload();
@@ -1185,11 +1339,11 @@ async function sendCampaignMessage(params) {
 
   // Get WA account with access token
   const account = await WaAccount.scope('withToken').findOne({
-    where: { id: waAccountId },
+    where: { id: waAccountId, user_id: userId },
   });
 
   if (!account || account.status !== 'active') {
-    throw AppError.badRequest('WhatsApp account not available for campaign');
+    throw badRequestError('This WhatsApp account is inactive and cannot send campaign messages.', 'WHATSAPP_ACCOUNT_INACTIVE');
   }
 
   let payload;
@@ -1200,7 +1354,6 @@ async function sendCampaignMessage(params) {
   if (messageType === 'text' && textContent) {
     msgType = 'text';
     msgContent = { body: textContent };
-    estimatedCategory = 'service';
     payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -1235,6 +1388,7 @@ async function sendCampaignMessage(params) {
     content: msgContent,
     payload,
     to: phoneNumber,
+    billingMode: msgType === 'template' ? BILLING_MODE_BILLABLE : BILLING_MODE_FREE_DIRECT,
     estimatedCategory,
     description: campaignId
       ? `Campaign ${campaignId} ${msgType} message to ${phoneNumber}`

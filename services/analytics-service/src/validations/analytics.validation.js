@@ -15,6 +15,7 @@ const dashboardQuerySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'date_to must be in YYYY-MM-DD format')
     .optional(),
+  wa_account_id: z.string().uuid().optional(),
 });
 
 /**

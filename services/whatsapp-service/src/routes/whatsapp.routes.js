@@ -3,8 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const whatsappController = require('../controllers/whatsapp.controller');
-const { authenticate } = require('@nyife/shared-middleware');
-const { asyncHandler } = require('@nyife/shared-middleware');
+const { authenticate, asyncHandler, requireActiveSubscription } = require('@nyife/shared-middleware');
 const { verifyWebhookSignature } = require('../middlewares/webhookSignature');
 
 // ────────────────────────────────────────────────
@@ -24,12 +23,14 @@ router.post('/flows/data-exchange', asyncHandler(whatsappController.handleFlowDa
 router.post(
   '/accounts/embedded-signup/preview',
   authenticate,
+  requireActiveSubscription('connect WhatsApp accounts'),
   asyncHandler(whatsappController.previewEmbeddedSignup)
 );
 
 router.post(
   '/accounts/embedded-signup',
   authenticate,
+  requireActiveSubscription('connect WhatsApp accounts'),
   asyncHandler(whatsappController.handleEmbeddedSignup)
 );
 
@@ -48,18 +49,21 @@ router.get(
 router.delete(
   '/accounts/:id',
   authenticate,
+  requireActiveSubscription('disconnect WhatsApp accounts'),
   asyncHandler(whatsappController.deactivateAccount)
 );
 
 router.get(
   '/accounts/:id/health',
   authenticate,
+  requireActiveSubscription('refresh WhatsApp account health'),
   asyncHandler(whatsappController.getAccountHealth)
 );
 
 router.post(
   '/accounts/:id/reconcile',
   authenticate,
+  requireActiveSubscription('repair WhatsApp account connections'),
   asyncHandler(whatsappController.reconcileAccount)
 );
 

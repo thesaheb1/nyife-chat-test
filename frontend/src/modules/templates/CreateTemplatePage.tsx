@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { Subscription, Template, WaAccount } from '@/core/types';
 import { useFlows } from '@/modules/flows/useFlows';
 import { useCurrentSubscription } from '@/modules/subscription/useSubscriptions';
@@ -183,10 +184,7 @@ function TemplateComposer({
       toast.success(isEdit ? 'Template updated successfully.' : 'Template created successfully.');
       navigate(`/templates/${result.id}`);
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Unable to save template.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Unable to save template.'));
     }
   };
 

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { ContactImportResult, GroupImportResult } from '@/core/types';
 
 export function CsvImportDialog(props: {
@@ -72,10 +73,7 @@ export function CsvImportDialog(props: {
         contactInputRef.current.value = '';
       }
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Contacts import failed';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Contacts import failed.'));
     }
   };
 
@@ -92,10 +90,7 @@ export function CsvImportDialog(props: {
         groupInputRef.current.value = '';
       }
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Groups import failed';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Groups import failed.'));
     }
   };
 

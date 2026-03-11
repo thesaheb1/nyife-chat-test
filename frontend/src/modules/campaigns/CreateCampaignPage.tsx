@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useCreateCampaign } from './useCampaigns';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { createCampaignSchema } from './validations';
 import type { CreateCampaignFormData } from './validations';
 import { useTemplates } from '@/modules/templates/useTemplates';
@@ -101,10 +102,7 @@ export function CreateCampaignPage() {
       toast.success('Campaign created successfully');
       navigate('/campaigns');
     } catch (error) {
-      const msg =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to create campaign';
-      toast.error(msg);
+      toast.error(getApiErrorMessage(error, 'Failed to create campaign.'));
     }
   };
 

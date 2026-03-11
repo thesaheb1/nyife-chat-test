@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useAutomation, useCreateAutomation, useUpdateAutomation } from './useAutomations';
 import { createAutomationSchema } from './validations';
 import type { CreateAutomationFormData } from './validations';
@@ -159,8 +160,7 @@ export function CreateAutomationPage() {
       }
       navigate('/automations');
     } catch (error) {
-      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || (error as Error).message || 'Failed to save automation.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to save automation.'));
     }
   };
 

@@ -145,6 +145,138 @@ async function checkWalletBalance(userId) {
   }
 }
 
+async function fetchActiveSubscription(userId) {
+  try {
+    const response = await axios.get(
+      `${config.subscriptionServiceUrl}/api/v1/subscriptions/internal/active/${userId}`,
+      { timeout: 5000 }
+    );
+    return response.data?.data?.subscription || null;
+  } catch (err) {
+    console.error('[campaign-service] Failed to load active subscription:', err.message);
+    if (config.nodeEnv === 'development') {
+      return {
+        plan: {
+          max_messages_per_month: 0,
+          marketing_message_price: 0,
+          utility_message_price: 0,
+          auth_message_price: 0,
+          service_message_price: 0,
+          referral_conversion_message_price: 0,
+        },
+        usage: {
+          messages_this_month: 0,
+        },
+      };
+    }
+    throw AppError.internal('Unable to load subscription details');
+  }
+}
+
+function normalizeBillingCategory(category, fallbackCategory = null) {
+  if (!category && fallbackCategory) {
+    return normalizeBillingCategory(fallbackCategory);
+  }
+
+  const normalized = String(category || '').trim().toLowerCase();
+  switch (normalized) {
+    case 'marketing':
+      return 'marketing';
+    case 'utility':
+      return 'utility';
+    case 'authentication':
+    case 'auth':
+      return 'authentication';
+    case 'service':
+    case 'user_initiated':
+      return 'service';
+    case 'referral_conversion':
+    case 'referral':
+      return 'referral_conversion';
+    default:
+      return fallbackCategory ? normalizeBillingCategory(fallbackCategory) : null;
+  }
+}
+
+function getPlanPriceForCategory(plan, category) {
+  const normalizedCategory = normalizeBillingCategory(category);
+  if (!plan || !normalizedCategory) {
+    return 0;
+  }
+
+  switch (normalizedCategory) {
+    case 'marketing':
+      return Number(plan.marketing_message_price || 0);
+    case 'utility':
+      return Number(plan.utility_message_price || 0);
+    case 'authentication':
+      return Number(plan.auth_message_price || 0);
+    case 'service':
+      return Number(plan.service_message_price || 0);
+    case 'referral_conversion':
+      return Number(plan.referral_conversion_message_price || 0);
+    default:
+      return 0;
+  }
+}
+
+function getMessageLimitState(subscription) {
+  const limit = Number(subscription?.plan?.max_messages_per_month || 0);
+  const used = Number(subscription?.usage?.messages_this_month || 0);
+  if (!subscription) {
+    return { limit: 0, used: 0, remaining: 0, allowed: false };
+  }
+  if (limit === 0) {
+    return { limit: Infinity, used, remaining: Infinity, allowed: true };
+  }
+
+  return {
+    limit,
+    used,
+    remaining: Math.max(0, limit - used),
+    allowed: used < limit,
+  };
+}
+
+async function estimateCampaignRecipients(userId, targetType, targetConfig) {
+  const contacts = await resolveContacts(userId, targetType, targetConfig);
+  return contacts.length;
+}
+
+async function getCampaignExecutionPricing(userId, recipientCount, templateCategory) {
+  const subscription = await fetchActiveSubscription(userId);
+  if (!subscription?.plan) {
+    throw AppError.forbidden('An active subscription is required to run WhatsApp campaigns.');
+  }
+
+  const messageLimit = getMessageLimitState(subscription);
+  if (!messageLimit.allowed || messageLimit.remaining < recipientCount) {
+    const remaining = Number.isFinite(messageLimit.remaining) ? messageLimit.remaining : 'unlimited';
+    throw AppError.forbidden(
+      `Monthly message limit reached. Remaining sends available: ${remaining}.`
+    );
+  }
+
+  const unitPrice = getPlanPriceForCategory(subscription.plan, templateCategory);
+  return {
+    unitPrice,
+    estimatedCost: recipientCount * unitPrice,
+  };
+}
+
+async function assertCampaignExecutionAffordable(userId, recipientCount, templateCategory) {
+  const pricing = await getCampaignExecutionPricing(userId, recipientCount, templateCategory);
+  const walletData = await checkWalletBalance(userId);
+
+  if (walletData.balance < pricing.estimatedCost) {
+    throw AppError.badRequest(
+      `Insufficient wallet balance. Required: ${pricing.estimatedCost} paise, Available: ${walletData.balance} paise`
+    );
+  }
+
+  return pricing;
+}
+
 /**
  * Resolves contacts from contact-service based on target type and config.
  * @param {string} userId
@@ -276,17 +408,16 @@ async function createCampaign(userId, data) {
   assertTemplateMatchesWaAccount(template, account);
 
   // 3. Estimate recipient count based on target_type
-  let estimatedRecipients = 0;
-  if (data.target_type === 'contacts') {
-    estimatedRecipients = (data.target_config.contact_ids || []).length;
-  } else {
-    // For group/tags/all, we estimate; actual count is resolved at execution time
-    estimatedRecipients = 100; // Default estimate
-  }
-
-  // 4. Calculate estimated cost (default 50 paise per message if pricing unavailable)
-  const costPerMessage = 50; // In paise, fallback
-  const estimatedCost = estimatedRecipients * costPerMessage;
+  const estimatedRecipients = await estimateCampaignRecipients(
+    userId,
+    data.target_type,
+    data.target_config
+  );
+  const { estimatedCost } = await getCampaignExecutionPricing(
+    userId,
+    estimatedRecipients,
+    template.category
+  );
 
   // 5. Create campaign record
   const campaign = await Campaign.create({
@@ -407,17 +538,18 @@ async function updateCampaign(userId, campaignId, data) {
   }
 
   // Recalculate estimated cost if target changes
-  if (data.target_config || data.target_type) {
+  if (data.target_config || data.target_type || data.template_id) {
     const targetType = data.target_type || campaign.target_type;
     const targetConfig = data.target_config || campaign.target_config;
-    let estimatedRecipients = 0;
-    if (targetType === 'contacts') {
-      estimatedRecipients = (targetConfig.contact_ids || []).length;
-    } else {
-      estimatedRecipients = 100;
-    }
-    const costPerMessage = 50;
-    data.estimated_cost = estimatedRecipients * costPerMessage;
+    const templateData = await fetchTemplate(userId, data.template_id || campaign.template_id);
+    const template = templateData.template || templateData;
+    const estimatedRecipients = await estimateCampaignRecipients(userId, targetType, targetConfig);
+    const pricing = await getCampaignExecutionPricing(
+      userId,
+      estimatedRecipients,
+      template.category
+    );
+    data.estimated_cost = pricing.estimatedCost;
   }
 
   await campaign.update(data);
@@ -480,28 +612,20 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
   const template = templateData.template || templateData;
   assertTemplateMatchesWaAccount(template, account);
 
-  // 1. Check subscription message limit
-  const msgLimitCheck = await checkSubscriptionLimit(userId, 'messages');
-  if (!msgLimitCheck.allowed) {
-    throw AppError.forbidden('Monthly message limit reached. Please upgrade your plan.');
-  }
-
-  // 2. Check wallet balance
-  const walletData = await checkWalletBalance(userId);
-  if (walletData.balance < campaign.estimated_cost) {
-    throw AppError.badRequest(
-      `Insufficient wallet balance. Required: ${campaign.estimated_cost} paise, Available: ${walletData.balance} paise`
-    );
-  }
-
-  // 3. Resolve target contacts
+  // 1. Resolve target contacts
   const contacts = await resolveContacts(userId, campaign.target_type, campaign.target_config);
 
   if (contacts.length === 0) {
     throw AppError.badRequest('No contacts found matching the target criteria');
   }
 
-  // 5. Create CampaignMessage records for each contact
+  const executionPricing = await assertCampaignExecutionAffordable(
+    userId,
+    contacts.length,
+    template.category
+  );
+
+  // 2. Create CampaignMessage records for each contact
   const messageRecords = contacts.map((contact) => {
     const phone = contact.phone || contact.phone_number || contact.wa_id || '';
     const resolvedVars = resolveVariables(contact, campaign.variables_mapping);
@@ -513,6 +637,7 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
       contact_phone: phone,
       status: 'pending',
       variables: resolvedVars,
+      cost: executionPricing.unitPrice,
       retry_count: 0,
       max_retries: 3,
     };
@@ -521,7 +646,7 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
   // Bulk create message records
   await CampaignMessage.bulkCreate(messageRecords);
 
-  // 6. Publish to Kafka in batches of 50
+  // 3. Publish to Kafka in batches of 50
   const batchSize = 50;
   for (let i = 0; i < messageRecords.length; i += batchSize) {
     const batch = messageRecords.slice(i, i + batchSize);
@@ -537,6 +662,7 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
         phoneNumber: msg.contact_phone,
         templateName: template.name,
         templateLanguage: template.language || 'en',
+        templateCategory: template.category || undefined,
         components: components.length > 0 ? components : undefined,
         messageType: 'template',
       });
@@ -545,7 +671,7 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
     await Promise.all(publishPromises);
   }
 
-  // 7. Update campaign status and counters
+  // 4. Update campaign status and counters
   await campaign.update({
     status: 'running',
     started_at: new Date(),
@@ -555,7 +681,7 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
     delivered_count: 0,
     read_count: 0,
     failed_count: 0,
-    estimated_cost: contacts.length * 50, // Recalculate with actual count
+    estimated_cost: executionPricing.estimatedCost,
   });
 
   await campaign.reload();
@@ -629,6 +755,12 @@ async function resumeCampaign(userId, campaignId, kafkaProducer) {
     return campaign;
   }
 
+  await assertCampaignExecutionAffordable(
+    userId,
+    pendingMessages.length,
+    template.category
+  );
+
   // Re-publish pending messages to Kafka in batches of 50
   const batchSize = 50;
   for (let i = 0; i < pendingMessages.length; i += batchSize) {
@@ -645,6 +777,7 @@ async function resumeCampaign(userId, campaignId, kafkaProducer) {
         phoneNumber: msg.contact_phone,
         templateName: template.name,
         templateLanguage: template.language || 'en',
+        templateCategory: template.category || undefined,
         components: components.length > 0 ? components : undefined,
         messageType: 'template',
       });
@@ -750,6 +883,12 @@ async function retryCampaign(userId, campaignId, kafkaProducer) {
     throw AppError.badRequest('No failed messages eligible for retry');
   }
 
+  await assertCampaignExecutionAffordable(
+    userId,
+    failedMessages.length,
+    template.category
+  );
+
   // Increment retry_count and reset status to queued
   const messageIds = failedMessages.map((m) => m.id);
   await CampaignMessage.update(
@@ -781,6 +920,7 @@ async function retryCampaign(userId, campaignId, kafkaProducer) {
         phoneNumber: msg.contact_phone,
         templateName: template.name,
         templateLanguage: template.language || 'en',
+        templateCategory: template.category || undefined,
         components: components.length > 0 ? components : undefined,
         messageType: 'template',
       });

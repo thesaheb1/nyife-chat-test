@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { DataTable } from '@/shared/components/DataTable';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { Webhook } from '@/core/types';
 import { useCreateWebhook, useDeleteWebhook, useTestWebhook, useUpdateWebhook, useWebhooks } from './useWebhooks';
 
@@ -179,10 +180,7 @@ export function WebhookManagementPage() {
       setDialogOpen(false);
       resetForm();
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to save webhook.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to save webhook.'));
     }
   };
 
@@ -191,10 +189,7 @@ export function WebhookManagementPage() {
       await testWebhook.mutateAsync(webhook.id);
       toast.success(`Test webhook sent to ${webhook.url}.`);
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Webhook test failed.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Webhook test failed.'));
     }
   };
 
@@ -208,10 +203,7 @@ export function WebhookManagementPage() {
       toast.success('Webhook deleted.');
       setDeleteTarget(null);
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to delete webhook.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to delete webhook.'));
     }
   };
 

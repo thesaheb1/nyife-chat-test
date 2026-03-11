@@ -33,6 +33,7 @@ import { updateContactSchema } from './validations';
 import type { UpdateContactFormData } from './validations';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useQueryClient } from '@tanstack/react-query';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 
@@ -79,10 +80,7 @@ export function ContactDetailPage() {
       toast.success('Contact updated');
       setIsEditing(false);
     } catch (error) {
-      const msg =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to update contact';
-      toast.error(msg);
+      toast.error(getApiErrorMessage(error, 'Failed to update contact.'));
     }
   };
 
@@ -91,8 +89,8 @@ export function ContactDetailPage() {
       await deleteContact.mutateAsync(id!);
       toast.success('Contact deleted');
       navigate('/contacts');
-    } catch {
-      toast.error('Failed to delete contact');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to delete contact.'));
     }
   };
 
@@ -102,8 +100,8 @@ export function ContactDetailPage() {
       await addTags.mutateAsync({ contactId: id!, tagIds: [addTagId] });
       setAddTagId('');
       toast.success('Tag added');
-    } catch {
-      toast.error('Failed to add tag');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to add the tag.'));
     }
   };
 
@@ -112,8 +110,8 @@ export function ContactDetailPage() {
       await apiClient.delete(`${ENDPOINTS.CONTACTS.BASE}/${id}/tags/${tagId}`);
       qc.invalidateQueries({ queryKey: ['contact', id] });
       toast.success('Tag removed');
-    } catch {
-      toast.error('Failed to remove tag');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to remove the tag.'));
     }
   };
 

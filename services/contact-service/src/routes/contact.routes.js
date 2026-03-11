@@ -4,7 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const router = express.Router();
 const controller = require('../controllers/contact.controller');
-const { authenticate, asyncHandler } = require('@nyife/shared-middleware');
+const { authenticate, asyncHandler, requireActiveSubscription } = require('@nyife/shared-middleware');
 const config = require('../config');
 
 // Configure multer for CSV file upload (memory storage for streaming)
@@ -29,45 +29,45 @@ const upload = multer({
 
 // ─── Tag Routes (MUST come before /:id to avoid "tags" being treated as an ID) ──
 
-router.post('/tags', authenticate, asyncHandler(controller.createTag));
+router.post('/tags', authenticate, requireActiveSubscription('manage contact tags'), asyncHandler(controller.createTag));
 router.get('/tags', authenticate, asyncHandler(controller.listTags));
-router.post('/tags/bulk-assign', authenticate, asyncHandler(controller.bulkAssignTagsToContacts));
-router.delete('/tags/bulk-assign', authenticate, asyncHandler(controller.bulkRemoveTagsFromContacts));
-router.put('/tags/:id', authenticate, asyncHandler(controller.updateTag));
-router.delete('/tags/:id', authenticate, asyncHandler(controller.deleteTag));
+router.post('/tags/bulk-assign', authenticate, requireActiveSubscription('manage contact tags'), asyncHandler(controller.bulkAssignTagsToContacts));
+router.delete('/tags/bulk-assign', authenticate, requireActiveSubscription('manage contact tags'), asyncHandler(controller.bulkRemoveTagsFromContacts));
+router.put('/tags/:id', authenticate, requireActiveSubscription('manage contact tags'), asyncHandler(controller.updateTag));
+router.delete('/tags/:id', authenticate, requireActiveSubscription('manage contact tags'), asyncHandler(controller.deleteTag));
 
 // ─── Group Routes (MUST come before /:id) ────────────────────────────────────
 
-router.post('/groups', authenticate, asyncHandler(controller.createGroup));
+router.post('/groups', authenticate, requireActiveSubscription('manage contact groups'), asyncHandler(controller.createGroup));
 router.get('/groups', authenticate, asyncHandler(controller.listGroups));
-router.post('/groups/import/csv', authenticate, upload.single('file'), asyncHandler(controller.importGroupsCsv));
-router.post('/groups/bulk-memberships', authenticate, asyncHandler(controller.bulkAssignContactsToGroups));
-router.delete('/groups/bulk-memberships', authenticate, asyncHandler(controller.bulkRemoveContactsFromGroups));
+router.post('/groups/import/csv', authenticate, requireActiveSubscription('import contact groups'), upload.single('file'), asyncHandler(controller.importGroupsCsv));
+router.post('/groups/bulk-memberships', authenticate, requireActiveSubscription('manage contact groups'), asyncHandler(controller.bulkAssignContactsToGroups));
+router.delete('/groups/bulk-memberships', authenticate, requireActiveSubscription('manage contact groups'), asyncHandler(controller.bulkRemoveContactsFromGroups));
 router.get('/groups/:id', authenticate, asyncHandler(controller.getGroup));
-router.put('/groups/:id', authenticate, asyncHandler(controller.updateGroup));
-router.delete('/groups/:id', authenticate, asyncHandler(controller.deleteGroup));
-router.post('/groups/:id/members', authenticate, asyncHandler(controller.addGroupMembers));
-router.delete('/groups/:id/members', authenticate, asyncHandler(controller.removeGroupMembers));
+router.put('/groups/:id', authenticate, requireActiveSubscription('manage contact groups'), asyncHandler(controller.updateGroup));
+router.delete('/groups/:id', authenticate, requireActiveSubscription('manage contact groups'), asyncHandler(controller.deleteGroup));
+router.post('/groups/:id/members', authenticate, requireActiveSubscription('manage contact groups'), asyncHandler(controller.addGroupMembers));
+router.delete('/groups/:id/members', authenticate, requireActiveSubscription('manage contact groups'), asyncHandler(controller.removeGroupMembers));
 
 // ─── Bulk/Import Routes (MUST come before /:id) ──────────────────────────────
 
-router.post('/bulk-delete', authenticate, asyncHandler(controller.bulkDeleteContacts));
+router.post('/bulk-delete', authenticate, requireActiveSubscription('delete contacts'), asyncHandler(controller.bulkDeleteContacts));
 router.get('/import/csv/sample/contacts', authenticate, asyncHandler(controller.downloadContactCsvSample));
 router.get('/import/csv/sample/groups', authenticate, asyncHandler(controller.downloadGroupCsvSample));
-router.post('/import/csv', authenticate, upload.single('file'), asyncHandler(controller.importCsv));
-router.post('/add-tag', authenticate, asyncHandler(controller.addTagByPhone));
+router.post('/import/csv', authenticate, requireActiveSubscription('import contacts'), upload.single('file'), asyncHandler(controller.importCsv));
+router.post('/add-tag', authenticate, requireActiveSubscription('manage contact tags'), asyncHandler(controller.addTagByPhone));
 
 // ─── Contact CRUD Routes ─────────────────────────────────────────────────────
 
-router.post('/', authenticate, asyncHandler(controller.createContact));
+router.post('/', authenticate, requireActiveSubscription('create contacts'), asyncHandler(controller.createContact));
 router.get('/', authenticate, asyncHandler(controller.listContacts));
 router.get('/:id', authenticate, asyncHandler(controller.getContact));
-router.put('/:id', authenticate, asyncHandler(controller.updateContact));
-router.delete('/:id', authenticate, asyncHandler(controller.deleteContact));
+router.put('/:id', authenticate, requireActiveSubscription('update contacts'), asyncHandler(controller.updateContact));
+router.delete('/:id', authenticate, requireActiveSubscription('delete contacts'), asyncHandler(controller.deleteContact));
 
 // ─── Contact Tag Management Routes ───────────────────────────────────────────
 
-router.post('/:id/tags', authenticate, asyncHandler(controller.addTagsToContact));
-router.delete('/:id/tags/:tagId', authenticate, asyncHandler(controller.removeTagFromContact));
+router.post('/:id/tags', authenticate, requireActiveSubscription('manage contact tags'), asyncHandler(controller.addTagsToContact));
+router.delete('/:id/tags/:tagId', authenticate, requireActiveSubscription('manage contact tags'), asyncHandler(controller.removeTagFromContact));
 
 module.exports = router;

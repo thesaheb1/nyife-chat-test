@@ -54,6 +54,27 @@ function mockServiceCalls() {
     if (url.includes('check-limit')) {
       return Promise.resolve({ data: { data: { allowed: true, remaining: 99 } } });
     }
+    if (url.includes('/internal/active/')) {
+      return Promise.resolve({
+        data: {
+          data: {
+            subscription: {
+              plan: {
+                max_messages_per_month: 1000,
+                marketing_message_price: 50,
+                utility_message_price: 25,
+                auth_message_price: 10,
+                service_message_price: 20,
+                referral_conversion_message_price: 0,
+              },
+              usage: {
+                messages_this_month: 0,
+              },
+            },
+          },
+        },
+      });
+    }
     if (url.includes('templates')) {
       return Promise.resolve({ data: { data: { name: 'hello', status: 'APPROVED', language: 'en', components: [], waba_id: 'waba-123' } } });
     }
@@ -97,6 +118,27 @@ describe('createCampaign', () => {
       if (url.includes('check-limit')) {
         return Promise.resolve({ data: { data: { allowed: false, remaining: 0 } } });
       }
+      if (url.includes('/internal/active/')) {
+        return Promise.resolve({
+          data: {
+            data: {
+              subscription: {
+                plan: {
+                  max_messages_per_month: 1000,
+                  marketing_message_price: 50,
+                  utility_message_price: 25,
+                  auth_message_price: 10,
+                  service_message_price: 20,
+                  referral_conversion_message_price: 0,
+                },
+                usage: {
+                  messages_this_month: 0,
+                },
+              },
+            },
+          },
+        });
+      }
       return Promise.resolve({ data: {} });
     });
 
@@ -110,6 +152,27 @@ describe('createCampaign', () => {
     axios.get.mockImplementation((url) => {
       if (url.includes('check-limit')) {
         return Promise.resolve({ data: { data: { allowed: true, remaining: 99 } } });
+      }
+      if (url.includes('/internal/active/')) {
+        return Promise.resolve({
+          data: {
+            data: {
+              subscription: {
+                plan: {
+                  max_messages_per_month: 1000,
+                  marketing_message_price: 50,
+                  utility_message_price: 25,
+                  auth_message_price: 10,
+                  service_message_price: 20,
+                  referral_conversion_message_price: 0,
+                },
+                usage: {
+                  messages_this_month: 0,
+                },
+              },
+            },
+          },
+        });
       }
       if (url.includes('templates')) {
         return Promise.resolve({ data: { data: { name: 'test', status: 'REJECTED' } } });

@@ -40,7 +40,6 @@ const sendMessageSchema = z.object({
     'contacts',
     'reaction',
     'interactive',
-    'template',
   ]),
   message: z.record(z.any()).refine((val) => Object.keys(val).length > 0, {
     message: 'Message payload cannot be empty',

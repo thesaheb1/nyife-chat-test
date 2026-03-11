@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { ReactNode } from 'react';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -11,11 +12,7 @@ const queryClient = new QueryClient({
     },
     mutations: {
       onError: (error) => {
-        const message =
-          (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-          error.message ||
-          'Something went wrong';
-        toast.error(message);
+        toast.error(getApiErrorMessage(error));
       },
     },
   },

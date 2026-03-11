@@ -43,6 +43,7 @@ import {
   useChatSocket,
 } from './useChat';
 import { useDebounce } from '@/core/hooks';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { formatPhone } from '@/shared/utils/formatters';
 import type { Conversation, ChatMessage } from '@/core/types';
 import {
@@ -309,8 +310,8 @@ function MessagePanel({
         message: { body: trimmed },
         wa_account_id: conversation.wa_account_id,
       });
-    } catch {
-      toast.error('Failed to send message');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to send this message right now.'));
     }
   };
 

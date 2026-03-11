@@ -68,6 +68,7 @@ async function startServer() {
             campaignId: payload.campaignId,
             templateName: payload.templateName,
             templateLanguage: payload.templateLanguage,
+            templateCategory: payload.templateCategory,
             components: payload.components || [],
             messageType: payload.messageType || 'template',
             textContent: payload.textContent,

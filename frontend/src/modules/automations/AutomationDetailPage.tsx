@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { DataTable } from '@/shared/components/DataTable';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useAutomation, useAutomationLogs, useUpdateAutomationStatus, useDeleteAutomation } from './useAutomations';
 import type { AutomationLog } from '@/core/types';
 
@@ -39,7 +40,9 @@ export function AutomationDetailPage() {
       await deleteAuto.mutateAsync(id);
       toast.success('Automation deleted');
       navigate('/automations');
-    } catch { toast.error('Failed to delete'); }
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to delete automation.'));
+    }
   };
 
   const logColumns = useMemo<ColumnDef<AutomationLog, unknown>[]>(() => [

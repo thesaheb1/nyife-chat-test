@@ -37,12 +37,14 @@ class AppError extends Error {
   /**
    * @param {string} message - Human-readable error message
    * @param {number} statusCode - HTTP status code (default: 500)
+   * @param {string|null} code - Stable domain error code
    */
-  constructor(message, statusCode = 500) {
+  constructor(message, statusCode = 500, code = null) {
     super(message);
     this.name = 'AppError';
     this.statusCode = statusCode;
     this.isOperational = true;
+    this.code = code;
     Error.captureStackTrace(this, this.constructor);
   }
 }
@@ -113,6 +115,7 @@ const errorHandler = (err, req, res, next) => {
       success: false,
       message: 'Validation failed',
       errors,
+      ...(err.code ? { code: err.code } : {}),
     };
     if (isDevelopment) {
       response.stack = err.stack;
@@ -127,6 +130,7 @@ const errorHandler = (err, req, res, next) => {
       success: false,
       message: 'Resource already exists',
       errors: formatSequelizeValidationErrors(err),
+      ...(err.code ? { code: err.code } : {}),
     };
     if (isDevelopment) {
       response.stack = err.stack;
@@ -141,6 +145,7 @@ const errorHandler = (err, req, res, next) => {
       success: false,
       message: 'Validation failed',
       errors,
+      ...(err.code ? { code: err.code } : {}),
     };
     if (isDevelopment) {
       response.stack = err.stack;
@@ -153,6 +158,7 @@ const errorHandler = (err, req, res, next) => {
     const response = {
       success: false,
       message: 'Invalid reference',
+      ...(err.code ? { code: err.code } : {}),
     };
     if (isDevelopment) {
       response.stack = err.stack;
@@ -165,6 +171,7 @@ const errorHandler = (err, req, res, next) => {
     const response = {
       success: false,
       message: err.message,
+      ...(err.code ? { code: err.code } : {}),
     };
     if (isDevelopment) {
       response.stack = err.stack;
@@ -177,6 +184,7 @@ const errorHandler = (err, req, res, next) => {
     const response = {
       success: false,
       message: 'Invalid token',
+      ...(err.code ? { code: err.code } : {}),
     };
     if (isDevelopment) {
       response.stack = err.stack;
@@ -189,6 +197,7 @@ const errorHandler = (err, req, res, next) => {
     const response = {
       success: false,
       message: 'Token expired',
+      ...(err.code ? { code: err.code } : {}),
     };
     if (isDevelopment) {
       response.stack = err.stack;
@@ -200,6 +209,7 @@ const errorHandler = (err, req, res, next) => {
   const response = {
     success: false,
     message: 'Internal server error',
+    ...(err.code ? { code: err.code } : {}),
   };
   if (isDevelopment) {
     response.message = err.message;

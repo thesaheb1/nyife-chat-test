@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { findWhatsAppAccount } from '@/modules/whatsapp/accountOptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { TemplateOptionSelect } from './TemplateOptionSelect';
@@ -114,10 +115,7 @@ export function TemplateDetailPage() {
       setPublishOpen(false);
       setPublishWabaId('');
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to submit template.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to submit template.'));
     }
   };
 
@@ -135,10 +133,7 @@ export function TemplateDetailPage() {
       setSyncOpen(false);
       setSyncWabaId('');
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to sync templates.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to sync templates.'));
     }
   };
 
@@ -148,10 +143,7 @@ export function TemplateDetailPage() {
       toast.success('Template deleted.');
       navigate('/templates');
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to delete template.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to delete template.'));
     }
   };
 

@@ -7,6 +7,7 @@ const {
   changePasswordSchema,
   updateSettingsSchema,
   createApiTokenSchema,
+  resolveApiTokenSchema,
 } = require('../validations/user.validation');
 
 // ---------------------------------------------------------------------------
@@ -137,6 +138,16 @@ const revokeApiToken = async (req, res) => {
   return successResponse(res, responseData, 'API token revoked successfully');
 };
 
+/**
+ * POST /api/v1/users/internal/api-tokens/resolve
+ * Internal gateway endpoint that resolves an opaque API token.
+ */
+const resolveApiToken = async (req, res) => {
+  const { token } = resolveApiTokenSchema.parse(req.body || {});
+  const result = await userService.resolveApiToken(token);
+  return successResponse(res, result, 'API token resolved successfully');
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -146,4 +157,5 @@ module.exports = {
   createApiToken,
   listApiTokens,
   revokeApiToken,
+  resolveApiToken,
 };

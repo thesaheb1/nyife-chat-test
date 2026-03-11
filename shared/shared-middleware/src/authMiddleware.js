@@ -43,17 +43,15 @@ function buildInternalUser(req) {
 const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
+    const internalUser = buildInternalUser(req);
+
+    if (internalUser) {
+      req.user = internalUser;
+      return next();
+    }
 
     // Internal service-to-service requests rely on the API gateway's trusted headers.
     // Those calls do not carry end-user JWTs again once the gateway has already verified them.
-    if (!authHeader) {
-      const internalUser = buildInternalUser(req);
-      if (internalUser) {
-        req.user = internalUser;
-        return next();
-      }
-    }
-
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
@@ -111,6 +109,11 @@ const authenticateOptional = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     const internalUser = buildInternalUser(req);
+
+    if (internalUser) {
+      req.user = internalUser;
+      return next();
+    }
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       req.user = internalUser;

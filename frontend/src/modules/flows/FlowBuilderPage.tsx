@@ -23,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { FlowComponent, FlowDefinition, FlowScreen, WhatsAppFlow } from '@/core/types';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { FlowComponentInspector } from './FlowComponentInspector';
@@ -188,11 +189,7 @@ export function FlowBuilderPage() {
         navigate(`/flows/${flow.id}/edit`);
       }
     } catch (error) {
-      toast.error(
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message
-        || (error as Error).message
-        || 'Flow action failed.'
-      );
+      toast.error(getApiErrorMessage(error, 'Flow action failed.'));
     }
   };
 
@@ -228,7 +225,7 @@ export function FlowBuilderPage() {
                 toast.success('Flow duplicated successfully.');
                 navigate(`/flows/${flow.id}/edit`);
               } catch (error) {
-                toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to duplicate flow.');
+                toast.error(getApiErrorMessage(error, 'Failed to duplicate flow.'));
               }
             }} disabled={isBusy}>
               <Copy className="mr-2 h-4 w-4" />
@@ -241,7 +238,7 @@ export function FlowBuilderPage() {
                 await deprecateFlow.mutateAsync(id!);
                 toast.success('Flow deprecated successfully.');
               } catch (error) {
-                toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to deprecate flow.');
+                toast.error(getApiErrorMessage(error, 'Failed to deprecate flow.'));
               }
             }} disabled={isBusy}>
               <Trash2 className="mr-2 h-4 w-4" />

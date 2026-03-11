@@ -299,6 +299,66 @@ const revokeApiToken = async (userId, tokenId) => {
   return token;
 };
 
+/**
+ * Resolves an opaque API token into the owning active user and token metadata.
+ *
+ * @param {string} rawToken
+ * @returns {Promise<object>}
+ */
+const resolveApiToken = async (rawToken) => {
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+  const tokenRecord = await UserApiToken.findOne({
+    where: {
+      token_hash: tokenHash,
+      is_active: true,
+    },
+  });
+
+  if (!tokenRecord) {
+    throw AppError.unauthorized('Invalid API token', 'API_TOKEN_INVALID');
+  }
+
+  if (tokenRecord.expires_at && new Date(tokenRecord.expires_at) <= new Date()) {
+    await tokenRecord.update({ is_active: false });
+    throw AppError.unauthorized('API token has expired', 'API_TOKEN_INVALID');
+  }
+
+  const [user] = await sequelize.query(
+    `SELECT id, email, role, status
+     FROM auth_users
+     WHERE id = :userId
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    {
+      replacements: { userId: tokenRecord.user_id },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  if (!user || user.status !== 'active') {
+    throw AppError.unauthorized('API token is not usable for this account', 'API_TOKEN_INVALID');
+  }
+
+  await tokenRecord.update({ last_used_at: new Date() });
+
+  return {
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      permissions: tokenRecord.permissions || {},
+    },
+    token: {
+      id: tokenRecord.id,
+      name: tokenRecord.name,
+      permissions: tokenRecord.permissions || {},
+      expires_at: tokenRecord.expires_at,
+      last_used_at: tokenRecord.last_used_at,
+    },
+  };
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -308,4 +368,5 @@ module.exports = {
   createApiToken,
   listApiTokens,
   revokeApiToken,
+  resolveApiToken,
 };

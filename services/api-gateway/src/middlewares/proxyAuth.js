@@ -3,6 +3,40 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 
+async function resolveApiToken(token) {
+  const response = await fetch(
+    `${config.services.user}/api/v1/users/internal/api-tokens/resolve`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ token }),
+    }
+  );
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const error = new Error(payload?.message || 'Invalid API token');
+    error.statusCode = response.status;
+    error.code = payload?.code || 'API_TOKEN_INVALID';
+    throw error;
+  }
+
+  const payload = await response.json();
+  return payload?.data || null;
+}
+
+function applyAuthHeaders(req, identity) {
+  req.headers['x-user-id'] = identity.userId || identity.id || '';
+  req.headers['x-user-role'] = identity.role || '';
+  req.headers['x-user-email'] = identity.email || '';
+  req.headers['x-user-permissions'] = identity.permissions
+    ? JSON.stringify(identity.permissions)
+    : '{}';
+}
+
 /**
  * Middleware that verifies a JWT access token from the Authorization header.
  *
@@ -16,13 +50,14 @@ const config = require('../config');
  * On failure it returns a 401 JSON error response.
  */
 const proxyAuth = (req, res, next) => {
-  try {
+  (async () => {
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
       return res.status(401).json({
         success: false,
         message: 'Access denied. No authorization header provided.',
+        code: 'AUTH_REQUIRED',
       });
     }
 
@@ -32,6 +67,7 @@ const proxyAuth = (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Access denied. Invalid authorization header format. Expected: Bearer <token>',
+        code: 'AUTH_INVALID',
       });
     }
 
@@ -42,27 +78,60 @@ const proxyAuth = (req, res, next) => {
       return res.status(500).json({
         success: false,
         message: 'Internal server error. Authentication is misconfigured.',
+        code: 'AUTH_MISCONFIGURED',
       });
     }
 
-    const decoded = jwt.verify(token, config.jwt.secret);
+    try {
+      const decoded = jwt.verify(token, config.jwt.secret);
+      applyAuthHeaders(req, decoded);
+      return next();
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({
+          success: false,
+          message: 'Access denied. Token has expired.',
+          code: 'AUTH_TOKEN_EXPIRED',
+        });
+      }
 
-    // Inject user identity headers for downstream services.
-    // These headers are trusted because downstream services sit behind
-    // the gateway on an internal network.
-    req.headers['x-user-id'] = decoded.userId || decoded.id || '';
-    req.headers['x-user-role'] = decoded.role || '';
-    req.headers['x-user-email'] = decoded.email || '';
-    req.headers['x-user-permissions'] = decoded.permissions
-      ? JSON.stringify(decoded.permissions)
-      : '{}';
+      if (err.name === 'JsonWebTokenError' || err.name === 'NotBeforeError') {
+        try {
+          const resolved = await resolveApiToken(token);
+          if (!resolved?.user) {
+            throw new Error('Invalid API token');
+          }
 
-    next();
-  } catch (err) {
+          applyAuthHeaders(req, {
+            id: resolved.user.id,
+            email: resolved.user.email,
+            role: resolved.user.role,
+            permissions: resolved.user.permissions || {},
+          });
+          req.headers['x-auth-type'] = 'api_token';
+          return next();
+        } catch (apiTokenError) {
+          return res.status(401).json({
+            success: false,
+            message: 'Access denied. Invalid token.',
+            code: apiTokenError.code || 'API_TOKEN_INVALID',
+          });
+        }
+      }
+
+      console.error('[proxyAuth] Unexpected error during token verification:', err.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error during authentication.',
+        code: 'AUTH_INTERNAL_ERROR',
+      });
+    }
+  })().catch((err) => {
     if (err.name === 'TokenExpiredError') {
       return res.status(401).json({
         success: false,
         message: 'Access denied. Token has expired.',
+        code: 'AUTH_TOKEN_EXPIRED',
       });
     }
 
@@ -70,6 +139,7 @@ const proxyAuth = (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Access denied. Invalid token.',
+        code: 'AUTH_INVALID',
       });
     }
 
@@ -77,6 +147,7 @@ const proxyAuth = (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Access denied. Token is not yet active.',
+        code: 'AUTH_NOT_ACTIVE',
       });
     }
 
@@ -84,8 +155,9 @@ const proxyAuth = (req, res, next) => {
     return res.status(500).json({
       success: false,
       message: 'Internal server error during authentication.',
+      code: 'AUTH_INTERNAL_ERROR',
     });
-  }
+  });
 };
 
 module.exports = proxyAuth;

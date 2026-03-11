@@ -108,8 +108,8 @@ async function processWalletTransaction(payload, sequelize, redis) {
   // System-wide stat
   await incrementDailyStat(sequelize, null, metric, payload.amount);
 
-  // Credit → also track as revenue (system-wide only)
-  if (payload.type === 'credit') {
+  // Only actual incoming money counts as revenue. Refunds/adjustments should not inflate it.
+  if (payload.type === 'credit' && ['recharge', 'subscription_payment'].includes(payload.source)) {
     await incrementDailyStat(sequelize, null, 'revenue', payload.amount);
   }
 
@@ -179,6 +179,62 @@ async function safeQuery(sequelize, sql, options = {}) {
   }
 }
 
+function buildScopedMessageWhere(userId, filters = {}, alias = 'wm') {
+  const clauses = [
+    `${alias}.user_id = :userId`,
+    `${alias}.direction = 'outbound'`,
+  ];
+  const replacements = { userId };
+
+  if (filters.wa_account_id) {
+    clauses.push(`${alias}.wa_account_id = :waAccountId`);
+    replacements.waAccountId = filters.wa_account_id;
+  }
+
+  return { whereClause: clauses.join(' AND '), replacements };
+}
+
+function buildScopedConversationWhere(userId, filters = {}, alias = 'cc') {
+  const clauses = [`${alias}.user_id = :userId`];
+  const replacements = { userId };
+
+  if (filters.wa_account_id) {
+    clauses.push(`${alias}.wa_account_id = :waAccountId`);
+    replacements.waAccountId = filters.wa_account_id;
+  }
+
+  return { whereClause: clauses.join(' AND '), replacements };
+}
+
+function getDateBounds(filters = {}) {
+  const today = new Date();
+  const defaultFrom = new Date(today);
+  defaultFrom.setDate(defaultFrom.getDate() - 29);
+
+  return {
+    dateFrom: filters.date_from || defaultFrom.toISOString().slice(0, 10),
+    dateTo: filters.date_to || today.toISOString().slice(0, 10),
+  };
+}
+
+function getPeriodStart(period, filters = {}) {
+  const now = new Date();
+  const start = new Date(now);
+
+  if (period === 'this_week') {
+    start.setDate(start.getDate() - 7);
+  } else if (period === 'this_month') {
+    start.setDate(start.getDate() - 30);
+  }
+
+  const requestedFrom = filters.date_from ? new Date(filters.date_from) : null;
+  if (requestedFrom && requestedFrom > start) {
+    return requestedFrom.toISOString().slice(0, 10);
+  }
+
+  return start.toISOString().slice(0, 10);
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Dashboard Methods — User
 // ──────────────────────────────────────────────────────────────────────────────
@@ -199,8 +255,8 @@ async function getUserDashboard(userId, filters, sequelize, redis) {
   const results = {};
 
   const today = new Date().toISOString().slice(0, 10);
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const { dateFrom, dateTo } = getDateBounds(filters);
+  const { whereClause: waMessageWhere, replacements: waMessageReplacements } = buildScopedMessageWhere(userId, filters);
 
   // ── Contacts ─────────────────────────────────────────────────────────────────
   const contactRows = await safeQuery(
@@ -246,29 +302,39 @@ async function getUserDashboard(userId, filters, sequelize, redis) {
 
   // ── Messages stats (today / this_week / this_month) ──────────────────────────
   results.messages = {};
-  const messageMetrics = ['messages_sent', 'messages_delivered', 'messages_read', 'messages_failed'];
-
   for (const period of [
-    { label: 'today', from: today },
-    { label: 'this_week', from: weekAgo },
-    { label: 'this_month', from: monthAgo },
+    { label: 'today', from: getPeriodStart('today', filters) },
+    { label: 'this_week', from: getPeriodStart('this_week', filters) },
+    { label: 'this_month', from: getPeriodStart('this_month', filters) },
   ]) {
     const msgRows = await safeQuery(
       sequelize,
-      'SELECT metric, SUM(value) AS total FROM analytics_daily_stats WHERE user_id = ? AND date >= ? AND metric IN (?, ?, ?, ?) GROUP BY metric',
-      { replacements: [userId, period.from, ...messageMetrics] }
+      `SELECT wm.status, COUNT(*) AS total
+       FROM wa_messages wm
+       WHERE ${waMessageWhere}
+         AND DATE(wm.created_at) >= :dateFrom
+         AND DATE(wm.created_at) <= :dateTo
+         AND wm.status IN ('sent', 'delivered', 'read', 'failed')
+       GROUP BY wm.status`,
+      {
+        replacements: {
+          ...waMessageReplacements,
+          dateFrom: period.from,
+          dateTo,
+        },
+      }
     );
 
     const stats = {};
     msgRows.forEach((r) => {
-      stats[r.metric] = parseInt(r.total, 10);
+      stats[r.status] = parseInt(r.total, 10);
     });
 
     results.messages[period.label] = {
-      sent: stats.messages_sent || 0,
-      delivered: stats.messages_delivered || 0,
-      read: stats.messages_read || 0,
-      failed: stats.messages_failed || 0,
+      sent: stats.sent || 0,
+      delivered: stats.delivered || 0,
+      read: stats.read || 0,
+      failed: stats.failed || 0,
     };
   }
 
@@ -291,7 +357,14 @@ async function getUserDashboard(userId, filters, sequelize, redis) {
   // ── Active subscription ──────────────────────────────────────────────────────
   const subRows = await safeQuery(
     sequelize,
-    `SELECT s.*, p.name AS plan_name, p.type AS plan_type
+    `SELECT s.*, p.name AS plan_name, p.type AS plan_type,
+            p.max_contacts,
+            p.max_templates,
+            p.max_campaigns_per_month,
+            p.max_messages_per_month,
+            p.max_team_members,
+            p.max_organizations,
+            p.max_whatsapp_numbers
      FROM sub_subscriptions s
      LEFT JOIN sub_plans p ON s.plan_id = p.id
      WHERE s.user_id = ? AND s.status = 'active'
@@ -327,13 +400,40 @@ async function getUserDashboard(userId, filters, sequelize, redis) {
   // ── Timeline chart: messages per day for last 30 days ────────────────────────
   const timelineRows = await safeQuery(
     sequelize,
-    `SELECT date, metric, value
-     FROM analytics_daily_stats
-     WHERE user_id = ? AND date >= ? AND metric IN ('messages_sent', 'messages_delivered', 'messages_failed')
-     ORDER BY date ASC`,
-    { replacements: [userId, monthAgo] }
+    `SELECT DATE(wm.created_at) AS date, wm.status, COUNT(*) AS value
+     FROM wa_messages wm
+     WHERE ${waMessageWhere}
+       AND DATE(wm.created_at) >= :dateFrom
+       AND DATE(wm.created_at) <= :dateTo
+       AND wm.status IN ('sent', 'delivered', 'read', 'failed')
+     GROUP BY DATE(wm.created_at), wm.status
+     ORDER BY DATE(wm.created_at) ASC`,
+    {
+      replacements: {
+        ...waMessageReplacements,
+        dateFrom,
+        dateTo,
+      },
+    }
   );
-  results.timeline = timelineRows;
+  results.timeline = timelineRows.map((row) => ({
+    date: row.date,
+    metric: `messages_${row.status}`,
+    value: parseInt(row.value, 10),
+  }));
+
+  const { whereClause: conversationWhere, replacements: conversationReplacements } = buildScopedConversationWhere(userId, filters);
+  const unreadRows = await safeQuery(
+    sequelize,
+    `SELECT COUNT(*) AS total
+     FROM chat_conversations cc
+     WHERE ${conversationWhere}
+       AND cc.unread_count > 0`,
+    { replacements: conversationReplacements }
+  );
+  results.chats = {
+    unread: parseInt(unreadRows[0]?.total || 0, 10),
+  };
 
   return results;
 }

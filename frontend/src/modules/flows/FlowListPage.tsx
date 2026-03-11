@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { WhatsAppFlow } from '@/core/types';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { flowCategories, humanizeFlowCategory } from './flowUtils';
@@ -104,7 +105,7 @@ export function FlowListPage() {
               const result = await syncFlows.mutateAsync({ waba_id: syncWabaId.trim(), force: forceSync });
               toast.success(`Synced ${result.synced} flows (${result.created} created, ${result.updated} updated).`);
             } catch (error) {
-              toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to sync flows.');
+              toast.error(getApiErrorMessage(error, 'Failed to sync flows.'));
             }
           }} disabled={syncFlows.isPending}>
             {syncFlows.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}

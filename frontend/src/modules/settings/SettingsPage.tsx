@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { setUser } from '@/core/store/authSlice';
 import { setTheme } from '@/core/store/uiSlice';
 import type { RootState } from '@/core/store';
@@ -85,8 +86,8 @@ function ProfileTab() {
       });
       dispatch(setUser(res.data));
       toast.success('Profile updated');
-    } catch {
-      toast.error('Failed to update profile');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to update your profile.'));
     }
   };
 
@@ -261,7 +262,7 @@ function PasswordTab() {
       toast.success('Password changed');
       reset();
     } catch (err) {
-      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed');
+      toast.error(getApiErrorMessage(err, 'Failed to change your password.'));
     }
   };
 
@@ -306,10 +307,7 @@ function WhatsAppTab() {
       await disconnect.mutateAsync(id);
       toast.success('WhatsApp number disconnected.');
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to disconnect account.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to disconnect the WhatsApp account.'));
     }
   };
 
@@ -319,10 +317,7 @@ function WhatsAppTab() {
       const warning = result.health.warnings[0];
       toast.success(warning || 'WhatsApp details refreshed.');
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to refresh account details.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to refresh WhatsApp account details.'));
     }
   };
 

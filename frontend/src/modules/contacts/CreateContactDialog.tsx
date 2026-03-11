@@ -14,6 +14,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useCreateContact } from './useContacts';
 import { createContactSchema } from './validations';
 import type { CreateContactFormData } from './validations';
@@ -46,10 +47,7 @@ export function CreateContactDialog({ open, onOpenChange }: CreateContactDialogP
       reset();
       onOpenChange(false);
     } catch (error) {
-      const msg =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to create contact';
-      toast.error(msg);
+      toast.error(getApiErrorMessage(error, 'Failed to create contact.'));
     }
   };
 

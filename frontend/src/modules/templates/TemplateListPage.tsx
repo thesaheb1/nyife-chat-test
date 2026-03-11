@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useDebounce } from '@/core/hooks';
 import type { Template } from '@/core/types';
 import { DataTable } from '@/shared/components/DataTable';
@@ -171,10 +172,7 @@ export function TemplateListPage() {
       const result = await syncTemplates.mutateAsync(option.wa_account_id);
       toast.success(`Synced ${result.synced} templates (${result.created} created, ${result.updated} updated).`);
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to sync templates.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to sync templates.'));
     } finally {
       setBusy(null);
     }
@@ -198,10 +196,7 @@ export function TemplateListPage() {
       setPublishTarget(null);
       setPublishWabaId('');
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to submit template.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to submit template.'));
     } finally {
       setBusy(null);
     }
@@ -218,10 +213,7 @@ export function TemplateListPage() {
       toast.success('Template deleted.');
       setDeleteTarget(null);
     } catch (error) {
-      const message =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Failed to delete template.';
-      toast.error(message);
+      toast.error(getApiErrorMessage(error, 'Failed to delete template.'));
     } finally {
       setBusy(null);
     }

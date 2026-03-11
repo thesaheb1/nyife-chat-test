@@ -43,6 +43,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { DataTable } from '@/shared/components/DataTable';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import { formatCurrency } from '@/shared/utils/formatters';
 import {
   useCampaign,
@@ -105,10 +106,7 @@ export function CampaignDetailPage() {
       await action.mutateAsync(id);
       toast.success(`Campaign ${label}`);
     } catch (error) {
-      const msg =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        `Failed to ${label.toLowerCase()} campaign`;
-      toast.error(msg);
+      toast.error(getApiErrorMessage(error, `Failed to ${label.toLowerCase()} campaign.`));
     }
   };
 
@@ -118,8 +116,8 @@ export function CampaignDetailPage() {
       await deleteCampaign.mutateAsync(id);
       toast.success('Campaign deleted');
       navigate('/campaigns');
-    } catch {
-      toast.error('Failed to delete campaign');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to delete campaign.'));
     }
   };
 
@@ -129,8 +127,8 @@ export function CampaignDetailPage() {
       await cancelCampaign.mutateAsync(id);
       toast.success('Campaign cancelled');
       setCancelOpen(false);
-    } catch {
-      toast.error('Failed to cancel campaign');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to cancel campaign.'));
     }
   };
 

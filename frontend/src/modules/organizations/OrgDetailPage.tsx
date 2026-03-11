@@ -19,6 +19,7 @@ import {
 import { DataTable } from '@/shared/components/DataTable';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { Organization, TeamMember, ApiResponse, PaginationMeta } from '@/core/types';
 
 function useOrg(id: string | undefined) {
@@ -87,7 +88,9 @@ export function OrgDetailPage() {
       setInviteOpen(false);
       setFirstName(''); setLastName(''); setEmail(''); setRoleTitle('');
       qc.invalidateQueries({ queryKey: ['organizations', id, 'members'] });
-    } catch { toast.error('Failed to invite'); }
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to invite the team member.'));
+    }
     setInviting(false);
   };
 
@@ -97,7 +100,9 @@ export function OrgDetailPage() {
       await apiClient.delete(`${ENDPOINTS.ORGANIZATIONS.BASE}/${id}/members/${removeId}`);
       toast.success('Member removed');
       qc.invalidateQueries({ queryKey: ['organizations', id, 'members'] });
-    } catch { toast.error('Failed to remove'); }
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to remove the team member.'));
+    }
     setRemoveId(null);
   };
 

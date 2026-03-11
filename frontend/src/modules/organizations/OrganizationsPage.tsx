@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { DataTable } from '@/shared/components/DataTable';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { Organization, ApiResponse, PaginationMeta } from '@/core/types';
 
 function useOrganizations(page = 1) {
@@ -56,7 +57,9 @@ export function OrganizationsPage() {
       setCreateOpen(false);
       setName('');
       setDescription('');
-    } catch { toast.error('Failed to create'); }
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to create organization.'));
+    }
   };
 
   const columns = useMemo<ColumnDef<Organization, unknown>[]>(() => [

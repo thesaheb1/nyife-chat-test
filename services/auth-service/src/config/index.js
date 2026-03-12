@@ -2,6 +2,8 @@
 
 require('dotenv').config();
 
+const { resolveFrontendAppUrl } = require('@nyife/shared-utils');
+
 module.exports = {
   port: parseInt(process.env.AUTH_SERVICE_PORT || '3001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -31,6 +33,6 @@ module.exports = {
       callbackUrl: process.env.FACEBOOK_CALLBACK_URL || 'http://localhost:3000/api/v1/auth/facebook/callback',
     },
   },
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  frontendUrl: resolveFrontendAppUrl(process.env),
   userCacheTtl: 900, // 15 minutes in seconds
 };

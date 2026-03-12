@@ -3,15 +3,30 @@
 const express = require('express');
 const router = express.Router();
 
-const { asyncHandler } = require('@nyife/shared-middleware');
+const { asyncHandler, authenticateOptional } = require('@nyife/shared-middleware');
 const ctrl = require('../controllers/admin.controller');
 const { adminRbac, superAdminOnly } = require('../middlewares/adminRbac');
+
+// ===========================================================================
+// Public invitation routes
+// ===========================================================================
+router.get('/invitations/validate', asyncHandler(ctrl.validateAdminInvitation));
+router.post('/invitations/accept', authenticateOptional, asyncHandler(ctrl.acceptAdminInvitation));
+
+// ===========================================================================
+// Authenticated authorization bootstrap
+// ===========================================================================
+router.get('/me/authorization', asyncHandler(ctrl.getMyAdminAuthorization));
 
 // ===========================================================================
 // Sub-admins (super admin only)
 // ===========================================================================
 router.post('/sub-admins', superAdminOnly, asyncHandler(ctrl.createSubAdmin));
 router.get('/sub-admins', superAdminOnly, asyncHandler(ctrl.listSubAdmins));
+router.post('/sub-admins/invitations', superAdminOnly, asyncHandler(ctrl.inviteSubAdmin));
+router.get('/sub-admins/invitations', superAdminOnly, asyncHandler(ctrl.listSubAdminInvitations));
+router.post('/sub-admins/invitations/:id/resend', superAdminOnly, asyncHandler(ctrl.resendSubAdminInvitation));
+router.delete('/sub-admins/invitations/:id', superAdminOnly, asyncHandler(ctrl.revokeSubAdminInvitation));
 router.put('/sub-admins/:id', superAdminOnly, asyncHandler(ctrl.updateSubAdmin));
 router.delete('/sub-admins/:id', superAdminOnly, asyncHandler(ctrl.deleteSubAdmin));
 

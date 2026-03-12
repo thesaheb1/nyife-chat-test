@@ -1,5 +1,7 @@
 'use strict';
 
+const { hasPermission } = require('@nyife/shared-utils');
+
 /**
  * Factory function that creates RBAC (Role-Based Access Control) middleware.
  *
@@ -29,25 +31,13 @@ const rbac = (resource, permission) => {
       return next();
     }
 
-    // Verify permission structure exists
-    if (
-      !permissions ||
-      !permissions.resources ||
-      !permissions.resources[resource]
-    ) {
-      return res.status(403).json({
-        success: false,
-        code: 'INSUFFICIENT_PERMISSIONS',
-        message: 'You do not have permission to access this part of the organization.',
-      });
-    }
-
-    // Check specific permission flag
-    if (permissions.resources[resource][permission] !== true) {
+    if (!hasPermission(permissions, resource, permission)) {
       return res.status(403).json({
         success: false,
         code: 'INSUFFICIENT_PERMISSIONS',
         message: 'You do not have permission to perform this action in the organization.',
+        resource,
+        action: permission,
       });
     }
 

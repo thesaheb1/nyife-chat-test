@@ -1,4 +1,12 @@
 export const ADMIN_ENDPOINTS = {
+  AUTHORIZATION: '/api/v1/admin/me/authorization',
+  INVITATIONS: {
+    BASE: '/api/v1/admin/sub-admins/invitations',
+    DETAIL: (id: string) => `/api/v1/admin/sub-admins/invitations/${id}`,
+    RESEND: (id: string) => `/api/v1/admin/sub-admins/invitations/${id}/resend`,
+    VALIDATE: '/api/v1/admin/invitations/validate',
+    ACCEPT: '/api/v1/admin/invitations/accept',
+  },
   DASHBOARD: '/api/v1/admin/analytics/dashboard',
   METRICS: '/api/v1/admin/analytics/metrics',
 

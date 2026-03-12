@@ -21,16 +21,17 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import type { RootState } from '@/core/store';
 import { toggleSidebar } from '@/core/store/uiSlice';
+import { usePermissions } from '@/core/hooks/usePermissions';
 
 const NAV_ITEMS = [
-  { path: '/admin/dashboard', i18nKey: 'admin.nav.dashboard', icon: LayoutDashboard },
-  { path: '/admin/users', i18nKey: 'admin.nav.users', icon: Users },
-  { path: '/admin/plans', i18nKey: 'admin.nav.plans', icon: CreditCard },
-  { path: '/admin/support', i18nKey: 'admin.nav.support', icon: LifeBuoy },
-  { path: '/admin/sub-admins', i18nKey: 'admin.nav.subAdmins', icon: ShieldCheck },
-  { path: '/admin/notifications', i18nKey: 'admin.nav.notifications', icon: Bell },
-  { path: '/admin/email', i18nKey: 'admin.nav.email', icon: Mail },
-  { path: '/admin/settings', i18nKey: 'admin.nav.settings', icon: Settings },
+  { path: '/admin/dashboard', i18nKey: 'admin.nav.dashboard', icon: LayoutDashboard, resource: 'dashboard', action: 'read' },
+  { path: '/admin/users', i18nKey: 'admin.nav.users', icon: Users, resource: 'users', action: 'read' },
+  { path: '/admin/plans', i18nKey: 'admin.nav.plans', icon: CreditCard, resource: 'plans', action: 'read' },
+  { path: '/admin/support', i18nKey: 'admin.nav.support', icon: LifeBuoy, resource: 'support', action: 'read' },
+  { path: '/admin/sub-admins', i18nKey: 'admin.nav.subAdmins', icon: ShieldCheck, resource: 'sub_admins', action: 'read' },
+  { path: '/admin/notifications', i18nKey: 'admin.nav.notifications', icon: Bell, resource: 'notifications', action: 'read' },
+  { path: '/admin/email', i18nKey: 'admin.nav.email', icon: Mail, resource: 'emails', action: 'create' },
+  { path: '/admin/settings', i18nKey: 'admin.nav.settings', icon: Settings, resource: 'settings', action: 'read' },
 ] as const;
 
 export function AdminSidebar() {
@@ -38,6 +39,7 @@ export function AdminSidebar() {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const collapsed = useSelector((state: RootState) => state.ui.sidebarCollapsed);
+  const { canAdmin } = usePermissions();
 
   return (
     <aside
@@ -62,7 +64,7 @@ export function AdminSidebar() {
       {/* Navigation */}
       <ScrollArea className="flex-1 py-2">
         <nav className="flex flex-col gap-1 px-2">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => canAdmin(item.resource, item.action)).map((item) => {
             const isActive =
               location.pathname === item.path ||
               (item.path !== '/admin/dashboard' && location.pathname.startsWith(item.path));

@@ -1,6 +1,23 @@
 'use strict';
 
 const { z } = require('zod');
+const { ADMIN_ASSIGNABLE_RESOURCE_KEYS } = require('@nyife/shared-utils');
+
+const resourcePermissionSchema = z.object({
+  create: z.boolean().optional(),
+  read: z.boolean().optional(),
+  update: z.boolean().optional(),
+  delete: z.boolean().optional(),
+});
+
+const adminPermissionResourceShape = ADMIN_ASSIGNABLE_RESOURCE_KEYS.reduce((accumulator, resource) => {
+  accumulator[resource] = resourcePermissionSchema.optional();
+  return accumulator;
+}, {});
+
+const adminPermissionsSchema = z.object({
+  resources: z.object(adminPermissionResourceShape).strict(),
+});
 
 // ---------------------------------------------------------------------------
 // Sub-admin schemas
@@ -12,6 +29,13 @@ const createSubAdminSchema = z.object({
   email: z.string().email('Invalid email format'),
   phone: z.string().min(10).max(20).optional(),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  role_id: z.string().uuid('Invalid role ID'),
+});
+
+const inviteSubAdminSchema = z.object({
+  first_name: z.string().min(1, 'First name is required').max(100),
+  last_name: z.string().min(1, 'Last name is required').max(100),
+  email: z.string().email('Invalid email format'),
   role_id: z.string().uuid('Invalid role ID'),
 });
 
@@ -160,33 +184,13 @@ const updateSettingsSchema = z.object({}).passthrough();
 
 const createRoleSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255),
-  permissions: z.object({
-    resources: z.record(
-      z.object({
-        create: z.boolean().optional(),
-        read: z.boolean().optional(),
-        update: z.boolean().optional(),
-        delete: z.boolean().optional(),
-      })
-    ),
-  }),
+  permissions: adminPermissionsSchema,
 });
 
 const updateRoleSchema = z
   .object({
     title: z.string().min(1).max(255).optional(),
-    permissions: z
-      .object({
-        resources: z.record(
-          z.object({
-            create: z.boolean().optional(),
-            read: z.boolean().optional(),
-            update: z.boolean().optional(),
-            delete: z.boolean().optional(),
-          })
-        ),
-      })
-      .optional(),
+    permissions: adminPermissionsSchema.optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field is required',
@@ -205,8 +209,18 @@ const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+const validateAdminInvitationSchema = z.object({
+  token: z.string().min(1, 'Invitation token is required'),
+});
+
+const acceptAdminInvitationSchema = z.object({
+  token: z.string().min(1, 'Invitation token is required'),
+  password: z.string().min(8).max(128).optional(),
+});
+
 module.exports = {
   createSubAdminSchema,
+  inviteSubAdminSchema,
   updateSubAdminSchema,
   listUsersSchema,
   createUserSchema,
@@ -224,4 +238,6 @@ module.exports = {
   updateRoleSchema,
   idParamSchema,
   paginationSchema,
+  validateAdminInvitationSchema,
+  acceptAdminInvitationSchema,
 };

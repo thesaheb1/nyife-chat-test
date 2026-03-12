@@ -111,6 +111,9 @@ export const ENDPOINTS = {
     PUBLIC: '/api/v1/settings/public',
   },
   ADMIN: {
+    AUTHORIZATION: '/api/v1/admin/me/authorization',
+    INVITATION_VALIDATE: '/api/v1/admin/invitations/validate',
+    INVITATION_ACCEPT: '/api/v1/admin/invitations/accept',
     DASHBOARD: '/api/v1/admin/analytics/dashboard',
     METRICS: '/api/v1/admin/analytics/metrics',
     USERS: '/api/v1/admin/users',

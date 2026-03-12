@@ -27,7 +27,7 @@ import type { RootState } from '@/core/store';
 import { toggleSidebar } from '@/core/store/uiSlice';
 import { buildOrganizationPath } from '@/modules/organizations/context';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
-import type { Organization } from '@/core/types';
+import { usePermissions } from '@/core/hooks/usePermissions';
 
 const NAV_ITEMS = [
   { path: '/dashboard', i18nKey: 'nav.dashboard', icon: LayoutDashboard, resource: 'dashboard' },
@@ -46,18 +46,6 @@ const NAV_ITEMS = [
   { path: '/developer', i18nKey: 'nav.developer', icon: Code2, resource: 'developer' },
 ] as const;
 
-function hasReadPermission(organization: Organization | null | undefined, resource: string) {
-  if (!organization) {
-    return true;
-  }
-
-  if (organization.organization_role === 'owner') {
-    return true;
-  }
-
-  return organization.permissions?.resources?.[resource]?.read === true;
-}
-
 export function Sidebar() {
   const location = useLocation();
   const dispatch = useDispatch();
@@ -67,6 +55,7 @@ export function Sidebar() {
     ? location.pathname.replace(/^\/org\/[^/]+/, '') || '/dashboard'
     : location.pathname;
   const { activeOrganization } = useOrganizationContext();
+  const { canOrganization } = usePermissions();
 
   return (
     <aside
@@ -91,7 +80,7 @@ export function Sidebar() {
       {/* Navigation */}
       <ScrollArea className="flex-1 py-2">
         <nav className="flex flex-col gap-1 px-2">
-          {NAV_ITEMS.filter((item) => hasReadPermission(activeOrganization, item.resource)).map((item) => {
+          {NAV_ITEMS.filter((item) => canOrganization(item.resource, 'read')).map((item) => {
             const resolvedPath = item.path === '/organizations' || !activeOrganization
               ? item.path
               : buildOrganizationPath(activeOrganization.slug, item.path);

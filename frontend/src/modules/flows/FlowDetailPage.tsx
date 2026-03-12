@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { usePermissions } from '@/core/hooks/usePermissions';
 import { DataTable } from '@/shared/components/DataTable';
 import { FlowComponentPreview } from './FlowComponentPreview';
 import { humanizeFlowCategory } from './flowUtils';
@@ -15,9 +16,11 @@ import type { FlowSubmission } from '@/core/types';
 export function FlowDetailPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const { canOrganization } = usePermissions();
   const { data: flow, isLoading } = useFlow(id);
   const [submissionPage, setSubmissionPage] = useState(1);
   const { data: submissionsData, isLoading: submissionsLoading } = useFlowSubmissions(id, { page: submissionPage, limit: 10 });
+  const canUpdateFlows = canOrganization('flows', 'update');
 
   const columns = useMemo<ColumnDef<FlowSubmission, unknown>[]>(() => [
     {
@@ -82,10 +85,12 @@ export function FlowDetailPage() {
               </a>
             </Button>
           )}
-          <Button onClick={() => navigate(`/flows/${flow.id}/edit`)}>
-            <Pencil className="mr-2 h-4 w-4" />
-            Edit flow
-          </Button>
+          {canUpdateFlows ? (
+            <Button onClick={() => navigate(`/flows/${flow.id}/edit`)}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Edit flow
+            </Button>
+          ) : null}
         </div>
       </div>
 

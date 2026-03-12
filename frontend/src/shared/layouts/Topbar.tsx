@@ -22,6 +22,7 @@ import { formatCurrency } from '@/shared/utils/formatters';
 import { buildOrganizationNavigationTarget, buildOrganizationPath, setStoredActiveOrganization } from '@/modules/organizations/context';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 import type { Organization } from '@/core/types';
+import { usePermissions } from '@/core/hooks/usePermissions';
 
 const ORG_SCOPED_QUERY_ROOTS = new Set([
   'dashboard',
@@ -50,18 +51,6 @@ const ORG_SCOPED_QUERY_ROOTS = new Set([
   'subscriptions',
 ]);
 
-function hasReadPermission(organization: Organization | null | undefined, resource: string) {
-  if (!organization) {
-    return true;
-  }
-
-  if (organization.organization_role === 'owner') {
-    return true;
-  }
-
-  return organization.permissions?.resources?.[resource]?.read === true;
-}
-
 function isOrganizationScopedQuery(query: Query) {
   const [root] = query.queryKey;
   return typeof root === 'string' && ORG_SCOPED_QUERY_ROOTS.has(root);
@@ -77,6 +66,7 @@ export function Topbar() {
   const theme = useSelector((state: RootState) => state.ui.theme);
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const { organizations, activeOrganization } = useOrganizationContext(null, !isAdmin);
+  const { canOrganization } = usePermissions();
   const previousOrganizationIdRef = useRef<string | null>(null);
 
   const initials = user
@@ -177,7 +167,7 @@ export function Topbar() {
       {/* Right: Actions */}
       <div className="flex items-center gap-2">
         {/* Wallet Balance */}
-        {hasReadPermission(activeOrganization, 'wallet') ? (
+        {canOrganization('wallet', 'read') ? (
           <Button variant="outline" size="sm" className="hidden sm:flex" onClick={() => navigateToScopedPath('/wallet')}>
             <span className="text-xs">{formatCurrency(0)}</span>
           </Button>
@@ -239,19 +229,19 @@ export function Topbar() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {hasReadPermission(activeOrganization, 'settings') ? (
+            {canOrganization('settings', 'read') ? (
               <DropdownMenuItem onClick={() => navigateToScopedPath('/settings')}>
                 <User className="mr-2 h-4 w-4" />
                 {t('settings.profile')}
               </DropdownMenuItem>
             ) : null}
-            {hasReadPermission(activeOrganization, 'subscription') ? (
+            {canOrganization('subscription', 'read') ? (
               <DropdownMenuItem onClick={() => navigateToScopedPath('/subscription')}>
                 <CreditCard className="mr-2 h-4 w-4" />
                 {t('nav.subscription')}
               </DropdownMenuItem>
             ) : null}
-            {hasReadPermission(activeOrganization, 'settings') ? (
+            {canOrganization('settings', 'read') ? (
               <DropdownMenuItem onClick={() => navigateToScopedPath('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 {t('nav.settings')}

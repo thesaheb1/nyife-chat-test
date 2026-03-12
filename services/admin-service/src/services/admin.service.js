@@ -4,14 +4,21 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
-const { QueryTypes } = require('sequelize');
+const { QueryTypes, Op } = require('sequelize');
 
-const { sequelize, AdminRole, SubAdmin, AdminSetting } = require('../models');
+const { sequelize, AdminRole, SubAdmin, AdminInvitation, AdminSetting } = require('../models');
 const { AppError } = require('@nyife/shared-middleware');
-const { getPagination, getPaginationMeta, slugify } = require('@nyife/shared-utils');
+const {
+  getPagination,
+  getPaginationMeta,
+  slugify,
+  normalizeAdminPermissions,
+  buildFullAdminPermissions,
+} = require('@nyife/shared-utils');
 const config = require('../config');
 
 const BCRYPT_ROUNDS = 12;
+const INVITATION_TTL_DAYS = 7;
 
 function normalizePlanRecord(plan) {
   if (!plan) {
@@ -26,6 +33,26 @@ function normalizePlanRecord(plan) {
   };
 }
 
+function normalizeRolePermissions(permissions, options = {}) {
+  return normalizeAdminPermissions(permissions, {
+    includeReserved: Boolean(options.includeReserved),
+  });
+}
+
+function buildStoredRole(role) {
+  if (!role) {
+    return role;
+  }
+
+  const payload = typeof role.toJSON === 'function' ? role.toJSON() : { ...role };
+  return {
+    ...payload,
+    permissions: normalizeRolePermissions(payload.permissions, {
+      includeReserved: Boolean(payload.is_system),
+    }),
+  };
+}
+
 async function findUserById(userId, attributes = 'id, email, role, status') {
   const [user] = await sequelize.query(
     `SELECT ${attributes}
@@ -36,6 +63,58 @@ async function findUserById(userId, attributes = 'id, email, role, status') {
   );
 
   return user || null;
+}
+
+async function findUserByEmail(email, attributes = 'id, email, role, status') {
+  const [user] = await sequelize.query(
+    `SELECT ${attributes}
+     FROM auth_users
+     WHERE email = :email
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    { replacements: { email }, type: QueryTypes.SELECT }
+  );
+
+  return user || null;
+}
+
+function buildSubAdminInviteLink(inviteToken) {
+  return `${config.frontendUrl.replace(/\/$/, '')}/admin/invitations/accept?token=${encodeURIComponent(inviteToken)}`;
+}
+
+async function sendSubAdminInviteEmail(invitation, kafkaProducer = null) {
+  if (!kafkaProducer) {
+    return;
+  }
+
+  const { publishEvent, TOPICS } = require('@nyife/shared-events');
+
+  await publishEvent(kafkaProducer, TOPICS.EMAIL_SEND, invitation.email, {
+    to: invitation.email,
+    subject: `You've been invited to join Nyife admin`,
+    template: 'sub_admin_invite',
+    templateData: {
+      firstName: invitation.first_name,
+      lastName: invitation.last_name,
+      role: invitation.role_title,
+      inviteUrl: buildSubAdminInviteLink(invitation.invite_token),
+      expiresAt: invitation.expires_at,
+    },
+  });
+}
+
+async function expirePendingAdminInvitations() {
+  await AdminInvitation.update(
+    { status: 'expired' },
+    {
+      where: {
+        status: 'pending',
+        expires_at: {
+          [Op.lte]: new Date(),
+        },
+      },
+    }
+  );
 }
 
 async function createDefaultOrganizationForUser(userId, transaction = null) {
@@ -149,6 +228,85 @@ async function resolveUserBusinessScope(userId, requestedOrganizationId = null) 
   };
 }
 
+async function getActiveSubAdminByUserId(userId) {
+  return SubAdmin.findOne({
+    where: { user_id: userId, status: 'active' },
+    include: [{ model: AdminRole, as: 'role' }],
+  });
+}
+
+function buildSuperAdminAuthorization(user) {
+  return {
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    },
+    actor_type: 'super_admin',
+    is_super_admin: true,
+    permissions: buildFullAdminPermissions({ includeReserved: true }),
+    role: {
+      title: 'Super Admin',
+      permissions: buildFullAdminPermissions({ includeReserved: true }),
+      is_system: true,
+    },
+    sub_admin: null,
+  };
+}
+
+function buildSubAdminAuthorization(user, subAdmin) {
+  const normalizedRole = buildStoredRole(subAdmin.role);
+  return {
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    },
+    actor_type: 'sub_admin',
+    is_super_admin: false,
+    permissions: normalizeRolePermissions(normalizedRole?.permissions),
+    role: normalizedRole,
+    sub_admin: {
+      id: subAdmin.id,
+      role_id: subAdmin.role_id,
+      status: subAdmin.status,
+      created_by: subAdmin.created_by,
+      last_login_at: subAdmin.last_login_at,
+      created_at: subAdmin.created_at,
+      updated_at: subAdmin.updated_at,
+    },
+  };
+}
+
+async function resolveAdminAuthorization(userId) {
+  if (!userId) {
+    throw new AppError('Authentication required', 401, 'AUTH_REQUIRED');
+  }
+
+  const user = await findUserById(userId);
+
+  if (!user) {
+    throw new AppError('Admin actor not found', 404, 'ADMIN_ACTOR_NOT_FOUND');
+  }
+
+  if (user.role === 'super_admin') {
+    return buildSuperAdminAuthorization(user);
+  }
+
+  if (user.role !== 'admin') {
+    throw new AppError('Admin access required', 403, 'ADMIN_ACCESS_REQUIRED');
+  }
+
+  const subAdmin = await getActiveSubAdminByUserId(userId);
+  if (!subAdmin || !subAdmin.role) {
+    throw new AppError('Admin access required', 403, 'ADMIN_ACCESS_REQUIRED');
+  }
+
+  return buildSubAdminAuthorization(user, subAdmin);
+}
+
 // ===========================================================================
 // SUB-ADMIN MANAGEMENT
 // ===========================================================================
@@ -165,20 +323,20 @@ async function resolveUserBusinessScope(userId, requestedOrganizationId = null) 
  */
 async function createSubAdmin(data, createdBy) {
   const { first_name, last_name, email, phone, password, role_id } = data;
+  const normalizedEmail = String(email).trim().toLowerCase();
 
   // Verify role exists
   const role = await AdminRole.findByPk(role_id);
   if (!role) {
     throw new AppError('Role not found', 404);
   }
+  if (role.is_system) {
+    throw new AppError('System roles cannot be assigned to sub-admin accounts', 400);
+  }
 
   // Check if email already exists in auth_users
-  const [existingUsers] = await sequelize.query(
-    'SELECT id FROM auth_users WHERE email = :email AND deleted_at IS NULL LIMIT 1',
-    { replacements: { email }, type: QueryTypes.SELECT }
-  ).then((rows) => [rows]);
-
-  if (existingUsers && existingUsers.length > 0) {
+  const existingUser = await findUserByEmail(normalizedEmail);
+  if (existingUser) {
     throw new AppError('A user with this email already exists', 409);
   }
 
@@ -193,12 +351,12 @@ async function createSubAdmin(data, createdBy) {
   try {
     // Insert into auth_users with role='admin' and auto-verified
     await sequelize.query(
-      `INSERT INTO auth_users (id, email, password, first_name, last_name, phone, role, status, email_verified_at, created_at, updated_at)
-       VALUES (:id, :email, :password, :first_name, :last_name, :phone, 'admin', 'active', :now, :now, :now)`,
+      `INSERT INTO auth_users (id, email, password, must_change_password, first_name, last_name, phone, role, status, email_verified_at, created_at, updated_at)
+       VALUES (:id, :email, :password, true, :first_name, :last_name, :phone, 'admin', 'active', :now, :now, :now)`,
       {
         replacements: {
           id: userId,
-          email,
+          email: normalizedEmail,
           password: hashedPassword,
           first_name,
           last_name,
@@ -232,16 +390,297 @@ async function createSubAdmin(data, createdBy) {
       ...result.toJSON(),
       user: {
         id: userId,
-        email,
+        email: normalizedEmail,
         first_name,
         last_name,
         phone: phone || null,
       },
+      role: buildStoredRole(result.role),
     };
   } catch (err) {
     await transaction.rollback();
     throw err;
   }
+}
+
+async function inviteSubAdmin(data, invitedBy, kafkaProducer = null) {
+  const { first_name, last_name, email, role_id } = data;
+  const normalizedEmail = String(email).trim().toLowerCase();
+
+  const role = await AdminRole.findByPk(role_id);
+  if (!role) {
+    throw new AppError('Role not found', 404);
+  }
+  if (role.is_system) {
+    throw new AppError('System roles cannot be assigned to sub-admin accounts', 400);
+  }
+
+  await expirePendingAdminInvitations();
+
+  const [existingUser, existingInvitation] = await Promise.all([
+    findUserByEmail(normalizedEmail),
+    AdminInvitation.findOne({
+      where: {
+        email: normalizedEmail,
+        status: 'pending',
+        expires_at: { [Op.gt]: new Date() },
+      },
+      paranoid: false,
+    }),
+  ]);
+
+  if (existingUser) {
+    throw new AppError('A user with this email already exists', 409);
+  }
+
+  if (existingInvitation) {
+    throw new AppError('A pending invitation already exists for this email', 409);
+  }
+
+  const invitation = await AdminInvitation.create({
+    email: normalizedEmail,
+    first_name,
+    last_name,
+    role_id: role.id,
+    role_title: role.title,
+    invited_by_user_id: invitedBy,
+    invite_token: crypto.randomBytes(32).toString('hex'),
+    expires_at: new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
+  });
+
+  try {
+    await sendSubAdminInviteEmail(invitation, kafkaProducer);
+  } catch (error) {
+    console.error('[admin-service] Failed to publish sub-admin invitation email:', error.message);
+  }
+
+  return invitation;
+}
+
+async function listSubAdminInvitations(filters) {
+  const { page = 1, limit = 20 } = filters;
+  const { offset, limit: safeLimit } = getPagination(page, limit);
+
+  await expirePendingAdminInvitations();
+
+  const { count, rows } = await AdminInvitation.findAndCountAll({
+    include: [{ model: AdminRole, as: 'role', required: false }],
+    order: [['created_at', 'DESC']],
+    offset,
+    limit: safeLimit,
+  });
+
+  return {
+    data: rows.map((invitation) => {
+      const payload = invitation.toJSON();
+      if (payload.role) {
+        payload.role = buildStoredRole(payload.role);
+      }
+      return payload;
+    }),
+    meta: getPaginationMeta(count, page, limit),
+  };
+}
+
+async function resendSubAdminInvitation(invitationId, invitedBy, kafkaProducer = null) {
+  await expirePendingAdminInvitations();
+
+  const invitation = await AdminInvitation.findByPk(invitationId, {
+    include: [{ model: AdminRole, as: 'role', required: false }],
+  });
+
+  if (!invitation) {
+    throw new AppError('Invitation not found', 404);
+  }
+
+  if (invitation.status !== 'pending') {
+    throw new AppError('Only pending invitations can be resent', 400);
+  }
+
+  if (invitation.role?.is_system) {
+    throw new AppError('System roles cannot be assigned to sub-admin accounts', 400);
+  }
+
+  await invitation.update({
+    invited_by_user_id: invitedBy,
+    role_title: invitation.role?.title || invitation.role_title,
+    invite_token: crypto.randomBytes(32).toString('hex'),
+    expires_at: new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
+  });
+
+  try {
+    await sendSubAdminInviteEmail(invitation, kafkaProducer);
+  } catch (error) {
+    console.error('[admin-service] Failed to publish resent sub-admin invitation email:', error.message);
+  }
+
+  return invitation;
+}
+
+async function revokeSubAdminInvitation(invitationId) {
+  const invitation = await AdminInvitation.findByPk(invitationId);
+
+  if (!invitation) {
+    throw new AppError('Invitation not found', 404);
+  }
+
+  if (invitation.status !== 'pending') {
+    throw new AppError('Only pending invitations can be revoked', 400);
+  }
+
+  await invitation.update({ status: 'revoked' });
+  return invitation;
+}
+
+async function findPendingSubAdminInvitationByToken(token) {
+  await expirePendingAdminInvitations();
+
+  const invitation = await AdminInvitation.findOne({
+    where: {
+      invite_token: token,
+      status: 'pending',
+    },
+    include: [{ model: AdminRole, as: 'role', required: false }],
+  });
+
+  if (!invitation) {
+    throw new AppError('Invitation not found or already used', 404);
+  }
+
+  if (invitation.expires_at <= new Date()) {
+    await invitation.update({ status: 'expired' });
+    throw new AppError('This invitation has expired. Ask the super admin to send a new one.', 400);
+  }
+
+  if (!invitation.role || invitation.role.is_system) {
+    throw new AppError('This invitation references an invalid admin role.', 400);
+  }
+
+  return invitation;
+}
+
+async function validateSubAdminInvitation(token) {
+  const invitation = await findPendingSubAdminInvitationByToken(token);
+  return {
+    invitation: {
+      id: invitation.id,
+      email: invitation.email,
+      first_name: invitation.first_name,
+      last_name: invitation.last_name,
+      role_id: invitation.role_id,
+      role_title: invitation.role?.title || invitation.role_title,
+      expires_at: invitation.expires_at,
+      status: invitation.status,
+    },
+  };
+}
+
+async function acceptSubAdminInvitation(authUserId, data) {
+  const invitation = await findPendingSubAdminInvitationByToken(data.token);
+  const normalizedEmail = invitation.email.toLowerCase();
+  let user = null;
+
+  if (authUserId) {
+    user = await findUserById(authUserId, 'id, email, role, status');
+    if (!user) {
+      throw new AppError('Authentication required', 401, 'AUTH_REQUIRED');
+    }
+
+    if (String(user.email).toLowerCase() !== normalizedEmail) {
+      throw new AppError('This invitation belongs to a different email address.', 403);
+    }
+
+    if (user.role !== 'admin') {
+      throw new AppError('Only admin accounts can accept this invitation.', 403);
+    }
+  } else {
+    if (!data.password) {
+      throw new AppError('Set a password to finish accepting this invitation.', 400);
+    }
+
+    const existingUser = await findUserByEmail(normalizedEmail);
+    if (existingUser) {
+      throw new AppError(
+        'This email already has a Nyife account. Contact the super admin to use a dedicated admin email.',
+        400
+      );
+    }
+
+    const userId = uuidv4();
+    const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
+    const now = new Date();
+
+    await sequelize.query(
+      `INSERT INTO auth_users (id, email, password, must_change_password, first_name, last_name, role, status, email_verified_at, created_at, updated_at)
+       VALUES (:id, :email, :password, false, :firstName, :lastName, 'admin', 'active', :now, :now, :now)`,
+      {
+        replacements: {
+          id: userId,
+          email: normalizedEmail,
+          password: hashedPassword,
+          firstName: invitation.first_name,
+          lastName: invitation.last_name,
+          now,
+        },
+        type: QueryTypes.INSERT,
+      }
+    );
+
+    user = await findUserById(userId, 'id, email, role, status');
+  }
+
+  const existingSubAdmin = await SubAdmin.findOne({
+    where: { user_id: user.id },
+    paranoid: false,
+  });
+
+  if (existingSubAdmin && !existingSubAdmin.deleted_at) {
+    throw new AppError('This account already has sub-admin access.', 409);
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    if (existingSubAdmin?.deleted_at) {
+      await existingSubAdmin.restore({ transaction });
+      await existingSubAdmin.update(
+        {
+          role_id: invitation.role_id,
+          status: 'active',
+          created_by: invitation.invited_by_user_id,
+        },
+        { transaction }
+      );
+    } else if (!existingSubAdmin) {
+      await SubAdmin.create(
+        {
+          user_id: user.id,
+          role_id: invitation.role_id,
+          status: 'active',
+          created_by: invitation.invited_by_user_id,
+        },
+        { transaction }
+      );
+    }
+
+    await invitation.update(
+      {
+        status: 'accepted',
+        accepted_at: new Date(),
+        accepted_user_id: user.id,
+      },
+      { transaction }
+    );
+  });
+
+  const authorization = await resolveAdminAuthorization(user.id);
+
+  return {
+    invitation: {
+      id: invitation.id,
+      email: invitation.email,
+      role_title: invitation.role?.title || invitation.role_title,
+    },
+    authorization,
+  };
 }
 
 /**
@@ -280,6 +719,7 @@ async function listSubAdmins(filters) {
 
   const data = rows.map((sa) => ({
     ...sa.toJSON(),
+    role: sa.role ? buildStoredRole(sa.role) : null,
     user: usersMap[sa.user_id] || null,
   }));
 
@@ -310,6 +750,9 @@ async function updateSubAdmin(id, data) {
     if (!role) {
       throw new AppError('Role not found', 404);
     }
+    if (role.is_system) {
+      throw new AppError('System roles cannot be assigned to sub-admin accounts', 400);
+    }
   }
 
   await subAdmin.update(data);
@@ -327,6 +770,7 @@ async function updateSubAdmin(id, data) {
 
   return {
     ...updated.toJSON(),
+    role: updated.role ? buildStoredRole(updated.role) : null,
     user: user || null,
   };
 }
@@ -1688,11 +2132,11 @@ async function getPublicSettings() {
 async function createRole(data) {
   const role = await AdminRole.create({
     title: data.title,
-    permissions: data.permissions,
+    permissions: normalizeRolePermissions(data.permissions),
     is_system: false,
   });
 
-  return role;
+  return buildStoredRole(role);
 }
 
 /**
@@ -1708,7 +2152,7 @@ async function listRoles() {
     ],
   });
 
-  return roles;
+  return roles.map((role) => buildStoredRole(role));
 }
 
 /**
@@ -1732,11 +2176,13 @@ async function updateRole(roleId, data) {
 
   const updateData = {};
   if (data.title !== undefined) updateData.title = data.title;
-  if (data.permissions !== undefined && !role.is_system) updateData.permissions = data.permissions;
+  if (data.permissions !== undefined && !role.is_system) {
+    updateData.permissions = normalizeRolePermissions(data.permissions);
+  }
 
   await role.update(updateData);
 
-  return role;
+  return buildStoredRole(role);
 }
 
 /**
@@ -1769,9 +2215,17 @@ async function deleteRole(roleId) {
 }
 
 module.exports = {
+  resolveAdminAuthorization,
+
   // Sub-admin
   createSubAdmin,
+  inviteSubAdmin,
   listSubAdmins,
+  listSubAdminInvitations,
+  resendSubAdminInvitation,
+  revokeSubAdminInvitation,
+  validateSubAdminInvitation,
+  acceptSubAdminInvitation,
   updateSubAdmin,
   deleteSubAdmin,
 

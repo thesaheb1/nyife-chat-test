@@ -1,6 +1,7 @@
 'use strict';
 
 require('dotenv').config();
+const { resolveFrontendAppUrl } = require('@nyife/shared-utils');
 
 module.exports = {
   port: parseInt(process.env.ADMIN_SERVICE_PORT || '3015', 10),
@@ -19,4 +20,5 @@ module.exports = {
   walletServiceUrl: process.env.WALLET_SERVICE_URL || 'http://localhost:3004',
   emailServiceUrl: process.env.EMAIL_SERVICE_URL || 'http://localhost:3013',
   notificationServiceUrl: process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3012',
+  frontendUrl: resolveFrontendAppUrl(process.env),
 };

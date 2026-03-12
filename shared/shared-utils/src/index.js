@@ -23,7 +23,30 @@ const {
   slugify,
   sanitizeHtml,
   formatCurrency,
+  resolveFrontendAppUrl,
 } = require('./helpers');
+const {
+  CRUD_ACTIONS,
+  ORGANIZATION_RESOURCE_DEFINITIONS,
+  ORGANIZATION_RESOURCE_KEYS,
+  ADMIN_RESOURCE_DEFINITIONS,
+  ADMIN_RESOURCE_KEYS,
+  ADMIN_ASSIGNABLE_RESOURCE_KEYS,
+  ADMIN_RESERVED_RESOURCE_KEYS,
+  ADMIN_PERMISSION_ALIASES,
+  createResourcePermission,
+  buildPermissionMap,
+  buildFullPermissions,
+  buildFullOrganizationPermissions,
+  buildFullAdminPermissions,
+  normalizePermissions,
+  normalizeOrganizationPermissions,
+  normalizeAdminPermissions,
+  hasPermission,
+  hasAnyPermission,
+  assertPermission,
+  isValidCrudAction,
+} = require('./permissions');
 
 module.exports = {
   // Error handling
@@ -58,4 +81,27 @@ module.exports = {
   slugify,
   sanitizeHtml,
   formatCurrency,
+  resolveFrontendAppUrl,
+
+  // Permissions
+  CRUD_ACTIONS,
+  ORGANIZATION_RESOURCE_DEFINITIONS,
+  ORGANIZATION_RESOURCE_KEYS,
+  ADMIN_RESOURCE_DEFINITIONS,
+  ADMIN_RESOURCE_KEYS,
+  ADMIN_ASSIGNABLE_RESOURCE_KEYS,
+  ADMIN_RESERVED_RESOURCE_KEYS,
+  ADMIN_PERMISSION_ALIASES,
+  createResourcePermission,
+  buildPermissionMap,
+  buildFullPermissions,
+  buildFullOrganizationPermissions,
+  buildFullAdminPermissions,
+  normalizePermissions,
+  normalizeOrganizationPermissions,
+  normalizeAdminPermissions,
+  hasPermission,
+  hasAnyPermission,
+  assertPermission,
+  isValidCrudAction,
 };

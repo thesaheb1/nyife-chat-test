@@ -4,6 +4,7 @@ const { successResponse, errorResponse } = require('@nyife/shared-utils');
 const adminService = require('../services/admin.service');
 const {
   createSubAdminSchema,
+  inviteSubAdminSchema,
   updateSubAdminSchema,
   listUsersSchema,
   createUserSchema,
@@ -21,7 +22,18 @@ const {
   updateRoleSchema,
   idParamSchema,
   paginationSchema,
+  validateAdminInvitationSchema,
+  acceptAdminInvitationSchema,
 } = require('../validations/admin.validation');
+
+function resolveAdminActorId(req) {
+  return req.adminUser?.id
+    || req.adminUser?.user_id
+    || req.adminUser?.user?.id
+    || req.headers['x-user-id']
+    || req.user?.id
+    || null;
+}
 
 // ===========================================================================
 // SUB-ADMIN CONTROLLERS
@@ -33,8 +45,18 @@ const {
  */
 async function createSubAdmin(req, res) {
   const data = createSubAdminSchema.parse(req.body);
-  const result = await adminService.createSubAdmin(data, req.adminUser.id);
+  const result = await adminService.createSubAdmin(data, resolveAdminActorId(req));
   return successResponse(res, result, 'Sub-admin created successfully', 201);
+}
+
+async function inviteSubAdmin(req, res) {
+  const data = inviteSubAdminSchema.parse(req.body);
+  const result = await adminService.inviteSubAdmin(
+    data,
+    resolveAdminActorId(req),
+    req.app.locals.kafkaProducer || null
+  );
+  return successResponse(res, result, 'Sub-admin invitation sent successfully', 201);
 }
 
 /**
@@ -45,6 +67,28 @@ async function listSubAdmins(req, res) {
   const filters = paginationSchema.parse(req.query);
   const { data, meta } = await adminService.listSubAdmins(filters);
   return successResponse(res, { sub_admins: data }, 'Sub-admins retrieved successfully', 200, meta);
+}
+
+async function listSubAdminInvitations(req, res) {
+  const filters = paginationSchema.parse(req.query);
+  const { data, meta } = await adminService.listSubAdminInvitations(filters);
+  return successResponse(res, { invitations: data }, 'Sub-admin invitations retrieved successfully', 200, meta);
+}
+
+async function resendSubAdminInvitation(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  const result = await adminService.resendSubAdminInvitation(
+    id,
+    resolveAdminActorId(req),
+    req.app.locals.kafkaProducer || null
+  );
+  return successResponse(res, result, 'Sub-admin invitation resent successfully');
+}
+
+async function revokeSubAdminInvitation(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  await adminService.revokeSubAdminInvitation(id);
+  return successResponse(res, null, 'Sub-admin invitation revoked successfully');
 }
 
 /**
@@ -66,6 +110,30 @@ async function deleteSubAdmin(req, res) {
   const { id } = idParamSchema.parse(req.params);
   await adminService.deleteSubAdmin(id);
   return successResponse(res, null, 'Sub-admin deleted successfully');
+}
+
+async function validateAdminInvitation(req, res) {
+  const { token } = validateAdminInvitationSchema.parse(req.query);
+  const result = await adminService.validateSubAdminInvitation(token);
+  return successResponse(res, result, 'Invitation validated successfully');
+}
+
+async function acceptAdminInvitation(req, res) {
+  const data = acceptAdminInvitationSchema.parse(req.body);
+  const result = await adminService.acceptSubAdminInvitation(req.user?.id || null, data);
+  return successResponse(res, result, 'Invitation accepted successfully');
+}
+
+async function getMyAdminAuthorization(req, res) {
+  const userId = req.headers['x-user-id'] || req.user?.id;
+  const authorization = await adminService.resolveAdminAuthorization(userId);
+  return successResponse(res, authorization, 'Admin authorization retrieved successfully');
+}
+
+async function getInternalAdminAuthorization(req, res) {
+  const { id } = idParamSchema.parse({ id: req.params.userId });
+  const authorization = await adminService.resolveAdminAuthorization(id);
+  return successResponse(res, authorization, 'Admin authorization resolved successfully');
 }
 
 // ===========================================================================
@@ -134,7 +202,7 @@ async function creditWallet(req, res) {
     id,
     amount,
     remarks,
-    req.adminUser.id,
+    resolveAdminActorId(req),
     organization_id || null
   );
   return successResponse(res, result, 'Wallet credited successfully');
@@ -151,7 +219,7 @@ async function debitWallet(req, res) {
     id,
     amount,
     remarks,
-    req.adminUser.id,
+    resolveAdminActorId(req),
     organization_id || null
   );
   return successResponse(res, result, 'Wallet debited successfully');
@@ -322,7 +390,7 @@ async function deleteCoupon(req, res) {
 async function createBroadcast(req, res) {
   const data = createNotificationSchema.parse(req.body);
   const kafkaProducer = req.app.locals.kafkaProducer || null;
-  const result = await adminService.createBroadcast(data, req.adminUser.id, kafkaProducer);
+  const result = await adminService.createBroadcast(data, resolveAdminActorId(req), kafkaProducer);
   return successResponse(res, result, 'Broadcast notification sent successfully', 201);
 }
 
@@ -332,7 +400,7 @@ async function createBroadcast(req, res) {
  */
 async function sendAdminEmail(req, res) {
   const data = sendAdminEmailSchema.parse(req.body);
-  const result = await adminService.sendAdminEmail(data, req.adminUser.id);
+  const result = await adminService.sendAdminEmail(data, resolveAdminActorId(req));
   return successResponse(res, result, 'Email sent successfully', 201);
 }
 
@@ -376,7 +444,7 @@ async function getSettingsByGroup(req, res) {
 async function updateSettings(req, res) {
   const { group } = req.params;
   const data = updateSettingsSchema.parse(req.body);
-  const result = await adminService.updateSettings(group, data, req.adminUser.id);
+  const result = await adminService.updateSettings(group, data, resolveAdminActorId(req));
   return successResponse(res, result, `Settings for "${group}" updated successfully`);
 }
 
@@ -436,9 +504,17 @@ async function deleteRole(req, res) {
 module.exports = {
   // Sub-admins
   createSubAdmin,
+  inviteSubAdmin,
   listSubAdmins,
+  listSubAdminInvitations,
+  resendSubAdminInvitation,
+  revokeSubAdminInvitation,
   updateSubAdmin,
   deleteSubAdmin,
+  validateAdminInvitation,
+  acceptAdminInvitation,
+  getMyAdminAuthorization,
+  getInternalAdminAuthorization,
 
   // Users
   listUsers,

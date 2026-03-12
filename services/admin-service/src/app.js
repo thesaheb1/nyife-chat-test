@@ -85,6 +85,14 @@ app.get('/health', (_req, res) => {
 app.get('/api/v1/settings/public', asyncHandler(adminController.getPublicSettings));
 
 // ---------------------------------------------------------------------------
+// Internal authorization bootstrap for downstream admin APIs
+// ---------------------------------------------------------------------------
+app.get(
+  '/internal/admin/actors/:userId/authorization',
+  asyncHandler(adminController.getInternalAdminAuthorization)
+);
+
+// ---------------------------------------------------------------------------
 // Admin routes (auth required, handled by adminRbac middleware per route)
 // ---------------------------------------------------------------------------
 app.use('/api/v1/admin', adminRoutes);

@@ -668,6 +668,28 @@ export interface Permissions {
   resources: Record<string, { create: boolean; read: boolean; update: boolean; delete: boolean }>;
 }
 
+export interface AdminAuthorization {
+  user: Pick<User, 'id' | 'email' | 'role' | 'status'>;
+  actor_type: 'super_admin' | 'sub_admin';
+  is_super_admin: boolean;
+  permissions: Permissions;
+  role: {
+    id?: string;
+    title: string;
+    permissions: Permissions;
+    is_system: boolean;
+  } | null;
+  sub_admin: {
+    id: string;
+    role_id: string;
+    status: 'active' | 'inactive';
+    created_by: string;
+    last_login_at: string | null;
+    created_at: string;
+    updated_at: string;
+  } | null;
+}
+
 // Automations
 export interface Automation {
   id: string;

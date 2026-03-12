@@ -11,15 +11,16 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
+import { PermissionMatrix } from '@/shared/components/PermissionMatrix';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { ApiResponse, OrganizationInvitation, PaginationMeta, Permissions, Subscription, TeamMember } from '@/core/types';
-import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
-import { TEAM_ACTIONS, TEAM_RESOURCES, createEmptyPermissions, normalizePermissions } from './permissions';
+import { usePermissions } from '@/core/hooks/usePermissions';
+import { ORGANIZATION_RESOURCE_DEFINITIONS } from '@/core/permissions/catalog';
+import { createEmptyPermissions, normalizePermissions } from './permissions';
 
 type MemberFormState = {
   first_name: string;
@@ -94,52 +95,14 @@ function useCurrentSubscription(enabled = true) {
   });
 }
 
-function PermissionMatrix({
-  value,
-  onToggle,
-}: {
-  value: Permissions;
-  onToggle: (resource: string, action: keyof Permissions['resources'][string]) => void;
-}) {
-  return (
-    <div className="max-h-72 overflow-auto rounded-md border">
-      <table className="w-full text-xs">
-        <thead className="sticky top-0 bg-muted">
-          <tr className="border-b">
-            <th className="p-2 text-left">Resource</th>
-            {TEAM_ACTIONS.map((action) => (
-              <th key={action} className="p-2 text-center capitalize">
-                {action}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {TEAM_RESOURCES.map((resource) => (
-            <tr key={resource} className="border-b">
-              <td className="p-2 capitalize">{resource.replace('_', ' ')}</td>
-              {TEAM_ACTIONS.map((action) => (
-                <td key={action} className="p-2 text-center">
-                  <Checkbox
-                    checked={Boolean(value.resources?.[resource]?.[action])}
-                    onCheckedChange={() => onToggle(resource, action)}
-                  />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export function TeamMembersPage() {
   const queryClient = useQueryClient();
-  const { activeOrganization } = useOrganizationContext();
+  const { activeOrganization, canOrganization } = usePermissions();
   const organizationId = activeOrganization?.id;
-  const isOwner = activeOrganization?.organization_role === 'owner';
-  const canRead = isOwner || activeOrganization?.permissions?.resources?.team_members?.read === true;
+  const canRead = canOrganization('team_members', 'read');
+  const canCreate = canOrganization('team_members', 'create');
+  const canUpdate = canOrganization('team_members', 'update');
+  const canDelete = canOrganization('team_members', 'delete');
   const [memberPage, setMemberPage] = useState(1);
   const [invitePage, setInvitePage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
@@ -153,7 +116,7 @@ export function TeamMembersPage() {
   const [editPermissions, setEditPermissions] = useState<Permissions>(createEmptyPermissions());
 
   const membersQuery = useTeamMembers(organizationId, memberPage, canRead);
-  const invitationsQuery = useInvitations(organizationId, invitePage, isOwner);
+  const invitationsQuery = useInvitations(organizationId, invitePage, canRead);
   const subscriptionQuery = useCurrentSubscription(canRead);
 
   const members = membersQuery.data?.data || [];
@@ -244,48 +207,6 @@ export function TeamMembersPage() {
       await refreshQueries();
     },
   });
-
-  const toggleMemberPermission = (resource: string, action: keyof Permissions['resources'][string]) => {
-    setMemberForm((current) => ({
-      ...current,
-      permissions: {
-        resources: {
-          ...current.permissions.resources,
-          [resource]: {
-            ...current.permissions.resources[resource],
-            [action]: !current.permissions.resources[resource][action],
-          },
-        },
-      },
-    }));
-  };
-
-  const toggleInvitePermission = (resource: string, action: keyof Permissions['resources'][string]) => {
-    setInviteForm((current) => ({
-      ...current,
-      permissions: {
-        resources: {
-          ...current.permissions.resources,
-          [resource]: {
-            ...current.permissions.resources[resource],
-            [action]: !current.permissions.resources[resource][action],
-          },
-        },
-      },
-    }));
-  };
-
-  const toggleEditPermission = (resource: string, action: keyof Permissions['resources'][string]) => {
-    setEditPermissions((current) => ({
-      resources: {
-        ...current.resources,
-        [resource]: {
-          ...current.resources[resource],
-          [action]: !current.resources[resource][action],
-        },
-      },
-    }));
-  };
 
   const handleCreateMember = async () => {
     try {
@@ -384,27 +305,31 @@ export function TeamMembersPage() {
       header: 'Actions',
       cell: ({ row }) => (
         <div className="flex items-center justify-end gap-2">
-          {isOwner ? (
+          {canUpdate || canDelete ? (
             <>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setEditMember(row.original);
-                  setEditRoleTitle(row.original.role_title);
-                  setEditStatus(row.original.status);
-                  setEditPermissions(normalizePermissions(row.original.permissions));
-                }}
-              >
-                Edit
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setRemoveTarget({ id: row.original.id, type: 'member' })}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              {canUpdate ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditMember(row.original);
+                    setEditRoleTitle(row.original.role_title);
+                    setEditStatus(row.original.status);
+                    setEditPermissions(normalizePermissions(row.original.permissions));
+                  }}
+                >
+                  Edit
+                </Button>
+              ) : null}
+              {canDelete ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setRemoveTarget({ id: row.original.id, type: 'member' })}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              ) : null}
             </>
           ) : (
             <span className="text-xs text-muted-foreground">View only</span>
@@ -412,7 +337,7 @@ export function TeamMembersPage() {
         </div>
       ),
     },
-  ], [isOwner]);
+  ], [canDelete, canUpdate]);
 
   const invitationColumns = useMemo<ColumnDef<OrganizationInvitation, unknown>[]>(() => [
     {
@@ -454,7 +379,7 @@ export function TeamMembersPage() {
           <Button
             size="sm"
             variant="outline"
-            disabled={resendMutation.isPending || row.original.status !== 'pending'}
+            disabled={!canCreate || resendMutation.isPending || row.original.status !== 'pending'}
             onClick={async () => {
               try {
                 await resendMutation.mutateAsync(row.original.id);
@@ -470,7 +395,7 @@ export function TeamMembersPage() {
           <Button
             size="sm"
             variant="ghost"
-            disabled={row.original.status !== 'pending'}
+            disabled={!canDelete || row.original.status !== 'pending'}
             onClick={() => setRemoveTarget({ id: row.original.id, type: 'invitation' })}
           >
             <Trash2 className="h-4 w-4" />
@@ -478,7 +403,7 @@ export function TeamMembersPage() {
         </div>
       ),
     },
-  ], [resendMutation]);
+  ], [canCreate, canDelete, resendMutation]);
 
   if (!canRead) {
     return (
@@ -502,7 +427,7 @@ export function TeamMembersPage() {
             Manage organization members, reserved seats, invitations, and resource access.
           </p>
         </div>
-        {isOwner ? (
+        {canCreate ? (
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setInviteOpen(true)}>
               <Mail className="mr-2 h-4 w-4" />
@@ -554,7 +479,7 @@ export function TeamMembersPage() {
             <Users className="mr-2 h-4 w-4" />
             Members
           </TabsTrigger>
-          {isOwner ? (
+          {canRead ? (
             <TabsTrigger value="invitations">
               <Mail className="mr-2 h-4 w-4" />
               Invitations
@@ -579,7 +504,7 @@ export function TeamMembersPage() {
           </Card>
         </TabsContent>
 
-        {isOwner ? (
+        {canRead ? (
           <TabsContent value="invitations">
             <Card>
               <CardContent className="pt-6">
@@ -636,7 +561,11 @@ export function TeamMembersPage() {
             </div>
             <div className="space-y-2">
               <Label>Permissions</Label>
-              <PermissionMatrix value={memberForm.permissions} onToggle={toggleMemberPermission} />
+              <PermissionMatrix
+                definitions={ORGANIZATION_RESOURCE_DEFINITIONS}
+                value={memberForm.permissions}
+                onChange={(permissions) => setMemberForm((current) => ({ ...current, permissions }))}
+              />
             </div>
           </div>
           <DialogFooter>
@@ -687,7 +616,11 @@ export function TeamMembersPage() {
             </div>
             <div className="space-y-2">
               <Label>Permissions</Label>
-              <PermissionMatrix value={inviteForm.permissions} onToggle={toggleInvitePermission} />
+              <PermissionMatrix
+                definitions={ORGANIZATION_RESOURCE_DEFINITIONS}
+                value={inviteForm.permissions}
+                onChange={(permissions) => setInviteForm((current) => ({ ...current, permissions }))}
+              />
             </div>
           </div>
           <DialogFooter>
@@ -736,7 +669,11 @@ export function TeamMembersPage() {
             </div>
             <div className="space-y-2">
               <Label>Permissions</Label>
-              <PermissionMatrix value={editPermissions} onToggle={toggleEditPermission} />
+              <PermissionMatrix
+                definitions={ORGANIZATION_RESOURCE_DEFINITIONS}
+                value={editPermissions}
+                onChange={setEditPermissions}
+              />
             </div>
           </div>
           <DialogFooter>

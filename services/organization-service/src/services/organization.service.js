@@ -4,68 +4,23 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { Op, QueryTypes } = require('sequelize');
 const { Organization, TeamMember, Invitation, User, sequelize } = require('../models');
-const { AppError, generateUUID, slugify, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
+const {
+  AppError,
+  generateUUID,
+  slugify,
+  getPagination,
+  getPaginationMeta,
+  resolveFrontendAppUrl,
+  buildFullOrganizationPermissions,
+  normalizeOrganizationPermissions,
+  hasPermission,
+} = require('@nyife/shared-utils');
 const { TOPICS, publishEvent } = require('@nyife/shared-events');
 const { createKafkaProducer } = require('@nyife/shared-config');
 
 const BCRYPT_ROUNDS = 12;
 const INVITATION_TTL_DAYS = 7;
-function isLocalUrl(value) {
-  if (!value) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(value);
-    return ['localhost', '127.0.0.1', '0.0.0.0'].includes(parsed.hostname);
-  } catch {
-    return false;
-  }
-}
-
-function resolveFrontendUrl() {
-  const candidates = [
-    process.env.PUBLIC_FRONTEND_URL,
-    process.env.FRONTEND_PUBLIC_URL,
-    process.env.FRONTEND_URL,
-    process.env.APP_URL,
-  ].filter(Boolean);
-
-  if (!candidates.length) {
-    return 'http://localhost:5173';
-  }
-
-  if (process.env.NODE_ENV && process.env.NODE_ENV !== 'development') {
-    const publicCandidate = candidates.find((candidate) => !isLocalUrl(candidate));
-    if (publicCandidate) {
-      return publicCandidate;
-    }
-  }
-
-  return candidates[0];
-}
-
-const FRONTEND_URL = resolveFrontendUrl();
-const OWNER_RESOURCE_PERMISSIONS = [
-  'dashboard',
-  'contacts',
-  'templates',
-  'flows',
-  'campaigns',
-  'automations',
-  'chat',
-  'wallet',
-  'support',
-  'analytics',
-  'settings',
-  'billing',
-  'subscription',
-  'organizations',
-  'team_members',
-  'whatsapp',
-  'developer',
-];
-
+const FRONTEND_URL = resolveFrontendAppUrl();
 let kafkaProducer = null;
 const subscriptionServiceUrl = process.env.SUBSCRIPTION_SERVICE_URL || 'http://subscription-service:3003';
 
@@ -135,17 +90,7 @@ async function generateUniqueSlug(name) {
 }
 
 function buildOwnerPermissions() {
-  return {
-    resources: OWNER_RESOURCE_PERMISSIONS.reduce((acc, resource) => {
-      acc[resource] = {
-        create: true,
-        read: true,
-        update: true,
-        delete: true,
-      };
-      return acc;
-    }, {}),
-  };
+  return buildFullOrganizationPermissions();
 }
 
 function paginateArray(items, page, limit) {
@@ -379,7 +324,7 @@ async function getAccessibleOrganizations(userId) {
     organizations.push({
       organization: membership.organization,
       role: 'team',
-      permissions: membership.permissions || { resources: {} },
+      permissions: normalizeOrganizationPermissions(membership.permissions),
       membership,
     });
   }
@@ -401,7 +346,7 @@ async function assertTeamReadAccess(userId, orgId) {
     return context;
   }
 
-  const permission = context.permissions?.resources?.team_members?.read;
+  const permission = hasPermission(context.permissions, 'team_members', 'read');
   if (!permission) {
     throw AppError.forbidden('You do not have permission to view team members in this organization.');
   }
@@ -613,7 +558,7 @@ async function inviteTeamMember(userId, orgId, memberData, currentOrganizationId
     first_name: memberData.first_name,
     last_name: memberData.last_name,
     role_title: memberData.role_title,
-    permissions: memberData.permissions,
+    permissions: normalizeOrganizationPermissions(memberData.permissions),
     invite_token: inviteToken,
     status: 'pending',
     expires_at: new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
@@ -690,7 +635,7 @@ async function createTeamMemberAccount(userId, orgId, memberData) {
       user_id: userId,
       member_user_id: memberUserId,
       role_title: memberData.role_title,
-      permissions: memberData.permissions,
+      permissions: normalizeOrganizationPermissions(memberData.permissions),
       status: 'active',
       invited_at: now,
       joined_at: now,
@@ -895,7 +840,7 @@ async function acceptInvitation(authUserId, data) {
       await existingMembership.restore({ transaction });
       await existingMembership.update({
         role_title: invitation.role_title,
-        permissions: invitation.permissions,
+        permissions: normalizeOrganizationPermissions(invitation.permissions),
         status: 'active',
         joined_at: new Date(),
         invited_at: invitation.created_at,
@@ -907,7 +852,7 @@ async function acceptInvitation(authUserId, data) {
         user_id: invitation.invited_by_user_id,
         member_user_id: user.id,
         role_title: invitation.role_title,
-        permissions: invitation.permissions,
+        permissions: normalizeOrganizationPermissions(invitation.permissions),
         status: 'active',
         invited_at: invitation.created_at,
         joined_at: new Date(),
@@ -1003,6 +948,9 @@ async function updateTeamMember(userId, orgId, memberId, data) {
   }
 
   const updateData = { ...data };
+  if (data.permissions) {
+    updateData.permissions = normalizeOrganizationPermissions(data.permissions);
+  }
   if (data.status === 'active' && teamMember.status === 'invited') {
     updateData.joined_at = new Date();
   }
@@ -1046,16 +994,7 @@ async function removeTeamMember(userId, orgId, memberId) {
 }
 
 function memberHasResourcePermission(member, resource, permission) {
-  const resourcePermissions = member?.permissions?.resources?.[resource];
-  if (!resourcePermissions) {
-    return false;
-  }
-
-  if (permission === 'update') {
-    return Boolean(resourcePermissions.update || resourcePermissions.read);
-  }
-
-  return Boolean(resourcePermissions[permission]);
+  return hasPermission(normalizeOrganizationPermissions(member?.permissions), resource, permission);
 }
 
 async function resolveOrganizationContext(userId, requestedOrganizationId = null) {

@@ -84,6 +84,23 @@ export interface SubAdmin {
   user?: User;
 }
 
+export interface SubAdminInvitation {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role_id: string;
+  role_title: string;
+  invited_by_user_id: string;
+  accepted_user_id: string | null;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  expires_at: string;
+  accepted_at: string | null;
+  created_at: string;
+  updated_at: string;
+  role?: AdminRole | null;
+}
+
 // Coupon
 export interface Coupon {
   id: string;

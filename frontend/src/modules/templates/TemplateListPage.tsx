@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/select';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useDebounce } from '@/core/hooks';
+import { usePermissions } from '@/core/hooks/usePermissions';
 import type { Template } from '@/core/types';
 import { DataTable } from '@/shared/components/DataTable';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
@@ -84,6 +85,7 @@ function getDefaultWabaId(
 
 export function TemplateListPage() {
   const navigate = useNavigate();
+  const { canOrganization } = usePermissions();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -135,6 +137,9 @@ export function TemplateListPage() {
   const publishTemplate = usePublishTemplate();
   const syncTemplates = useSyncTemplates();
   const deleteTemplate = useDeleteTemplate();
+  const canCreateTemplates = canOrganization('templates', 'create');
+  const canUpdateTemplates = canOrganization('templates', 'update');
+  const canDeleteTemplates = canOrganization('templates', 'delete');
 
   const templates = data?.data?.templates ?? [];
   const meta = data?.meta;
@@ -144,17 +149,26 @@ export function TemplateListPage() {
   };
 
   const openPublishDialog = (template: Template) => {
+    if (!canUpdateTemplates) {
+      return;
+    }
     setPublishTarget(template);
     setPublishWabaId(getDefaultWabaId(template, wabaOptions));
   };
 
   const openGlobalSyncDialog = () => {
+    if (!canUpdateTemplates) {
+      return;
+    }
     setSyncTarget(null);
     setSyncWabaId('');
     setSyncOpen(true);
   };
 
   const openTemplateSyncDialog = (template: Template) => {
+    if (!canUpdateTemplates) {
+      return;
+    }
     setSyncTarget(template);
     setSyncWabaId(getDefaultWabaId(template, wabaOptions));
     setSyncOpen(true);
@@ -327,7 +341,18 @@ export function TemplateListPage() {
         enableSorting: false,
         cell: ({ row }) => {
           const template = row.original;
-          const actions = getTemplateAvailableActions(template);
+          const actions = getTemplateAvailableActions(template).filter((action) => {
+            if (action === 'view') {
+              return true;
+            }
+            if (action === 'edit' || action === 'publish' || action === 'sync') {
+              return canUpdateTemplates;
+            }
+            if (action === 'delete') {
+              return canDeleteTemplates;
+            }
+            return false;
+          });
           const isBusy =
             rowBusyKey === `publish:${template.id}` ||
             rowBusyKey === `delete:${template.id}` ||
@@ -425,14 +450,18 @@ export function TemplateListPage() {
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="secondary" onClick={openGlobalSyncDialog}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Sync from Meta
-            </Button>
-            <Button className="bg-white text-emerald-900 hover:bg-emerald-50" onClick={() => navigate('/templates/create')}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Template
-            </Button>
+            {canUpdateTemplates ? (
+              <Button variant="secondary" onClick={openGlobalSyncDialog}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Sync from Meta
+              </Button>
+            ) : null}
+            {canCreateTemplates ? (
+              <Button className="bg-white text-emerald-900 hover:bg-emerald-50" onClick={() => navigate('/templates/create')}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Template
+              </Button>
+            ) : null}
           </div>
         </CardContent>
       </Card>

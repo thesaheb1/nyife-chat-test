@@ -31,6 +31,23 @@ const SAFE_METHODS = new Set(['get', 'head', 'options']);
 type RefreshPayload = { accessToken: string; user: User };
 let refreshSessionPromise: Promise<RefreshPayload> | null = null;
 
+function getHeaderValue(headers: AxiosRequestConfig['headers'] | undefined, name: string) {
+  if (!headers) {
+    return undefined;
+  }
+
+  if ('get' in headers && typeof headers.get === 'function') {
+    const value = headers.get(name);
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  const match = Object.entries(headers as Record<string, unknown>).find(
+    ([key]) => key.toLowerCase() === name.toLowerCase()
+  );
+
+  return typeof match?.[1] === 'string' ? match[1] : undefined;
+}
+
 function normalizeRetryUrl(url?: string) {
   if (!url) {
     return url;
@@ -160,6 +177,15 @@ apiClient.interceptors.response.use(
 
     // Don't retry refresh or login requests
     if (originalRequest.url?.includes('/auth/refresh') || originalRequest.url?.includes('/auth/login')) {
+      applyFriendlyMessage(error);
+      return Promise.reject(error);
+    }
+
+    const requestHadAuthContext = Boolean(
+      getHeaderValue(originalRequest.headers, 'Authorization') || store.getState().auth.accessToken
+    );
+
+    if (!requestHadAuthContext) {
       applyFriendlyMessage(error);
       return Promise.reject(error);
     }

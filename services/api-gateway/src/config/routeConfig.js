@@ -92,6 +92,7 @@ const routeConfig = [
     service: 'organization',
     auth: true,
     rateLimit: 'global',
+    publicPaths: ['/api/v1/organizations/invitations/accept'],
   },
   {
     prefix: '/api/v1/notifications',
@@ -129,6 +130,10 @@ const routeConfig = [
     service: 'admin',
     auth: true,
     rateLimit: 'global',
+    publicPaths: [
+      '/api/v1/admin/invitations/validate',
+      '/api/v1/admin/invitations/accept',
+    ],
   },
   {
     prefix: '/api/v1/analytics',

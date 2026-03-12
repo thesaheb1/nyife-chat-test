@@ -7,6 +7,7 @@ import { GuestGuard } from './GuestGuard';
 import { AppLayout } from '@/shared/layouts/AppLayout';
 import { OrganizationPathRedirect } from '@/modules/organizations/OrganizationPathRedirect';
 import { OrganizationScopeGuard } from '@/modules/organizations/OrganizationScopeGuard';
+import { PermissionGuard } from './PermissionGuard';
 
 // Auth pages — eager (small, always needed first)
 import { LoginPage } from '@/modules/auth/LoginPage';
@@ -63,6 +64,7 @@ const AdminTicketListPage = lazy(() => import('@/modules/admin/support/AdminTick
 const AdminTicketDetailPage = lazy(() => import('@/modules/admin/support/AdminTicketDetailPage').then(m => ({ default: m.AdminTicketDetailPage })));
 const SubAdminListPage = lazy(() => import('@/modules/admin/sub-admins/SubAdminListPage').then(m => ({ default: m.SubAdminListPage })));
 const RoleManagementPage = lazy(() => import('@/modules/admin/sub-admins/RoleManagementPage').then(m => ({ default: m.RoleManagementPage })));
+const AcceptSubAdminInvitationPage = lazy(() => import('@/modules/admin/sub-admins/AcceptSubAdminInvitationPage').then(m => ({ default: m.AcceptSubAdminInvitationPage })));
 const AdminNotificationsPage = lazy(() => import('@/modules/admin/notifications/AdminNotificationsPage').then(m => ({ default: m.AdminNotificationsPage })));
 const EmailManagementPage = lazy(() => import('@/modules/admin/email/EmailManagementPage').then(m => ({ default: m.EmailManagementPage })));
 const AdminSettingsPage = lazy(() => import('@/modules/admin/settings/AdminSettingsPage').then(m => ({ default: m.AdminSettingsPage })));
@@ -83,6 +85,19 @@ function lazyElement(Component: React.LazyExoticComponent<React.ComponentType>) 
   return <LazyPage><Component /></LazyPage>;
 }
 
+function guardedLazyElement(
+  scope: 'organization' | 'admin',
+  resource: string,
+  action: 'create' | 'read' | 'update' | 'delete',
+  Component: React.LazyExoticComponent<React.ComponentType>
+) {
+  return (
+    <PermissionGuard scope={scope} resource={resource} action={action}>
+      {lazyElement(Component)}
+    </PermissionGuard>
+  );
+}
+
 function RoleRedirect() {
   const { user } = useSelector((state: RootState) => state.auth);
   if (user?.must_change_password) {
@@ -93,38 +108,38 @@ function RoleRedirect() {
 }
 
 const organizationScopedRoutes = [
-  { path: 'dashboard', element: lazyElement(DashboardPage) },
-  { path: 'contacts', element: lazyElement(ContactListPage) },
-  { path: 'contacts/import', element: lazyElement(ImportCSVPage) },
-  { path: 'contacts/tags', element: lazyElement(TagsPage) },
-  { path: 'contacts/groups', element: lazyElement(GroupsPage) },
-  { path: 'contacts/groups/:id', element: lazyElement(GroupDetailPage) },
-  { path: 'contacts/:id', element: lazyElement(ContactDetailPage) },
-  { path: 'templates', element: lazyElement(TemplateListPage) },
-  { path: 'templates/create', element: lazyElement(CreateTemplatePage) },
-  { path: 'templates/:id/edit', element: lazyElement(CreateTemplatePage) },
-  { path: 'templates/:id', element: lazyElement(TemplateDetailPage) },
-  { path: 'flows', element: lazyElement(FlowListPage) },
-  { path: 'flows/create', element: lazyElement(FlowBuilderPage) },
-  { path: 'flows/:id/edit', element: lazyElement(FlowBuilderPage) },
-  { path: 'flows/:id', element: lazyElement(FlowDetailPage) },
-  { path: 'campaigns', element: lazyElement(CampaignListPage) },
-  { path: 'campaigns/create', element: lazyElement(CreateCampaignPage) },
-  { path: 'campaigns/:id', element: lazyElement(CampaignDetailPage) },
-  { path: 'chat', element: lazyElement(ChatPage) },
-  { path: 'team', element: lazyElement(TeamMembersPage) },
-  { path: 'automations', element: lazyElement(AutomationsPage) },
-  { path: 'automations/create', element: lazyElement(CreateAutomationPage) },
-  { path: 'automations/webhooks', element: lazyElement(WebhookManagementPage) },
-  { path: 'automations/:id/edit', element: lazyElement(CreateAutomationPage) },
-  { path: 'automations/:id', element: lazyElement(AutomationDetailPage) },
-  { path: 'support', element: lazyElement(SupportPage) },
-  { path: 'support/:id', element: lazyElement(TicketDetailPage) },
-  { path: 'subscription', element: lazyElement(SubscriptionPage) },
-  { path: 'wallet', element: lazyElement(WalletPage) },
-  { path: 'whatsapp/connect', element: lazyElement(WhatsAppOnboardingPage) },
-  { path: 'settings', element: lazyElement(SettingsPage) },
-  { path: 'developer', element: lazyElement(DeveloperPage) },
+  { path: 'dashboard', element: guardedLazyElement('organization', 'dashboard', 'read', DashboardPage) },
+  { path: 'contacts', element: guardedLazyElement('organization', 'contacts', 'read', ContactListPage) },
+  { path: 'contacts/import', element: guardedLazyElement('organization', 'contacts', 'create', ImportCSVPage) },
+  { path: 'contacts/tags', element: guardedLazyElement('organization', 'contacts', 'read', TagsPage) },
+  { path: 'contacts/groups', element: guardedLazyElement('organization', 'contacts', 'read', GroupsPage) },
+  { path: 'contacts/groups/:id', element: guardedLazyElement('organization', 'contacts', 'read', GroupDetailPage) },
+  { path: 'contacts/:id', element: guardedLazyElement('organization', 'contacts', 'read', ContactDetailPage) },
+  { path: 'templates', element: guardedLazyElement('organization', 'templates', 'read', TemplateListPage) },
+  { path: 'templates/create', element: guardedLazyElement('organization', 'templates', 'create', CreateTemplatePage) },
+  { path: 'templates/:id/edit', element: guardedLazyElement('organization', 'templates', 'update', CreateTemplatePage) },
+  { path: 'templates/:id', element: guardedLazyElement('organization', 'templates', 'read', TemplateDetailPage) },
+  { path: 'flows', element: guardedLazyElement('organization', 'flows', 'read', FlowListPage) },
+  { path: 'flows/create', element: guardedLazyElement('organization', 'flows', 'create', FlowBuilderPage) },
+  { path: 'flows/:id/edit', element: guardedLazyElement('organization', 'flows', 'update', FlowBuilderPage) },
+  { path: 'flows/:id', element: guardedLazyElement('organization', 'flows', 'read', FlowDetailPage) },
+  { path: 'campaigns', element: guardedLazyElement('organization', 'campaigns', 'read', CampaignListPage) },
+  { path: 'campaigns/create', element: guardedLazyElement('organization', 'campaigns', 'create', CreateCampaignPage) },
+  { path: 'campaigns/:id', element: guardedLazyElement('organization', 'campaigns', 'read', CampaignDetailPage) },
+  { path: 'chat', element: guardedLazyElement('organization', 'chat', 'read', ChatPage) },
+  { path: 'team', element: guardedLazyElement('organization', 'team_members', 'read', TeamMembersPage) },
+  { path: 'automations', element: guardedLazyElement('organization', 'automations', 'read', AutomationsPage) },
+  { path: 'automations/create', element: guardedLazyElement('organization', 'automations', 'create', CreateAutomationPage) },
+  { path: 'automations/webhooks', element: guardedLazyElement('organization', 'automations', 'read', WebhookManagementPage) },
+  { path: 'automations/:id/edit', element: guardedLazyElement('organization', 'automations', 'update', CreateAutomationPage) },
+  { path: 'automations/:id', element: guardedLazyElement('organization', 'automations', 'read', AutomationDetailPage) },
+  { path: 'support', element: guardedLazyElement('organization', 'support', 'read', SupportPage) },
+  { path: 'support/:id', element: guardedLazyElement('organization', 'support', 'read', TicketDetailPage) },
+  { path: 'subscription', element: guardedLazyElement('organization', 'subscription', 'read', SubscriptionPage) },
+  { path: 'wallet', element: guardedLazyElement('organization', 'wallet', 'read', WalletPage) },
+  { path: 'whatsapp/connect', element: guardedLazyElement('organization', 'whatsapp', 'create', WhatsAppOnboardingPage) },
+  { path: 'settings', element: guardedLazyElement('organization', 'settings', 'read', SettingsPage) },
+  { path: 'developer', element: guardedLazyElement('organization', 'developer', 'read', DeveloperPage) },
 ];
 
 export const router = createBrowserRouter([
@@ -142,6 +157,10 @@ export const router = createBrowserRouter([
   {
     path: '/organizations/invitations/accept',
     element: lazyElement(AcceptInvitationPage),
+  },
+  {
+    path: '/admin/invitations/accept',
+    element: lazyElement(AcceptSubAdminInvitationPage),
   },
   // Protected routes (with app layout)
   {
@@ -202,19 +221,19 @@ export const router = createBrowserRouter([
         element: <LazyPage><AdminLayout /></LazyPage>,
         children: [
           { path: '/admin', element: <Navigate to="/admin/dashboard" replace /> },
-          { path: '/admin/dashboard', element: lazyElement(AdminDashboardPage) },
-          { path: '/admin/users', element: lazyElement(AdminUserListPage) },
-          { path: '/admin/users/create', element: lazyElement(CreateUserPage) },
-          { path: '/admin/users/:id', element: lazyElement(AdminUserDetailPage) },
-          { path: '/admin/plans', element: lazyElement(PlanListPage) },
-          { path: '/admin/plans/coupons', element: lazyElement(CouponsPage) },
-          { path: '/admin/support', element: lazyElement(AdminTicketListPage) },
-          { path: '/admin/support/:id', element: lazyElement(AdminTicketDetailPage) },
-          { path: '/admin/sub-admins', element: lazyElement(SubAdminListPage) },
-          { path: '/admin/sub-admins/roles', element: lazyElement(RoleManagementPage) },
-          { path: '/admin/notifications', element: lazyElement(AdminNotificationsPage) },
-          { path: '/admin/email', element: lazyElement(EmailManagementPage) },
-          { path: '/admin/settings', element: lazyElement(AdminSettingsPage) },
+          { path: '/admin/dashboard', element: guardedLazyElement('admin', 'dashboard', 'read', AdminDashboardPage) },
+          { path: '/admin/users', element: guardedLazyElement('admin', 'users', 'read', AdminUserListPage) },
+          { path: '/admin/users/create', element: guardedLazyElement('admin', 'users', 'create', CreateUserPage) },
+          { path: '/admin/users/:id', element: guardedLazyElement('admin', 'users', 'read', AdminUserDetailPage) },
+          { path: '/admin/plans', element: guardedLazyElement('admin', 'plans', 'read', PlanListPage) },
+          { path: '/admin/plans/coupons', element: guardedLazyElement('admin', 'plans', 'read', CouponsPage) },
+          { path: '/admin/support', element: guardedLazyElement('admin', 'support', 'read', AdminTicketListPage) },
+          { path: '/admin/support/:id', element: guardedLazyElement('admin', 'support', 'read', AdminTicketDetailPage) },
+          { path: '/admin/sub-admins', element: guardedLazyElement('admin', 'sub_admins', 'read', SubAdminListPage) },
+          { path: '/admin/sub-admins/roles', element: guardedLazyElement('admin', 'roles', 'read', RoleManagementPage) },
+          { path: '/admin/notifications', element: guardedLazyElement('admin', 'notifications', 'read', AdminNotificationsPage) },
+          { path: '/admin/email', element: guardedLazyElement('admin', 'emails', 'create', EmailManagementPage) },
+          { path: '/admin/settings', element: guardedLazyElement('admin', 'settings', 'read', AdminSettingsPage) },
         ],
       },
     ],

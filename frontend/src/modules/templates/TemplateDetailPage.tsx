@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   ArrowLeft,
-  Eye,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -43,6 +42,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getApiErrorMessage } from '@/core/errors/apiError';
+import { usePermissions } from '@/core/hooks/usePermissions';
 import { findWhatsAppAccount } from '@/modules/whatsapp/accountOptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { TemplateOptionSelect } from './TemplateOptionSelect';
@@ -60,6 +60,7 @@ import { buildTemplateWabaOptions, findTemplateWabaOption } from './wabaOptions'
 export function TemplateDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { canOrganization } = usePermissions();
   const { data: template, isLoading } = useTemplate(id);
   const { data: waAccounts } = useWhatsAppAccounts();
   const publishTemplate = usePublishTemplate();
@@ -71,6 +72,8 @@ export function TemplateDetailPage() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncWabaId, setSyncWabaId] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const canUpdateTemplates = canOrganization('templates', 'update');
+  const canDeleteTemplates = canOrganization('templates', 'delete');
 
   const wabaOptions = useMemo(() => buildTemplateWabaOptions(waAccounts), [waAccounts]);
 
@@ -90,7 +93,18 @@ export function TemplateDetailPage() {
     return <div className="py-12 text-center text-muted-foreground">Template not found.</div>;
   }
 
-  const actions = getTemplateAvailableActions(template);
+  const actions = getTemplateAvailableActions(template).filter((action) => {
+    if (action === 'view') {
+      return true;
+    }
+    if (action === 'edit' || action === 'publish' || action === 'sync') {
+      return canUpdateTemplates;
+    }
+    if (action === 'delete') {
+      return canDeleteTemplates;
+    }
+    return false;
+  });
   const currentAccount = findWhatsAppAccount(waAccounts, template.wa_account_id);
   const scopedWabaOptions = template.waba_id
     ? wabaOptions.filter((option) => option.waba_id === template.waba_id)
@@ -187,39 +201,37 @@ export function TemplateDetailPage() {
               Submit to Meta
             </Button>
           ) : null}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline">
-                <MoreHorizontal className="mr-2 h-4 w-4" />
-                Actions
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>Template actions</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => navigate(`/templates/${template.id}`)}>
-                <Eye className="mr-2 h-4 w-4" />
-                View details
-              </DropdownMenuItem>
-              {actions.includes('sync') ? (
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setSyncWabaId(defaultWabaId);
-                    setSyncOpen(true);
-                  }}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Sync WABA templates
-                </DropdownMenuItem>
-              ) : null}
-              {actions.includes('delete') ? (
-                <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete template
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {actions.some((action) => action !== 'view') ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <MoreHorizontal className="mr-2 h-4 w-4" />
+                  Actions
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Template actions</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {actions.includes('sync') ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setSyncWabaId(defaultWabaId);
+                      setSyncOpen(true);
+                    }}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Sync WABA templates
+                  </DropdownMenuItem>
+                ) : null}
+                {actions.includes('delete') ? (
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete template
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
       </div>
 

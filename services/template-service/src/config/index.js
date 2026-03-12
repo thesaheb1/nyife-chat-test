@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
+const { resolveFrontendAppUrl } = require('@nyife/shared-utils');
 
 dotenv.config();
 
@@ -55,6 +56,6 @@ module.exports = {
   whatsappServiceUrl: process.env.WHATSAPP_SERVICE_URL || 'http://localhost:3009',
   mediaServiceUrl: process.env.MEDIA_SERVICE_URL || 'http://localhost:3017',
   publicApiBaseUrl: process.env.PUBLIC_API_BASE_URL || process.env.API_BASE_URL || 'http://localhost:3000',
-  frontendBaseUrl: process.env.FRONTEND_APP_URL || process.env.FRONTEND_URL || 'http://localhost:5173',
+  frontendBaseUrl: resolveFrontendAppUrl(process.env),
   templateCacheTtl: 300, // 5 minutes in seconds
 };

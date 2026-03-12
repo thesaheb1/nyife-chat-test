@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -29,12 +28,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useRoles, useCreateRole, useUpdateRole, useDeleteRole } from './useSubAdmins';
 import type { AdminRole } from '../types';
 import { toast } from 'sonner';
-
-const ADMIN_RESOURCES = [
-  'users', 'dashboard', 'plans', 'coupons', 'support',
-  'sub_admins', 'notifications', 'settings', 'analytics', 'email',
-];
-const CRUD_OPS = ['create', 'read', 'update', 'delete'] as const;
+import {
+  ADMIN_ASSIGNABLE_RESOURCE_DEFINITIONS,
+  buildPermissionMap,
+  normalizePermissionMap,
+} from '@/core/permissions/catalog';
+import { PermissionMatrix } from '@/shared/components/PermissionMatrix';
 
 export function RoleManagementPage() {
   const { t } = useTranslation();
@@ -47,49 +46,34 @@ export function RoleManagementPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [formTitle, setFormTitle] = useState('');
-  const [formPerms, setFormPerms] = useState<Record<string, Record<string, boolean>>>({});
-
-  const initPerms = (role?: AdminRole) => {
-    const perms: Record<string, Record<string, boolean>> = {};
-    ADMIN_RESOURCES.forEach((res) => {
-      perms[res] = {};
-      CRUD_OPS.forEach((op) => {
-        perms[res][op] = role?.permissions?.resources?.[res]?.[op] ?? false;
-      });
-    });
-    return perms;
-  };
+  const [formPerms, setFormPerms] = useState(buildPermissionMap(ADMIN_ASSIGNABLE_RESOURCE_DEFINITIONS.map((resource) => resource.key), false));
 
   const openCreate = () => {
     setFormTitle('');
-    setFormPerms(initPerms());
+    setFormPerms(buildPermissionMap(ADMIN_ASSIGNABLE_RESOURCE_DEFINITIONS.map((resource) => resource.key), false));
     setShowCreate(true);
     setEditRole(null);
   };
 
   const openEdit = (role: AdminRole) => {
     setFormTitle(role.title);
-    setFormPerms(initPerms(role));
+    setFormPerms(normalizePermissionMap(role.permissions, ADMIN_ASSIGNABLE_RESOURCE_DEFINITIONS));
     setEditRole(role);
     setShowCreate(true);
   };
 
-  const togglePerm = (resource: string, op: string) => {
-    setFormPerms((prev) => ({
-      ...prev,
-      [resource]: { ...prev[resource], [op]: !prev[resource][op] },
-    }));
-  };
-
   const handleSave = async () => {
     if (!formTitle.trim()) return;
-    const permissions = { resources: formPerms };
     try {
       if (editRole) {
-        await updateRole.mutateAsync({ id: editRole.id, title: formTitle, permissions });
+        await updateRole.mutateAsync({
+          id: editRole.id,
+          title: formTitle,
+          ...(editRole.is_system ? {} : { permissions: formPerms }),
+        });
         toast.success('Role updated');
       } else {
-        await createRole.mutateAsync({ title: formTitle, permissions });
+        await createRole.mutateAsync({ title: formTitle, permissions: formPerms });
         toast.success('Role created');
       }
       setShowCreate(false);
@@ -183,34 +167,18 @@ export function RoleManagementPage() {
             <div>
               <Label className="mb-2 block">{t('admin.roles.permissions')}</Label>
               <div className="rounded-md border overflow-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="p-2 text-left font-medium">{t('admin.roles.resource')}</th>
-                      {CRUD_OPS.map((op) => (
-                        <th key={op} className="p-2 text-center font-medium capitalize w-20">
-                          {op}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ADMIN_RESOURCES.map((res) => (
-                      <tr key={res} className="border-b">
-                        <td className="p-2 capitalize">{res.replace(/_/g, ' ')}</td>
-                        {CRUD_OPS.map((op) => (
-                          <td key={op} className="p-2 text-center">
-                            <Checkbox
-                              checked={formPerms[res]?.[op] ?? false}
-                              onCheckedChange={() => togglePerm(res, op)}
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <PermissionMatrix
+                  definitions={ADMIN_ASSIGNABLE_RESOURCE_DEFINITIONS}
+                  value={formPerms}
+                  onChange={setFormPerms}
+                  disabled={Boolean(editRole?.is_system)}
+                />
               </div>
+              {editRole?.is_system ? (
+                <p className="text-xs text-muted-foreground">
+                  System roles keep their permissions fixed. Only the title can be updated.
+                </p>
+              ) : null}
             </div>
           </div>
           <DialogFooter>

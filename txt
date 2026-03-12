@@ -7,7 +7,6 @@ Please review the whole organization implementation and fixed the issue also cur
 
 1. now we must be only add single whatsapp account using embedded signup with single or multiple phone number as per subscription plan.
 
-
 2. now we will create organization with dp, name and description.
 organization architecture is like this:-
 1. we can switch between organizations using organization switcher.
@@ -47,3 +46,31 @@ user can create multple team member account with active subscription plan limit.
 4. update subscription plan table and creation form Ui and remove service and referral conversion input and add Max Organization Limit.
 
 Do a deep review on all the code and create complete plan team member managemet and assignement. ensure that all goal checklist is completed.
+
+
+<!-- as a super admin when i try to create sub admin i got this error : 
+
+{
+    "success": false,
+    "message": "Validation failed",
+    "errors": [
+        {
+            "field": "invited_by_user_id",
+            "message": "AdminInvitation.invited_by_user_id cannot be null"
+        }
+    ],
+    "stack": "SequelizeValidationError: notNull Violation: AdminInvitation.invited_by_user_id cannot be null\n    at InstanceValidator._validate (/app/node_modules/sequelize/lib/instance-validator.js:50:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async InstanceValidator._validateAndRunHooks (/app/node_modules/sequelize/lib/instance-validator.js:60:7)\n    at async InstanceValidator.validate (/app/node_modules/sequelize/lib/instance-validator.js:54:12)\n    at async model.save (/app/node_modules/sequelize/lib/model.js:2426:7)\n    at async AdminInvitation.create (/app/node_modules/sequelize/lib/model.js:1362:12)\n    at async Object.inviteSubAdmin (/app/services/admin-service/src/services/admin.service.js:440:22)\n    at async inviteSubAdmin (/app/services/admin-service/src/controllers/admin.controller.js:45:18)"
+}
+
+this was my payload : 
+
+{"first_name":"sahib","last_name":"hasmi","email":"mdsahibhasmi786@gmail.com","role_id":"e9f21f01-4c3f-4ebc-b18d-89346f8d0d9d"}
+
+this is api with status code response : Request URL
+https://localhost:5173/api/v1/admin/sub-admins/invitations
+Request Method
+POST
+Status Code
+400 Bad Request
+
+ -->

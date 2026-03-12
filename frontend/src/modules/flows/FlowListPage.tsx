@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
 import { getApiErrorMessage } from '@/core/errors/apiError';
+import { usePermissions } from '@/core/hooks/usePermissions';
 import type { WhatsAppFlow } from '@/core/types';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { flowCategories, humanizeFlowCategory } from './flowUtils';
@@ -19,6 +20,7 @@ import { useFlows, useSyncFlows } from './useFlows';
 
 export function FlowListPage() {
   const navigate = useNavigate();
+  const { canOrganization } = usePermissions();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [category, setCategory] = useState('');
@@ -36,6 +38,8 @@ export function FlowListPage() {
     waba_id: wabaId || undefined,
   });
   const syncFlows = useSyncFlows();
+  const canCreateFlows = canOrganization('flows', 'create');
+  const canUpdateFlows = canOrganization('flows', 'update');
 
   const wabaOptions = Array.from(
     new Map(
@@ -96,25 +100,29 @@ export function FlowListPage() {
           <p className="text-sm text-muted-foreground">Create, sync, publish, and track form-style WhatsApp Flows for lead capture, booking, feedback, support, and more.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={async () => {
-            if (!syncWabaId.trim()) {
-              toast.error('Choose a WABA before syncing.');
-              return;
-            }
-            try {
-              const result = await syncFlows.mutateAsync({ waba_id: syncWabaId.trim(), force: forceSync });
-              toast.success(`Synced ${result.synced} flows (${result.created} created, ${result.updated} updated).`);
-            } catch (error) {
-              toast.error(getApiErrorMessage(error, 'Failed to sync flows.'));
-            }
-          }} disabled={syncFlows.isPending}>
-            {syncFlows.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            Sync from Meta
-          </Button>
-          <Button onClick={() => navigate('/flows/create')}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create flow
-          </Button>
+          {canUpdateFlows ? (
+            <Button variant="outline" onClick={async () => {
+              if (!syncWabaId.trim()) {
+                toast.error('Choose a WABA before syncing.');
+                return;
+              }
+              try {
+                const result = await syncFlows.mutateAsync({ waba_id: syncWabaId.trim(), force: forceSync });
+                toast.success(`Synced ${result.synced} flows (${result.created} created, ${result.updated} updated).`);
+              } catch (error) {
+                toast.error(getApiErrorMessage(error, 'Failed to sync flows.'));
+              }
+            }} disabled={syncFlows.isPending}>
+              {syncFlows.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Sync from Meta
+            </Button>
+          ) : null}
+          {canCreateFlows ? (
+            <Button onClick={() => navigate('/flows/create')}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create flow
+            </Button>
+          ) : null}
         </div>
       </div>
 

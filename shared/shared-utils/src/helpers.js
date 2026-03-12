@@ -4,6 +4,15 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const sanitize = require('sanitize-html');
 
+const LOCAL_FRONTEND_FALLBACK_URL = 'https://localhost:5173';
+const LOOPBACK_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '::1',
+  '[::1]',
+]);
+
 /**
  * Generates a new UUID v4 string.
  * @returns {string} A UUID v4 (e.g., "550e8400-e29b-41d4-a716-446655440000")
@@ -79,10 +88,66 @@ const formatCurrency = (amountInPaise, currency = 'INR') => {
   return `${symbol}${amount}`;
 };
 
+function isLoopbackHost(hostname) {
+  return LOOPBACK_HOSTS.has(String(hostname || '').toLowerCase());
+}
+
+function normalizeUrl(value) {
+  return String(value).replace(/\/+$/, '');
+}
+
+function normalizeFrontendUrlCandidate(value, { upgradeLocalHttp = false } = {}) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value);
+    const isLocalViteUrl = isLoopbackHost(parsed.hostname) && (!parsed.port || parsed.port === '5173');
+    if ((upgradeLocalHttp || isLocalViteUrl) && parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname)) {
+      parsed.protocol = 'https:';
+    }
+
+    return normalizeUrl(parsed.toString());
+  } catch {
+    return null;
+  }
+}
+
+function resolveFrontendAppUrl(env = process.env) {
+  const nodeEnv = env.NODE_ENV || 'development';
+  const isDevelopment = nodeEnv === 'development';
+  const publicCandidates = [
+    env.PUBLIC_FRONTEND_URL,
+    env.FRONTEND_PUBLIC_URL,
+  ].filter(Boolean);
+  const appCandidates = [
+    env.FRONTEND_APP_URL,
+    env.FRONTEND_URL,
+    env.APP_URL,
+  ].filter(Boolean);
+  const orderedCandidates = isDevelopment
+    ? [...appCandidates, ...publicCandidates]
+    : [...publicCandidates, ...appCandidates];
+
+  for (const candidate of orderedCandidates) {
+    const normalized = normalizeFrontendUrlCandidate(candidate, {
+      upgradeLocalHttp: isDevelopment,
+    });
+
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return LOCAL_FRONTEND_FALLBACK_URL;
+}
+
 module.exports = {
   generateUUID,
   generateApiToken,
   slugify,
   sanitizeHtml,
   formatCurrency,
+  resolveFrontendAppUrl,
 };

@@ -524,11 +524,16 @@ async function updateTicketStatus(ticketId, status) {
  * @returns {Promise<{tickets: Array, meta: object}>}
  */
 async function getTicketsByUser(userId, filters) {
-  const { page, limit } = filters;
+  const { page, limit, organization_id } = filters;
   const { offset, limit: paginationLimit } = getPagination(page, limit);
+  const where = { user_id: userId };
+
+  if (organization_id) {
+    where.organization_id = organization_id;
+  }
 
   const { rows: tickets, count: total } = await Ticket.findAndCountAll({
-    where: { user_id: userId },
+    where,
     offset,
     limit: paginationLimit,
     order: [['created_at', 'DESC']],

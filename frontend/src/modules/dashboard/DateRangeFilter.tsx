@@ -1,63 +1,128 @@
+import { useState } from 'react';
+import { CalendarIcon, RotateCcw } from 'lucide-react';
+import type { DateRange } from 'react-day-picker';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  DATE_RANGE_PRESETS,
+  formatDateInputValue,
+  getDateRangeLabel,
+  getPresetDateRange,
+  parseDateValue,
+  type DateRangeValue,
+} from '@/shared/utils/dateRange';
 
 interface DateRangeFilterProps {
-  value: { from?: string; to?: string };
-  onChange: (range: { from?: string; to?: string }) => void;
+  value: DateRangeValue;
+  onChange: (range: DateRangeValue) => void;
+}
+
+function toCalendarRange(value: DateRangeValue): DateRange | undefined {
+  const from = parseDateValue(value.from);
+  const to = parseDateValue(value.to);
+
+  if (!from && !to) {
+    return undefined;
+  }
+
+  return { from, to };
+}
+
+function toRangeValue(range?: DateRange): DateRangeValue {
+  return {
+    from: range?.from ? formatDateInputValue(range.from) : undefined,
+    to: range?.to ? formatDateInputValue(range.to) : undefined,
+  };
 }
 
 export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
-  const presets = [
-    { label: '7d', days: 7 },
-    { label: '30d', days: 30 },
-    { label: '90d', days: 90 },
-  ];
+  const [open, setOpen] = useState(false);
 
-  const setPreset = (days: number) => {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - days);
-    onChange({
-      from: from.toISOString().split('T')[0],
-      to: to.toISOString().split('T')[0],
-    });
+  const handleSelect = (range?: DateRange) => {
+    const nextValue = toRangeValue(range);
+    onChange(nextValue);
+
+    if (range?.from && range?.to) {
+      setOpen(false);
+    }
+  };
+
+  const handlePreset = (presetKey: (typeof DATE_RANGE_PRESETS)[number]['key']) => {
+    onChange(getPresetDateRange(presetKey));
+    setOpen(false);
   };
 
   const clearFilter = () => {
     onChange({});
+    setOpen(false);
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {presets.map((p) => (
-        <Button
-          key={p.label}
-          variant="outline"
-          size="sm"
-          onClick={() => setPreset(p.days)}
-          className="text-xs"
-        >
-          {p.label}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="w-full justify-start text-left sm:w-[280px]">
+          <CalendarIcon className="h-4 w-4" />
+          <span className="truncate">{getDateRangeLabel(value, 'Select date range')}</span>
         </Button>
-      ))}
-      <Input
-        type="date"
-        value={value.from ?? ''}
-        onChange={(e) => onChange({ ...value, from: e.target.value || undefined })}
-        className="h-8 w-auto text-xs"
-      />
-      <span className="text-xs text-muted-foreground">to</span>
-      <Input
-        type="date"
-        value={value.to ?? ''}
-        onChange={(e) => onChange({ ...value, to: e.target.value || undefined })}
-        className="h-8 w-auto text-xs"
-      />
-      {(value.from || value.to) && (
-        <Button variant="ghost" size="sm" onClick={clearFilter} className="text-xs">
-          Clear
-        </Button>
-      )}
-    </div>
+      </PopoverTrigger>
+
+      <PopoverContent className="w-auto p-0" align="start">
+        <div className="flex flex-col gap-4 p-4">
+          <PopoverHeader className="gap-0">
+            <PopoverTitle>Date range</PopoverTitle>
+            <PopoverDescription>
+              Use a preset or pick a custom range from the calendar.
+            </PopoverDescription>
+          </PopoverHeader>
+
+          <div className="grid grid-cols-2 gap-2">
+            {DATE_RANGE_PRESETS.map((preset) => (
+              <Button
+                key={preset.key}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handlePreset(preset.key)}
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+
+          <div className="rounded-lg border">
+            <Calendar
+              mode="range"
+              defaultMonth={parseDateValue(value.from) || new Date()}
+              selected={toCalendarRange(value)}
+              onSelect={handleSelect}
+              numberOfMonths={2}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">
+              {value.from || value.to
+                ? getDateRangeLabel(value)
+                : 'No range selected'}
+            </div>
+
+            {(value.from || value.to) ? (
+              <Button type="button" variant="ghost" size="sm" onClick={clearFilter}>
+                <RotateCcw className="h-4 w-4" />
+                Clear
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

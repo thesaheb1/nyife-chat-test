@@ -20,6 +20,8 @@ const {
 const {
   generateUUID,
   generateApiToken,
+  generateInvitationToken,
+  calculateInvitationExpiry,
   slugify,
   sanitizeHtml,
   formatCurrency,
@@ -78,6 +80,8 @@ module.exports = {
   // Helpers
   generateUUID,
   generateApiToken,
+  generateInvitationToken,
+  calculateInvitationExpiry,
   slugify,
   sanitizeHtml,
   formatCurrency,

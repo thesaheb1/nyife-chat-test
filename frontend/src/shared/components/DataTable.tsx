@@ -145,7 +145,14 @@ export function DataTable<TData>({
                   key={row.id}
                   data-state={row.getIsSelected() && 'selected'}
                   className={onRowClick ? 'cursor-pointer hover:bg-muted/50' : undefined}
-                  onClick={() => onRowClick?.(row.original)}
+                  onClick={(event) => {
+                    const target = event.target as HTMLElement | null;
+                    if (target?.closest('[data-row-click-ignore="true"]')) {
+                      return;
+                    }
+
+                    onRowClick?.(row.original);
+                  }}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>

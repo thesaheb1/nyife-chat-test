@@ -20,6 +20,7 @@ const listTicketsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   status: z.enum(['open', 'in_progress', 'waiting_on_user', 'resolved', 'closed']).optional(),
   category: z.enum(['billing', 'technical', 'account', 'whatsapp', 'other']).optional(),
+  organization_id: z.string().uuid().optional(),
 });
 
 // ────────────────────────────────────────────────

@@ -68,17 +68,46 @@ const createUserSchema = z.object({
   email: z.string().email('Invalid email format'),
   phone: z.string().min(10).max(20).optional(),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
-  role: z.enum(['user', 'admin']).default('user'),
   status: z.enum(['active', 'inactive', 'suspended']).default('active'),
 });
+
+const inviteUserSchema = z.object({
+  first_name: z.string().min(1, 'First name is required').max(100),
+  last_name: z.string().min(1, 'Last name is required').max(100),
+  email: z.string().email('Invalid email format'),
+  phone: z.string().min(10).max(20).optional(),
+});
+
+const updateUserSchema = z
+  .object({
+    first_name: z.string().min(1, 'First name is required').max(100).optional(),
+    last_name: z.string().min(1, 'Last name is required').max(100).optional(),
+    email: z.string().email('Invalid email format').optional(),
+    phone: z.string().min(10).max(20).nullable().optional(),
+    avatar_url: z.string().url('Invalid avatar URL').nullable().optional(),
+    remove_avatar: z.boolean().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field is required',
+  });
 
 const updateUserStatusSchema = z.object({
   status: z.enum(['active', 'inactive', 'suspended']),
 });
 
+const userDashboardQuerySchema = z.object({
+  organization_id: z.string().uuid('Invalid organization ID').optional(),
+});
+
 const walletActionSchema = z.object({
   amount: z.number().int().positive('Amount must be a positive integer'),
   remarks: z.string().min(1, 'Remarks are required').max(500),
+  organization_id: z.string().uuid('Invalid organization ID').optional(),
+});
+
+const scopedHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
   organization_id: z.string().uuid('Invalid organization ID').optional(),
 });
 
@@ -218,14 +247,27 @@ const acceptAdminInvitationSchema = z.object({
   password: z.string().min(8).max(128).optional(),
 });
 
+const validateUserInvitationSchema = z.object({
+  token: z.string().min(1, 'Invitation token is required'),
+});
+
+const acceptUserInvitationSchema = z.object({
+  token: z.string().min(1, 'Invitation token is required'),
+  password: z.string().min(8).max(128),
+});
+
 module.exports = {
   createSubAdminSchema,
   inviteSubAdminSchema,
   updateSubAdminSchema,
   listUsersSchema,
   createUserSchema,
+  inviteUserSchema,
+  updateUserSchema,
   updateUserStatusSchema,
+  userDashboardQuerySchema,
   walletActionSchema,
+  scopedHistoryQuerySchema,
   createPlanSchema,
   updatePlanSchema,
   planStatusSchema,
@@ -240,4 +282,6 @@ module.exports = {
   paginationSchema,
   validateAdminInvitationSchema,
   acceptAdminInvitationSchema,
+  validateUserInvitationSchema,
+  acceptUserInvitationSchema,
 };

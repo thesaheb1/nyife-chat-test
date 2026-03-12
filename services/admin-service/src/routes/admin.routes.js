@@ -6,12 +6,16 @@ const router = express.Router();
 const { asyncHandler, authenticateOptional } = require('@nyife/shared-middleware');
 const ctrl = require('../controllers/admin.controller');
 const { adminRbac, superAdminOnly } = require('../middlewares/adminRbac');
+const { avatarUpload } = require('../middlewares/upload');
 
 // ===========================================================================
 // Public invitation routes
 // ===========================================================================
 router.get('/invitations/validate', asyncHandler(ctrl.validateAdminInvitation));
 router.post('/invitations/accept', authenticateOptional, asyncHandler(ctrl.acceptAdminInvitation));
+router.get('/users/invitations/validate', asyncHandler(ctrl.validateUserInvitation));
+router.post('/users/invitations/accept', asyncHandler(ctrl.acceptUserInvitation));
+router.get('/users/avatar/:id', asyncHandler(ctrl.streamUserAvatar));
 
 // ===========================================================================
 // Authenticated authorization bootstrap
@@ -42,10 +46,19 @@ router.delete('/roles/:id', superAdminOnly, asyncHandler(ctrl.deleteRole));
 // Users (admin RBAC: users resource)
 // ===========================================================================
 router.get('/users', adminRbac('users', 'read'), asyncHandler(ctrl.listUsers));
-router.get('/users/:id', adminRbac('users', 'read'), asyncHandler(ctrl.getUser));
 router.post('/users', adminRbac('users', 'create'), asyncHandler(ctrl.createUser));
+router.get('/users/invitations', adminRbac('users', 'read'), asyncHandler(ctrl.listUserInvitations));
+router.post('/users/invitations', adminRbac('users', 'create'), asyncHandler(ctrl.inviteUser));
+router.post('/users/invitations/:id/resend', adminRbac('users', 'create'), asyncHandler(ctrl.resendUserInvitation));
+router.delete('/users/invitations/:id', adminRbac('users', 'delete'), asyncHandler(ctrl.revokeUserInvitation));
+router.get('/users/:id/dashboard', adminRbac('users', 'read'), asyncHandler(ctrl.getUserDashboard));
+router.get('/users/:id/team-members', adminRbac('users', 'read'), asyncHandler(ctrl.getUserTeamMembers));
+router.get('/users/:id', adminRbac('users', 'read'), asyncHandler(ctrl.getUser));
+router.put('/users/:id', adminRbac('users', 'update'), asyncHandler(ctrl.updateUser));
 router.put('/users/:id/status', adminRbac('users', 'update'), asyncHandler(ctrl.updateUserStatus));
 router.delete('/users/:id', adminRbac('users', 'delete'), asyncHandler(ctrl.deleteUser));
+router.post('/users/:id/avatar', adminRbac('users', 'update'), avatarUpload.single('file'), asyncHandler(ctrl.uploadUserAvatar));
+router.delete('/users/:id/avatar', adminRbac('users', 'update'), asyncHandler(ctrl.removeUserAvatar));
 router.post('/users/:id/wallet/credit', adminRbac('users', 'update'), asyncHandler(ctrl.creditWallet));
 router.post('/users/:id/wallet/debit', adminRbac('users', 'update'), asyncHandler(ctrl.debitWallet));
 router.get('/users/:id/transactions', adminRbac('users', 'read'), asyncHandler(ctrl.getUserTransactions));

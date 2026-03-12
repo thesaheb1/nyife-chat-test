@@ -1,0 +1,28 @@
+// USER MDOULE ON DASHBOARD
+
+// Now we will work on admin panel to make admin panel flexible, dynamic and easy to use.
+// so it must manage most of the user's and site module's such as users, teams, organizations, support and etc.
+// you have to read complete requirements cross with implemented functionality in codebases.
+// create list of module 's, their functionality and new requirements with check list so we can verification it after work done if anything is remain we will work again.
+// if any new requirements required major changes then discuss with me first before implementation.
+
+// First let's work on user module in admin panel. 
+
+// REQUIREMENTS:
+// 1. currently in admin panel there is user module where we are listing users in table with with name, email, role, status, plan, wallet, joined date and actions.
+// now please add phone number column also in user table and add following options in action dropdown
+// 1. view details(complete user dashboard by selecting organization(by default first org selected) which so these data such as wallet, plans, team members, analytics, support tickets and etc.)
+// 2. create user(two way invite by email or default password.exactly same flow like team member and subadmin account creations)
+// 3. edit user(name, email, phone number, dp with validation)
+// 4. update status.
+//     5. view Plan from particular organization. (active plan overview, history with transactions detail)
+// 6. View wallet from particular organization. (credit / debit amount in wallet, history with transactions detail)
+// 7. view organizations
+// 8. view team members from particular organization
+// 9. delete user(only when wallet is 0 and no active subscription plan in any organization).
+// 2. advance search by name, email, phone number, organizations, team members name, email, phone number.
+// 3. filter by status.plans and date range. 
+
+
+
+

@@ -58,6 +58,7 @@ const AdminDashboardPage = lazy(() => import('@/modules/admin/dashboard/AdminDas
 const AdminUserListPage = lazy(() => import('@/modules/admin/users/UserListPage').then(m => ({ default: m.UserListPage })));
 const CreateUserPage = lazy(() => import('@/modules/admin/users/CreateUserPage').then(m => ({ default: m.CreateUserPage })));
 const AdminUserDetailPage = lazy(() => import('@/modules/admin/users/UserDetailPage').then(m => ({ default: m.UserDetailPage })));
+const AcceptUserInvitationPage = lazy(() => import('@/modules/admin/users/AcceptUserInvitationPage').then(m => ({ default: m.AcceptUserInvitationPage })));
 const PlanListPage = lazy(() => import('@/modules/admin/plans/PlanListPage').then(m => ({ default: m.PlanListPage })));
 const CouponsPage = lazy(() => import('@/modules/admin/plans/CouponsPage').then(m => ({ default: m.CouponsPage })));
 const AdminTicketListPage = lazy(() => import('@/modules/admin/support/AdminTicketListPage').then(m => ({ default: m.AdminTicketListPage })));
@@ -157,6 +158,10 @@ export const router = createBrowserRouter([
   {
     path: '/organizations/invitations/accept',
     element: lazyElement(AcceptInvitationPage),
+  },
+  {
+    path: '/users/invitations/accept',
+    element: lazyElement(AcceptUserInvitationPage),
   },
   {
     path: '/admin/invitations/accept',

@@ -30,6 +30,27 @@ const generateApiToken = () => {
 };
 
 /**
+ * Generates a cryptographically secure invitation token.
+ *
+ * @param {number} sizeInBytes
+ * @returns {string}
+ */
+const generateInvitationToken = (sizeInBytes = 32) => {
+  return crypto.randomBytes(sizeInBytes).toString('hex');
+};
+
+/**
+ * Calculates an invitation expiry date from now.
+ *
+ * @param {number} ttlDays
+ * @param {Date} now
+ * @returns {Date}
+ */
+const calculateInvitationExpiry = (ttlDays = 7, now = new Date()) => {
+  return new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000);
+};
+
+/**
  * Converts a string into a URL-friendly slug.
  * - Converts to lowercase
  * - Trims whitespace
@@ -146,6 +167,8 @@ function resolveFrontendAppUrl(env = process.env) {
 module.exports = {
   generateUUID,
   generateApiToken,
+  generateInvitationToken,
+  calculateInvitationExpiry,
   slugify,
   sanitizeHtml,
   formatCurrency,

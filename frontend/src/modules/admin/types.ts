@@ -1,7 +1,13 @@
-import type { User, Plan, Subscription, Transaction, Invoice, SupportTicket, TicketReply, Permissions } from '@/core/types';
+import type {
+  User,
+  Plan,
+  SupportTicket,
+  TicketReply,
+  Permissions,
+} from '@/core/types';
 
 // Re-export commonly used types
-export type { User, Plan, Subscription, Transaction, Invoice, SupportTicket, TicketReply, Permissions };
+export type { User, Plan, SupportTicket, TicketReply, Permissions };
 
 // Admin Dashboard
 export interface AdminDashboardData {
@@ -139,10 +145,125 @@ export interface BroadcastNotification {
   created_at: string;
 }
 
-// Extended user detail from admin
-export interface AdminUserDetail extends User {
+export interface AdminUserListItem extends User {
   wallet_balance: number;
   current_plan: string | null;
   subscription_status: string | null;
   organizations_count: number;
+  primary_organization?: AdminUserOrganization | null;
 }
+
+export interface AdminUserOrganization {
+  id: string;
+  user_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  logo_url: string | null;
+  status: 'active' | 'inactive';
+  wallet_balance: number;
+  current_plan: string | null;
+  subscription_status: string | null;
+  team_members_count: number;
+  support_tickets_count?: number;
+  analytics_scope_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminUserInvitation {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone: string | null;
+  invited_by_user_id: string;
+  accepted_user_id: string | null;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  expires_at: string;
+  accepted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminUserDashboard {
+  user: AdminUserListItem;
+  organizations: AdminUserOrganization[];
+  selected_organization: AdminUserOrganization | null;
+  invitation: Record<string, unknown> | null;
+  sections: {
+    support: boolean;
+    analytics: boolean;
+  };
+}
+
+export interface AdminUserTeamMember {
+  id: string;
+  member_user_id: string;
+  role_title: string;
+  status: 'active' | 'inactive' | 'invited';
+  invited_at: string | null;
+  joined_at: string | null;
+  permissions: Permissions;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string | null;
+}
+
+export interface AdminUserTeamMembersResult {
+  organization: AdminUserOrganization | null;
+  team_members: AdminUserTeamMember[];
+}
+
+export interface AdminUserTransaction {
+  id: string;
+  type: 'credit' | 'debit';
+  amount: number;
+  balance_after: number;
+  description: string;
+  reference_id: string | null;
+  reference_type: string | null;
+  created_at: string;
+}
+
+export interface AdminUserSubscriptionRecord {
+  id: string;
+  plan_id: string;
+  status: 'active' | 'expired' | 'cancelled' | 'pending';
+  starts_at: string;
+  expires_at: string | null;
+  created_at: string;
+  plan_name: string | null;
+  plan_type: Plan['type'] | null;
+  plan_price: number | null;
+}
+
+export interface AdminUserInvoiceRecord {
+  id: string;
+  invoice_number: string;
+  type: 'subscription' | 'recharge' | 'message_charges';
+  amount: number;
+  tax_amount: number;
+  total_amount: number;
+  status: 'paid' | 'pending' | 'cancelled';
+  payment_method: string | null;
+  paid_at: string | null;
+  created_at: string;
+}
+
+export interface AdminMetricsSeriesPoint {
+  date: string;
+  value: number;
+}
+
+export interface AdminMetricsResult {
+  data: Record<string, AdminMetricsSeriesPoint[]>;
+  summary: Record<string, number>;
+}
+
+export interface AdminUserSupportTicketsResult {
+  tickets: SupportTicket[];
+}
+
+export interface AdminUserDetail extends AdminUserListItem {}

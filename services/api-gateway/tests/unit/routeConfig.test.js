@@ -19,6 +19,8 @@ describe('routeConfig', () => {
       expect.arrayContaining([
         '/api/v1/admin/invitations/validate',
         '/api/v1/admin/invitations/accept',
+        '/api/v1/admin/users/invitations/validate',
+        '/api/v1/admin/users/invitations/accept',
       ])
     );
   });

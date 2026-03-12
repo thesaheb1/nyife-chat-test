@@ -2,14 +2,19 @@
 
 const { successResponse, errorResponse } = require('@nyife/shared-utils');
 const adminService = require('../services/admin.service');
+const adminUserService = require('../services/adminUser.service');
 const {
   createSubAdminSchema,
   inviteSubAdminSchema,
   updateSubAdminSchema,
   listUsersSchema,
   createUserSchema,
+  inviteUserSchema,
+  updateUserSchema,
   updateUserStatusSchema,
+  userDashboardQuerySchema,
   walletActionSchema,
+  scopedHistoryQuerySchema,
   createPlanSchema,
   updatePlanSchema,
   planStatusSchema,
@@ -24,6 +29,8 @@ const {
   paginationSchema,
   validateAdminInvitationSchema,
   acceptAdminInvitationSchema,
+  validateUserInvitationSchema,
+  acceptUserInvitationSchema,
 } = require('../validations/admin.validation');
 
 function resolveAdminActorId(req) {
@@ -136,6 +143,34 @@ async function getInternalAdminAuthorization(req, res) {
   return successResponse(res, authorization, 'Admin authorization resolved successfully');
 }
 
+async function validateUserInvitation(req, res) {
+  const { token } = validateUserInvitationSchema.parse(req.query);
+  const result = await adminUserService.validateUserInvitation(token);
+  return successResponse(res, result, 'Invitation validated successfully');
+}
+
+async function acceptUserInvitation(req, res) {
+  const data = acceptUserInvitationSchema.parse(req.body);
+  const result = await adminUserService.acceptUserInvitation(data);
+  return successResponse(res, result, 'Invitation accepted successfully');
+}
+
+async function streamUserAvatar(req, res) {
+  const { id } = idParamSchema.parse({ id: req.params.id });
+  const response = await adminUserService.streamUserAvatar(id);
+
+  if (response.headers['content-type']) {
+    res.setHeader('Content-Type', response.headers['content-type']);
+  }
+  if (response.headers['content-length']) {
+    res.setHeader('Content-Length', response.headers['content-length']);
+  }
+  if (response.headers['content-disposition']) {
+    res.setHeader('Content-Disposition', response.headers['content-disposition']);
+  }
+  response.data.pipe(res);
+}
+
 // ===========================================================================
 // USER MANAGEMENT CONTROLLERS
 // ===========================================================================
@@ -146,7 +181,7 @@ async function getInternalAdminAuthorization(req, res) {
  */
 async function listUsers(req, res) {
   const filters = listUsersSchema.parse(req.query);
-  const { data, meta } = await adminService.listUsers(filters);
+  const { data, meta } = await adminUserService.listUsers(filters);
   return successResponse(res, { users: data }, 'Users retrieved successfully', 200, meta);
 }
 
@@ -156,8 +191,43 @@ async function listUsers(req, res) {
  */
 async function getUser(req, res) {
   const { id } = idParamSchema.parse(req.params);
-  const user = await adminService.getUser(id);
+  const user = await adminUserService.getUser(id);
   return successResponse(res, user, 'User retrieved successfully');
+}
+
+async function getUserDashboard(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  const { organization_id } = userDashboardQuerySchema.parse(req.query);
+  const dashboard = await adminUserService.getUserDashboard(
+    id,
+    req.adminUser,
+    organization_id || null
+  );
+  return successResponse(res, dashboard, 'User dashboard retrieved successfully');
+}
+
+async function listUserInvitations(req, res) {
+  const filters = paginationSchema.parse(req.query);
+  const { data, meta } = await adminUserService.listUserInvitations(filters);
+  return successResponse(res, { invitations: data }, 'User invitations retrieved successfully', 200, meta);
+}
+
+async function inviteUser(req, res) {
+  const data = inviteUserSchema.parse(req.body);
+  const result = await adminUserService.inviteUser(data, resolveAdminActorId(req), req.app.locals);
+  return successResponse(res, result, 'User invitation sent successfully', 201);
+}
+
+async function resendUserInvitation(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  const result = await adminUserService.resendUserInvitation(id, resolveAdminActorId(req), req.app.locals);
+  return successResponse(res, result, 'User invitation resent successfully');
+}
+
+async function revokeUserInvitation(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  await adminUserService.revokeUserInvitation(id);
+  return successResponse(res, null, 'User invitation revoked successfully');
 }
 
 /**
@@ -166,8 +236,15 @@ async function getUser(req, res) {
  */
 async function createUser(req, res) {
   const data = createUserSchema.parse(req.body);
-  const result = await adminService.createUser(data);
+  const result = await adminUserService.createUser(data, req.app.locals);
   return successResponse(res, result, 'User created successfully', 201);
+}
+
+async function updateUser(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  const data = updateUserSchema.parse(req.body);
+  const result = await adminUserService.updateUser(id, data, req.app.locals);
+  return successResponse(res, result, 'User updated successfully');
 }
 
 /**
@@ -177,7 +254,7 @@ async function createUser(req, res) {
 async function updateUserStatus(req, res) {
   const { id } = idParamSchema.parse(req.params);
   const { status } = updateUserStatusSchema.parse(req.body);
-  const result = await adminService.updateUserStatus(id, status);
+  const result = await adminUserService.updateUserStatus(id, status, req.app.locals);
   return successResponse(res, result, 'User status updated successfully');
 }
 
@@ -187,7 +264,7 @@ async function updateUserStatus(req, res) {
  */
 async function deleteUser(req, res) {
   const { id } = idParamSchema.parse(req.params);
-  await adminService.deleteUser(id);
+  await adminUserService.deleteUser(id, req.app.locals);
   return successResponse(res, null, 'User deleted successfully');
 }
 
@@ -198,7 +275,7 @@ async function deleteUser(req, res) {
 async function creditWallet(req, res) {
   const { id } = idParamSchema.parse(req.params);
   const { amount, remarks, organization_id } = walletActionSchema.parse(req.body);
-  const result = await adminService.creditWallet(
+  const result = await adminUserService.creditWallet(
     id,
     amount,
     remarks,
@@ -215,7 +292,7 @@ async function creditWallet(req, res) {
 async function debitWallet(req, res) {
   const { id } = idParamSchema.parse(req.params);
   const { amount, remarks, organization_id } = walletActionSchema.parse(req.body);
-  const result = await adminService.debitWallet(
+  const result = await adminUserService.debitWallet(
     id,
     amount,
     remarks,
@@ -231,9 +308,9 @@ async function debitWallet(req, res) {
  */
 async function getUserTransactions(req, res) {
   const { id } = idParamSchema.parse(req.params);
-  const filters = paginationSchema.parse(req.query);
-  const { data, meta } = await adminService.getUserTransactions(id, filters);
-  return successResponse(res, { transactions: data }, 'Transactions retrieved successfully', 200, meta);
+  const filters = scopedHistoryQuerySchema.parse(req.query);
+  const { data, meta, organization } = await adminUserService.getUserTransactions(id, filters);
+  return successResponse(res, { transactions: data, organization }, 'Transactions retrieved successfully', 200, meta);
 }
 
 /**
@@ -242,9 +319,9 @@ async function getUserTransactions(req, res) {
  */
 async function getUserSubscriptions(req, res) {
   const { id } = idParamSchema.parse(req.params);
-  const filters = paginationSchema.parse(req.query);
-  const { data, meta } = await adminService.getUserSubscriptions(id, filters);
-  return successResponse(res, { subscriptions: data }, 'Subscriptions retrieved successfully', 200, meta);
+  const filters = scopedHistoryQuerySchema.parse(req.query);
+  const { data, meta, organization } = await adminUserService.getUserSubscriptions(id, filters);
+  return successResponse(res, { subscriptions: data, organization }, 'Subscriptions retrieved successfully', 200, meta);
 }
 
 /**
@@ -253,9 +330,34 @@ async function getUserSubscriptions(req, res) {
  */
 async function getUserInvoices(req, res) {
   const { id } = idParamSchema.parse(req.params);
-  const filters = paginationSchema.parse(req.query);
-  const { data, meta } = await adminService.getUserInvoices(id, filters);
-  return successResponse(res, { invoices: data }, 'Invoices retrieved successfully', 200, meta);
+  const filters = scopedHistoryQuerySchema.parse(req.query);
+  const { data, meta, organization } = await adminUserService.getUserInvoices(id, filters);
+  return successResponse(res, { invoices: data, organization }, 'Invoices retrieved successfully', 200, meta);
+}
+
+async function getUserTeamMembers(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  const filters = scopedHistoryQuerySchema.parse(req.query);
+  const { data, meta, organization } = await adminUserService.getUserTeamMembers(id, filters);
+  return successResponse(
+    res,
+    { team_members: data, organization },
+    'Team members retrieved successfully',
+    200,
+    meta
+  );
+}
+
+async function uploadUserAvatar(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  const result = await adminUserService.uploadUserAvatar(id, req.file, req.app.locals);
+  return successResponse(res, result, 'Avatar uploaded successfully');
+}
+
+async function removeUserAvatar(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  const result = await adminUserService.removeUserAvatar(id, req.app.locals);
+  return successResponse(res, result, 'Avatar removed successfully');
 }
 
 // ===========================================================================
@@ -513,13 +615,22 @@ module.exports = {
   deleteSubAdmin,
   validateAdminInvitation,
   acceptAdminInvitation,
+  validateUserInvitation,
+  acceptUserInvitation,
+  streamUserAvatar,
   getMyAdminAuthorization,
   getInternalAdminAuthorization,
 
   // Users
   listUsers,
   getUser,
+  getUserDashboard,
+  listUserInvitations,
+  inviteUser,
+  resendUserInvitation,
+  revokeUserInvitation,
   createUser,
+  updateUser,
   updateUserStatus,
   deleteUser,
   creditWallet,
@@ -527,6 +638,9 @@ module.exports = {
   getUserTransactions,
   getUserSubscriptions,
   getUserInvoices,
+  getUserTeamMembers,
+  uploadUserAvatar,
+  removeUserAvatar,
 
   // Plans
   createPlan,

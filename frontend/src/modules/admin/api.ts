@@ -13,12 +13,22 @@ export const ADMIN_ENDPOINTS = {
   USERS: {
     BASE: '/api/v1/admin/users',
     DETAIL: (id: string) => `/api/v1/admin/users/${id}`,
+    DASHBOARD: (id: string) => `/api/v1/admin/users/${id}/dashboard`,
     STATUS: (id: string) => `/api/v1/admin/users/${id}/status`,
+    TEAM_MEMBERS: (id: string) => `/api/v1/admin/users/${id}/team-members`,
+    AVATAR: (id: string) => `/api/v1/admin/users/${id}/avatar`,
     WALLET_CREDIT: (id: string) => `/api/v1/admin/users/${id}/wallet/credit`,
     WALLET_DEBIT: (id: string) => `/api/v1/admin/users/${id}/wallet/debit`,
     TRANSACTIONS: (id: string) => `/api/v1/admin/users/${id}/transactions`,
     SUBSCRIPTIONS: (id: string) => `/api/v1/admin/users/${id}/subscriptions`,
     INVOICES: (id: string) => `/api/v1/admin/users/${id}/invoices`,
+    INVITATIONS: {
+      BASE: '/api/v1/admin/users/invitations',
+      DETAIL: (id: string) => `/api/v1/admin/users/invitations/${id}`,
+      RESEND: (id: string) => `/api/v1/admin/users/invitations/${id}/resend`,
+      VALIDATE: '/api/v1/admin/users/invitations/validate',
+      ACCEPT: '/api/v1/admin/users/invitations/accept',
+    },
   },
 
   PLANS: {

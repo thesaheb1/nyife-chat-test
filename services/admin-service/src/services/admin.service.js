@@ -849,7 +849,7 @@ async function listUsers(filters) {
   }
 
   if (date_to) {
-    whereClauses.push('u.created_at <= :date_to');
+    whereClauses.push('u.created_at < DATE_ADD(:date_to, INTERVAL 1 DAY)');
     replacements.date_to = date_to;
   }
 

@@ -20,5 +20,6 @@ module.exports = {
   walletServiceUrl: process.env.WALLET_SERVICE_URL || 'http://localhost:3004',
   emailServiceUrl: process.env.EMAIL_SERVICE_URL || 'http://localhost:3013',
   notificationServiceUrl: process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3012',
+  mediaServiceUrl: process.env.MEDIA_SERVICE_URL || 'http://localhost:3017',
   frontendUrl: resolveFrontendAppUrl(process.env),
 };

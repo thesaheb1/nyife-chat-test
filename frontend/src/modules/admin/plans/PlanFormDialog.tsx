@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { paiseToRupees } from '@/shared/utils';
 import { useAdminPlan, useCreatePlan, useUpdatePlan } from './useAdminPlans';
 import { createPlanSchema, type CreatePlanFormData } from './validations';
 import { toast } from 'sonner';
@@ -74,7 +75,7 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
         slug: existingPlan.slug,
         description: existingPlan.description ?? '',
         type: existingPlan.type,
-        price: existingPlan.price,
+        price: paiseToRupees(existingPlan.price),
         currency: existingPlan.currency,
         max_contacts: existingPlan.max_contacts,
         max_templates: existingPlan.max_templates,
@@ -84,9 +85,9 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
         max_organizations: existingPlan.max_organizations,
         max_whatsapp_numbers: existingPlan.max_whatsapp_numbers,
         has_priority_support: existingPlan.has_priority_support,
-        marketing_message_price: existingPlan.marketing_message_price,
-        utility_message_price: existingPlan.utility_message_price,
-        auth_message_price: existingPlan.auth_message_price,
+        marketing_message_price: paiseToRupees(existingPlan.marketing_message_price),
+        utility_message_price: paiseToRupees(existingPlan.utility_message_price),
+        auth_message_price: paiseToRupees(existingPlan.auth_message_price),
         sort_order: existingPlan.sort_order,
         is_active: existingPlan.is_active,
       });
@@ -108,10 +109,20 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
     }
   };
 
-  const numField = (name: keyof CreatePlanFormData, label: string) => (
+  const numField = (
+    name: keyof CreatePlanFormData,
+    label: string,
+    options: { min?: string; step?: string } = {}
+  ) => (
     <div className="space-y-1">
       <Label className="text-xs">{label}</Label>
-      <Input type="number" {...register(name, { valueAsNumber: true })} className="h-8" />
+      <Input
+        type="number"
+        min={options.min ?? '1'}
+        step={options.step ?? '1'}
+        {...register(name, { valueAsNumber: true })}
+        className="h-8"
+      />
       {errors[name] && <p className="text-xs text-destructive">{errors[name]?.message}</p>}
     </div>
   );
@@ -141,8 +152,8 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>{t('admin.plans.price')} (paise)</Label>
-                <Input type="number" {...register('price', { valueAsNumber: true })} />
+                <Label>{t('admin.plans.price')} (₹)</Label>
+                <Input type="number" min="0" step="0.01" {...register('price', { valueAsNumber: true })} />
                 {errors.price && <p className="text-xs text-destructive">{errors.price.message}</p>}
               </div>
               <div className="space-y-1">
@@ -169,11 +180,11 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
               {numField('max_whatsapp_numbers', t('admin.plans.maxWhatsappNumbers'))}
             </div>
 
-            <h3 className="text-sm font-semibold pt-2">Message Pricing (paise)</h3>
+            <h3 className="text-sm font-semibold pt-2">Message Pricing (₹)</h3>
             <div className="grid gap-3 sm:grid-cols-3">
-              {numField('marketing_message_price', 'Marketing')}
-              {numField('utility_message_price', 'Utility')}
-              {numField('auth_message_price', 'Authentication')}
+              {numField('marketing_message_price', 'Marketing', { min: '0', step: '0.01' })}
+              {numField('utility_message_price', 'Utility', { min: '0', step: '0.01' })}
+              {numField('auth_message_price', 'Authentication', { min: '0', step: '0.01' })}
             </div>
 
             <div className="flex items-center gap-4 pt-2">

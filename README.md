@@ -42,10 +42,10 @@ npm install
 docker-compose up -d --build
 
 # Services are behind Nginx reverse proxy:
-# API:       http://localhost/api/v1/...
-# Frontend:  http://localhost/
-# WebSocket: http://localhost/socket.io/
-# API Docs:  http://localhost/api-docs
+# API:       http://localhost:3000/api/v1/...
+# Frontend:  http://localhost:3000/
+# WebSocket: http://localhost:3000/socket.io/
+# API Docs:  http://localhost:3000/api-docs
 ```
 
 ### 3. Start for development
@@ -60,11 +60,11 @@ npm run stack:up:build
 # Run all migrations
 npm run migrate:all
 
-
 # Seed local test user and admin accounts
 # Requires AUTH_TEST_PASSWORD in .env
 (cd services/auth-service && npx sequelize-cli db:seed --seed src/seeders/20260309120000-seed-auth-manual-test-accounts.js)
 (cd services/admin-service && npx sequelize-cli db:seed --seed src/seeders/20240101000001-seed-admin-defaults.js)
+
 
 # Optional: create Kafka topics explicitly
 npm run kafka:setup

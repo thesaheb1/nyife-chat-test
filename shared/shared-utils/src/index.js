@@ -25,6 +25,9 @@ const {
   slugify,
   sanitizeHtml,
   formatCurrency,
+  isValidRupeeAmount,
+  rupeesToPaise,
+  paiseToRupees,
   resolveFrontendAppUrl,
 } = require('./helpers');
 const {
@@ -85,6 +88,9 @@ module.exports = {
   slugify,
   sanitizeHtml,
   formatCurrency,
+  isValidRupeeAmount,
+  rupeesToPaise,
+  paiseToRupees,
   resolveFrontendAppUrl,
 
   // Permissions

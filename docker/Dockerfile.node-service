@@ -29,7 +29,8 @@ RUN mkdir -p /app/uploads && chown -R nyife:nyife /app
 
 USER nyife
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    SERVICE_PORT=${SERVICE_PORT}
 
 EXPOSE ${SERVICE_PORT}
 

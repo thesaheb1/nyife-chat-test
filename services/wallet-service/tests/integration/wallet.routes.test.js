@@ -20,6 +20,8 @@ jest.mock('@nyife/shared-middleware', () => {
       req.user = { id: 'test-user-uuid', email: 'user@example.com', role: 'user' };
       next();
     },
+    organizationResolver: (req, res, next) => next(),
+    rbac: () => (req, res, next) => next(),
     asyncHandler: (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next),
     errorHandler: (err, req, res, _next) => {
       if (err.name === 'ZodError') {
@@ -41,6 +43,13 @@ jest.mock('../../src/config', () => ({
   razorpayKeyId: 'rzp_test_key',
   razorpayKeySecret: 'test_secret',
 }));
+jest.mock('razorpay', () => {
+  const mockOrders = {
+    create: jest.fn(),
+    fetch: jest.fn(),
+  };
+  return jest.fn().mockImplementation(() => ({ orders: mockOrders }));
+}, { virtual: true });
 jest.mock('@nyife/shared-utils', () => {
   class AppError extends Error {
     constructor(message, statusCode) {
@@ -54,6 +63,13 @@ jest.mock('@nyife/shared-utils', () => {
   }
   return {
     AppError,
+    isValidRupeeAmount: jest.fn((amount, options = {}) => {
+      const allowZero = options.allowZero !== false;
+      if (!Number.isFinite(amount)) return false;
+      if (allowZero ? amount < 0 : amount <= 0) return false;
+      return Math.abs(amount * 100 - Math.round(amount * 100)) < 1e-8;
+    }),
+    rupeesToPaise: jest.fn((amount) => Math.round(amount * 100)),
     successResponse: (res, data, message = 'Success', statusCode = 200, meta = null) => {
       const response = { success: true, message, data };
       if (meta) response.meta = meta;
@@ -98,10 +114,11 @@ describe('POST /api/v1/wallet/recharge', () => {
     const res = await request(app)
       .post('/api/v1/wallet/recharge')
       .set('Authorization', 'Bearer mock')
-      .send({ amount: 10000 });
+      .send({ amount: 100 });
 
     expect(res.status).toBe(201);
     expect(res.body.data.order_id).toBe('order_test');
+    expect(walletService.initiateRecharge).toHaveBeenCalledWith('test-user-uuid', 10000);
   });
 
   it('should return 400 on invalid amount', async () => {

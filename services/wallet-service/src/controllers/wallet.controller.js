@@ -1,7 +1,7 @@
 'use strict';
 
 const walletService = require('../services/wallet.service');
-const { successResponse } = require('@nyife/shared-utils');
+const { successResponse, rupeesToPaise } = require('@nyife/shared-utils');
 const { AppError } = require('@nyife/shared-utils');
 const {
   rechargeSchema,
@@ -29,7 +29,10 @@ async function getBalance(req, res) {
  */
 async function initiateRecharge(req, res) {
   const data = rechargeSchema.parse(req.body);
-  const result = await walletService.initiateRecharge(req.organizationId || req.user.id, data.amount);
+  const result = await walletService.initiateRecharge(
+    req.organizationId || req.user.id,
+    rupeesToPaise(data.amount, { allowZero: false })
+  );
   return successResponse(res, result, 'Recharge order created', 201);
 }
 
@@ -93,6 +96,7 @@ async function debit(req, res) {
     data.description,
     req.app.locals.redis,
     req.app.locals.kafkaProducer,
+    data.idempotency_key || null,
     data.meta || null
   );
   return successResponse(res, result, 'Wallet debited successfully');
@@ -114,6 +118,7 @@ async function credit(req, res) {
     data.remarks || null,
     req.app.locals.kafkaProducer,
     req.app.locals.redis,
+    data.idempotency_key || null,
     data.meta || null
   );
   return successResponse(res, result, 'Wallet credited successfully');

@@ -1,6 +1,7 @@
 'use strict';
 
 const { z } = require('zod');
+const { isValidRupeeAmount } = require('@nyife/shared-utils');
 
 const TRANSACTION_SOURCES = [
   'recharge',
@@ -15,10 +16,17 @@ const TRANSACTION_SOURCES = [
 
 /**
  * Schema for initiating a wallet recharge.
- * Amount is in paise (minimum 10000 = 100 INR).
+ * Amount is in rupees (minimum 100 INR).
  */
 const rechargeSchema = z.object({
-  amount: z.number().int('Amount must be a whole number').min(10000, 'Minimum recharge is \u20B9100'),
+  amount: z
+    .number({ invalid_type_error: 'Amount must be a number' })
+    .finite('Amount must be a valid number')
+    .min(100, 'Minimum recharge is ₹100')
+    .positive('Amount must be greater than 0')
+    .refine((value) => isValidRupeeAmount(value, { allowZero: false }), {
+      message: 'Amount can have at most 2 decimal places',
+    }),
 });
 
 /**
@@ -41,6 +49,7 @@ const debitSchema = z.object({
   }),
   reference_type: z.string().max(50).optional(),
   reference_id: z.string().max(100).optional(),
+  idempotency_key: z.string().max(191).optional(),
   description: z.string().min(1, 'Description is required'),
   meta: z.record(z.any()).optional(),
 });
@@ -54,6 +63,7 @@ const creditSchema = z.object({
   description: z.string().min(1, 'Description is required'),
   reference_type: z.string().max(50).optional(),
   reference_id: z.string().max(100).optional(),
+  idempotency_key: z.string().max(191).optional(),
   remarks: z.string().max(1000).optional(),
   meta: z.record(z.any()).optional(),
 });

@@ -7,6 +7,7 @@ const {
   changePlanSchema,
   verifyPaymentSchema,
   cancelSchema,
+  autoRenewSchema,
   validateCouponSchema,
   checkLimitParamsSchema,
   internalSubscriptionParamsSchema,
@@ -26,19 +27,28 @@ async function getPlanBySlug(req, res) {
 
 async function subscribe(req, res) {
   const data = subscribeSchema.parse(req.body);
-  const result = await subscriptionService.subscribe(req.organizationId || req.user.id, data);
+  const result = await subscriptionService.subscribe(req.organizationId || req.user.id, data, {
+    redis: req.app.locals.redis || null,
+    kafkaProducer: req.app.locals.kafkaProducer || null,
+  });
   return successResponse(res, result, result.payment_required ? 'Payment order created' : 'Subscription activated', 201);
 }
 
 async function changePlan(req, res) {
   const data = changePlanSchema.parse(req.body);
-  const result = await subscriptionService.changePlan(req.organizationId || req.user.id, data);
+  const result = await subscriptionService.changePlan(req.organizationId || req.user.id, data, {
+    redis: req.app.locals.redis || null,
+    kafkaProducer: req.app.locals.kafkaProducer || null,
+  });
   return successResponse(res, result, result.payment_required ? 'Payment order created for plan change' : 'Plan changed successfully', 201);
 }
 
 async function verifyPayment(req, res) {
   const data = verifyPaymentSchema.parse(req.body);
-  const subscription = await subscriptionService.verifyPayment(req.organizationId || req.user.id, data);
+  const subscription = await subscriptionService.verifyPayment(req.organizationId || req.user.id, data, {
+    redis: req.app.locals.redis || null,
+    kafkaProducer: req.app.locals.kafkaProducer || null,
+  });
   return successResponse(res, { subscription }, 'Payment verified and subscription activated');
 }
 
@@ -61,6 +71,12 @@ async function cancelSubscription(req, res) {
   const { reason } = cancelSchema.parse(req.body);
   const subscription = await subscriptionService.cancelSubscription(req.organizationId || req.user.id, reason);
   return successResponse(res, { subscription }, 'Subscription cancelled successfully');
+}
+
+async function updateAutoRenew(req, res) {
+  const { enabled } = autoRenewSchema.parse(req.body);
+  const subscription = await subscriptionService.updateAutoRenew(req.organizationId || req.user.id, enabled);
+  return successResponse(res, { subscription }, enabled ? 'Auto-pay enabled successfully' : 'Auto-pay disabled successfully');
 }
 
 async function validateCoupon(req, res) {
@@ -97,6 +113,7 @@ module.exports = {
   verifyPayment,
   getCurrentSubscription,
   cancelSubscription,
+  updateAutoRenew,
   validateCoupon,
   getHistory,
   checkLimit,

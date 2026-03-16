@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DataTable } from '@/shared/components/DataTable';
 import { formatCurrency } from '@/shared/utils/formatters';
 import { loadRazorpayCheckout, unloadRazorpayCheckout } from '@/shared/utils/loadRazorpayCheckout';
+import { isValidRupeeAmount } from '@/shared/utils';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import type { Wallet, Transaction, Invoice, ApiResponse, PaginationMeta } from '@/core/types';
@@ -71,12 +72,20 @@ export function WalletPage() {
   const txMeta = txData?.meta;
   const invoices = invData?.data ?? [];
   const invMeta = invData?.meta;
+  const rechargeAmount = Number(amount);
+  const isRechargeAmountValid =
+    amount.trim().length > 0 &&
+    Number.isFinite(rechargeAmount) &&
+    isValidRupeeAmount(rechargeAmount, { allowZero: false }) &&
+    rechargeAmount >= 100;
 
   const initiateRecharge = useMutation({
     mutationFn: async () => {
-      const paise = Math.round(parseFloat(amount) * 100);
-      if (paise < 10000) throw new Error('Minimum ₹100');
-      const { data } = await apiClient.post<ApiResponse<{ order_id: string; amount: number; currency: string }>>(ENDPOINTS.WALLET.RECHARGE, { amount: paise });
+      if (!isRechargeAmountValid) throw new Error('Enter a valid amount of at least ₹100');
+      const { data } = await apiClient.post<ApiResponse<{ order_id: string; amount: number; currency: string }>>(
+        ENDPOINTS.WALLET.RECHARGE,
+        { amount: rechargeAmount }
+      );
       return data.data;
     },
     onSuccess: async (order) => {
@@ -198,7 +207,14 @@ export function WalletPage() {
           <DialogHeader><DialogTitle>Recharge Wallet</DialogTitle></DialogHeader>
           <div className="space-y-2">
             <Label>Amount (₹)</Label>
-            <Input type="number" min="100" step="100" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Min ₹100" />
+            <Input
+              type="number"
+              min="100"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Min ₹100"
+            />
           </div>
           <div className="flex gap-2">
             {[500, 1000, 2000, 5000].map((v) => (
@@ -207,7 +223,7 @@ export function WalletPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRechargeOpen(false)}>Cancel</Button>
-            <Button onClick={() => initiateRecharge.mutate()} disabled={initiateRecharge.isPending || !amount || parseFloat(amount) < 100}>
+            <Button onClick={() => initiateRecharge.mutate()} disabled={initiateRecharge.isPending || !isRechargeAmountValid}>
               {initiateRecharge.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Pay ₹{amount || 0}
             </Button>
           </DialogFooter>

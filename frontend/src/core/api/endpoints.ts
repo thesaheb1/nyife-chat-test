@@ -80,6 +80,7 @@ export const ENDPOINTS = {
     CHANGE_PLAN: '/api/v1/subscriptions/change-plan',
     VERIFY_PAYMENT: '/api/v1/subscriptions/verify-payment',
     CURRENT: '/api/v1/subscriptions/current',
+    AUTO_RENEW: '/api/v1/subscriptions/current/auto-renew',
     CANCEL: '/api/v1/subscriptions/cancel',
     VALIDATE_COUPON: '/api/v1/subscriptions/coupons/validate',
     HISTORY: '/api/v1/subscriptions/history',

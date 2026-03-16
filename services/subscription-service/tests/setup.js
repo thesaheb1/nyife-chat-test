@@ -3,8 +3,25 @@
 jest.mock('../src/models', () => ({
   Plan: { findAll: jest.fn(), findOne: jest.fn(), findByPk: jest.fn() },
   Coupon: { findOne: jest.fn(), increment: jest.fn() },
-  Subscription: { findOne: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn(), update: jest.fn(), destroy: jest.fn() },
-  sequelize: { query: jest.fn(), QueryTypes: { UPDATE: 'UPDATE', SELECT: 'SELECT' } },
+  Subscription: {
+    findOne: jest.fn(),
+    findAll: jest.fn(),
+    findAndCountAll: jest.fn(),
+    findByPk: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    destroy: jest.fn(),
+  },
+  SubscriptionRenewalAttempt: {
+    findOne: jest.fn(),
+    findByPk: jest.fn(),
+    create: jest.fn(),
+  },
+  sequelize: {
+    query: jest.fn(),
+    transaction: jest.fn((cb) => cb({ LOCK: { UPDATE: 'UPDATE' } })),
+    QueryTypes: { UPDATE: 'UPDATE', SELECT: 'SELECT' },
+  },
 }));
 
 jest.mock('@nyife/shared-utils', () => {
@@ -31,8 +48,17 @@ jest.mock('@nyife/shared-utils', () => {
 jest.mock('../src/config', () => ({
   tax: { rate: 18, inclusive: false },
   razorpay: { keyId: 'test_key', keySecret: 'test_secret' },
+  walletServiceUrl: 'http://wallet:3004',
+  renewal: {
+    gracePeriodMs: 3 * 24 * 60 * 60 * 1000,
+    retryIntervalMs: 24 * 60 * 60 * 1000,
+    batchSize: 100,
+  },
 }));
 
-jest.mock('razorpay', () => jest.fn().mockImplementation(() => ({ orders: { create: jest.fn() } })));
+jest.mock('razorpay', () => jest.fn().mockImplementation(() => ({ orders: { create: jest.fn() } })), { virtual: true });
 
-beforeEach(() => { jest.clearAllMocks(); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  global.fetch = jest.fn();
+});

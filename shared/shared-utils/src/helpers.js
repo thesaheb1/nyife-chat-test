@@ -5,6 +5,8 @@ const { v4: uuidv4 } = require('uuid');
 const sanitize = require('sanitize-html');
 
 const LOCAL_FRONTEND_FALLBACK_URL = 'https://localhost:5173';
+const MONEY_SCALE = 100;
+const MONEY_EPSILON = 1e-8;
 const LOOPBACK_HOSTS = new Set([
   'localhost',
   '127.0.0.1',
@@ -95,7 +97,7 @@ const sanitizeHtml = (dirty) => {
  * @returns {string} Formatted currency string (e.g., "₹100.00", "$50.25")
  */
 const formatCurrency = (amountInPaise, currency = 'INR') => {
-  const amount = (Number(amountInPaise) / 100).toFixed(2);
+  const amount = (Number(amountInPaise) / MONEY_SCALE).toFixed(2);
 
   const currencySymbols = {
     INR: '\u20B9',
@@ -108,6 +110,51 @@ const formatCurrency = (amountInPaise, currency = 'INR') => {
 
   return `${symbol}${amount}`;
 };
+
+function isValidRupeeAmount(amount, { allowZero = true } = {}) {
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount)) {
+    return false;
+  }
+
+  if (allowZero ? numericAmount < 0 : numericAmount <= 0) {
+    return false;
+  }
+
+  const scaledAmount = numericAmount * MONEY_SCALE;
+  return Math.abs(scaledAmount - Math.round(scaledAmount)) < MONEY_EPSILON;
+}
+
+function rupeesToPaise(amount, { allowZero = true } = {}) {
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount)) {
+    throw new TypeError('Amount must be a finite number');
+  }
+
+  if (allowZero ? numericAmount < 0 : numericAmount <= 0) {
+    throw new RangeError(
+      allowZero ? 'Amount must be zero or greater' : 'Amount must be greater than zero'
+    );
+  }
+
+  const scaledAmount = numericAmount * MONEY_SCALE;
+  const roundedAmount = Math.round(scaledAmount);
+
+  if (Math.abs(scaledAmount - roundedAmount) >= MONEY_EPSILON) {
+    throw new RangeError('Amount can have at most 2 decimal places');
+  }
+
+  return roundedAmount;
+}
+
+function paiseToRupees(amountInPaise) {
+  const numericAmount = Number(amountInPaise);
+  if (!Number.isFinite(numericAmount)) {
+    return 0;
+  }
+
+  return numericAmount / MONEY_SCALE;
+}
 
 function isLoopbackHost(hostname) {
   return LOOPBACK_HOSTS.has(String(hostname || '').toLowerCase());
@@ -172,5 +219,8 @@ module.exports = {
   slugify,
   sanitizeHtml,
   formatCurrency,
+  isValidRupeeAmount,
+  rupeesToPaise,
+  paiseToRupees,
   resolveFrontendAppUrl,
 };

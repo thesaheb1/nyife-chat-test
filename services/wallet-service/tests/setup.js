@@ -10,6 +10,7 @@ jest.mock('../src/models', () => ({
   },
   Transaction: {
     findAndCountAll: jest.fn(),
+    findOne: jest.fn(),
     create: jest.fn(),
   },
   Invoice: {
@@ -28,7 +29,7 @@ jest.mock('razorpay', () => {
     fetch: jest.fn(),
   };
   return jest.fn().mockImplementation(() => ({ orders: mockOrders }));
-});
+}, { virtual: true });
 
 jest.mock('@nyife/shared-utils', () => {
   class AppError extends Error {
@@ -47,6 +48,13 @@ jest.mock('@nyife/shared-utils', () => {
   return {
     AppError,
     generateUUID: jest.fn(() => 'test-uuid-1234'),
+    isValidRupeeAmount: jest.fn((amount, options = {}) => {
+      const allowZero = options.allowZero !== false;
+      if (!Number.isFinite(amount)) return false;
+      if (allowZero ? amount < 0 : amount <= 0) return false;
+      return Math.abs(amount * 100 - Math.round(amount * 100)) < 1e-8;
+    }),
+    rupeesToPaise: jest.fn((amount) => Math.round(amount * 100)),
     getPagination: jest.fn((page, limit) => ({
       offset: ((page || 1) - 1) * (limit || 20),
       limit: limit || 20,

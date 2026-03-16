@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { isValidRupeeAmount } from '@/shared/utils';
 import { optionalPhoneSchema } from '@/shared/utils/phone';
 
 export const directCreateUserSchema = z.object({
@@ -33,7 +34,13 @@ export type UpdateUserFormData = z.infer<typeof updateUserSchema>;
 export type AcceptUserInvitationFormData = z.infer<typeof acceptUserInvitationSchema>;
 
 export const walletActionSchema = z.object({
-  amount: z.number().min(1, 'Amount must be at least 1'),
+  amount: z
+    .number()
+    .finite('Amount must be a valid number')
+    .positive('Amount must be greater than 0')
+    .refine((value) => isValidRupeeAmount(value, { allowZero: false }), {
+      message: 'Amount can have at most 2 decimal places',
+    }),
   remarks: z.string().min(1, 'Remarks are required').max(500),
 });
 

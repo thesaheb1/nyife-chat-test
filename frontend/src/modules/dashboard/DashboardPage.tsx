@@ -13,8 +13,8 @@ import { MessagesChart } from './MessagesChart';
 import { CampaignPieChart } from './CampaignPieChart';
 import { QuickActions } from './QuickActions';
 import { RecentActivity } from './RecentActivity';
+import { DateRangeFilter } from '@/shared/components/DateRangeFilter';
 import { useDashboardData } from './useDashboardData';
-import { DateRangeFilter } from './DateRangeFilter';
 
 export function DashboardPage() {
   const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({});

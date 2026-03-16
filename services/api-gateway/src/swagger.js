@@ -228,7 +228,22 @@ const options = {
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
-            content: { 'application/json': { schema: { type: 'object', properties: { amount: { type: 'integer', minimum: 10000, description: 'Amount in paise' } }, required: ['amount'] } } },
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    amount: {
+                      type: 'number',
+                      minimum: 100,
+                      example: 499.5,
+                      description: 'Amount in rupees',
+                    },
+                  },
+                  required: ['amount'],
+                },
+              },
+            },
           },
           responses: { 201: { description: 'Razorpay order created' } },
         },

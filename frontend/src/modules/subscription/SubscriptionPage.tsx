@@ -4,13 +4,16 @@ import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
+  AlertTriangle,
   ArrowRight,
   CreditCard,
   History,
   Info,
   Loader2,
+  RefreshCcw,
   Receipt,
   ShieldCheck,
+  Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import {
   Sheet,
   SheetContent,
@@ -52,7 +56,9 @@ import {
   useCurrentSubscription,
   useSubscriptionHistory,
   useSubscriptionPlans,
+  useSubscriptionWalletBalance,
   useSubscribePlan,
+  useUpdateSubscriptionAutoRenew,
   useValidateCoupon,
   useVerifySubscriptionPayment,
 } from './useSubscriptions';
@@ -75,6 +81,7 @@ export function SubscriptionPage() {
   const queryClient = useQueryClient();
   const { data: plans, isLoading: plansLoading } = useSubscriptionPlans();
   const { data: current, isLoading: currentLoading } = useCurrentSubscription();
+  const { data: wallet } = useSubscriptionWalletBalance();
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
   const [historyPage, setHistoryPage] = useState(1);
   const { data: historyData, isLoading: historyLoading } = useSubscriptionHistory(historyPage);
@@ -92,10 +99,12 @@ export function SubscriptionPage() {
   const changePlan = useChangePlan();
   const verifyPayment = useVerifySubscriptionPayment();
   const cancelSubscription = useCancelSubscription();
+  const updateAutoRenew = useUpdateSubscriptionAutoRenew();
 
   const isLoading = plansLoading || currentLoading;
   const checkoutBusy = validateCoupon.isPending || subscribePlan.isPending || changePlan.isPending || verifyPayment.isPending;
   const summary = getCheckoutSummary(checkoutPlan, couponResult);
+  const walletCanCoverCheckout = Boolean(checkoutPlan && wallet && wallet.balance >= summary.total);
   const selectedPlanFeatures = checkoutPlan ? getPlanHighlights(checkoutPlan) : [];
 
   const historyColumns = useMemo<ColumnDef<Subscription, unknown>[]>(() => [
@@ -134,6 +143,11 @@ export function SubscriptionPage() {
       cell: ({ row }) => formatDate(row.original.starts_at, { dateStyle: 'medium' }),
     },
     {
+      accessorKey: 'payment_method',
+      header: 'Paid via',
+      cell: ({ row }) => row.original.payment_method ? humanizeKey(row.original.payment_method) : '—',
+    },
+    {
       accessorKey: 'expires_at',
       header: 'Ends',
       cell: ({ row }) => row.original.expires_at ? formatDate(row.original.expires_at, { dateStyle: 'medium' }) : 'Lifetime',
@@ -145,6 +159,7 @@ export function SubscriptionPage() {
       queryClient.invalidateQueries({ queryKey: subscriptionQueryKeys.current() }),
       queryClient.invalidateQueries({ queryKey: ['subscription', 'history'] }),
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['wallet'] }),
     ]);
   };
 
@@ -195,7 +210,15 @@ export function SubscriptionPage() {
 
       if (!result.payment_required) {
         await refreshSubscriptionState();
-        toast.success(checkoutMode === 'change' ? 'Plan changed successfully.' : 'Subscription activated successfully.');
+        toast.success(
+          result.payment_method === 'wallet'
+            ? checkoutMode === 'change'
+              ? 'Plan changed successfully using wallet balance.'
+              : 'Subscription activated successfully using wallet balance.'
+            : checkoutMode === 'change'
+              ? 'Plan changed successfully.'
+              : 'Subscription activated successfully.'
+        );
         setActiveTab('overview');
         closeCheckout();
         return;
@@ -255,6 +278,15 @@ export function SubscriptionPage() {
       setActiveTab('plans');
     } catch (error) {
       toast.error(getPaymentError(error, 'Unable to cancel subscription.'));
+    }
+  };
+
+  const handleAutoRenewChange = async (enabled: boolean) => {
+    try {
+      await updateAutoRenew.mutateAsync(enabled);
+      toast.success(enabled ? 'Auto-pay enabled.' : 'Auto-pay disabled.');
+    } catch (error) {
+      toast.error(getPaymentError(error, 'Unable to update auto-pay.'));
     }
   };
 
@@ -323,7 +355,32 @@ export function SubscriptionPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+              <div className="space-y-6">
+                {current.renewal_state === 'grace_period' && current.grace_expires_at && (
+                  <Card className="border-amber-200 bg-amber-50/60">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        Auto-pay needs wallet top-up
+                      </CardTitle>
+                      <CardDescription>
+                        Your subscription is in a grace period because the wallet balance was not enough for renewal.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-1 text-sm text-muted-foreground">
+                        <p>Grace period ends on {formatDate(current.grace_expires_at, { dateStyle: 'medium', timeStyle: 'short' })}.</p>
+                        {current.last_renewal_error && <p>{current.last_renewal_error}</p>}
+                      </div>
+                      <Button variant="outline" onClick={() => navigate('/wallet')}>
+                        <Wallet className="mr-2 h-4 w-4" />
+                        Recharge wallet
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
                 <Card>
                   <CardHeader className="space-y-4">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -338,11 +395,12 @@ export function SubscriptionPage() {
                         <Badge variant="outline">{current.plan ? humanizeKey(current.plan.type) : 'Plan'}</Badge>
                       </div>
                     </div>
-                    <div className="grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm md:grid-cols-2 xl:grid-cols-4">
+                    <div className="grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm md:grid-cols-2 xl:grid-cols-5">
                       <div><p className="text-muted-foreground">Started</p><p className="mt-1 font-medium">{formatDate(current.starts_at, { dateStyle: 'medium' })}</p></div>
-                      <div><p className="text-muted-foreground">Ends</p><p className="mt-1 font-medium">{current.expires_at ? formatDate(current.expires_at, { dateStyle: 'medium' }) : 'Lifetime'}</p></div>
+                      <div><p className="text-muted-foreground">Next billing</p><p className="mt-1 font-medium">{current.next_billing_at ? formatDate(current.next_billing_at, { dateStyle: 'medium' }) : 'Lifetime'}</p></div>
                       <div><p className="text-muted-foreground">Amount paid</p><p className="mt-1 font-medium">{formatCurrency(current.amount_paid, current.plan?.currency || 'INR')}</p></div>
-                      <div><p className="text-muted-foreground">Auto renew</p><p className="mt-1 font-medium">{current.auto_renew ? 'Enabled' : 'Read-only / off'}</p></div>
+                      <div><p className="text-muted-foreground">Paid via</p><p className="mt-1 font-medium">{current.payment_method ? humanizeKey(current.payment_method) : 'Razorpay'}</p></div>
+                      <div><p className="text-muted-foreground">Renewal state</p><p className="mt-1 font-medium">{humanizeKey(current.renewal_state || 'disabled')}</p></div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-5">
@@ -351,6 +409,32 @@ export function SubscriptionPage() {
                       <MetricCard title="Tax" value={formatCurrency(current.tax_amount, current.plan?.currency || 'INR')} />
                       <MetricCard title="Coupon" value={current.coupon_id ? 'Applied' : 'None'} />
                     </div>
+                    <Card className="border-dashed bg-muted/20 shadow-none">
+                      <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Wallet auto-pay</p>
+                          <p className="text-sm text-muted-foreground">
+                            {current.auto_renew_eligible
+                              ? current.auto_renew
+                                ? 'Enabled. Renewals will use wallet balance when due.'
+                                : 'Disabled. Enable it if you want renewals to debit your wallet automatically.'
+                              : 'Auto-pay is not available for lifetime plans.'}
+                          </p>
+                        </div>
+                        {current.auto_renew_eligible ? (
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm text-muted-foreground">{current.auto_renew ? 'On' : 'Off'}</span>
+                            <Switch
+                              checked={current.auto_renew}
+                              onCheckedChange={handleAutoRenewChange}
+                              disabled={updateAutoRenew.isPending}
+                            />
+                          </div>
+                        ) : (
+                          <Badge variant="outline">Unavailable</Badge>
+                        )}
+                      </CardContent>
+                    </Card>
                     <div className="flex flex-wrap gap-3">
                       <Button onClick={() => setActiveTab('plans')}>Change plan</Button>
                       <Button variant="outline" onClick={() => setCancelOpen(true)}>Cancel subscription</Button>
@@ -384,6 +468,7 @@ export function SubscriptionPage() {
                   </CardContent>
                 </Card>
               </div>
+              </div>
             )}
           </TabsContent>
 
@@ -414,9 +499,10 @@ export function SubscriptionPage() {
                     <CardTitle className="text-lg">Billing notes</CardTitle>
                   </CardHeader>
                   <CardContent className="grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
-                    <p>Plan changes are immediate and non-prorated. The replacement plan activates after free activation or successful payment verification.</p>
+                    <p>If wallet balance fully covers the final amount, checkout uses wallet automatically. Otherwise the payment continues with Razorpay.</p>
+                    <p>Plan changes are non-prorated. Your current plan stays active until the replacement plan is actually activated.</p>
                     <p>Coupon validation is plan-specific, so the same coupon may work for one plan and fail for another.</p>
-                    <p>Wallet balances, recharges, and invoices stay under the wallet module instead of being duplicated here.</p>
+                    <p>Wallet balances, recharges, invoices, and wallet-funded subscription debits stay under the wallet module instead of being duplicated here.</p>
                   </CardContent>
                 </Card>
               </>
@@ -467,7 +553,7 @@ export function SubscriptionPage() {
           <SheetHeader>
             <SheetTitle>{checkoutMode === 'change' ? 'Change plan' : 'Checkout'}</SheetTitle>
             <SheetDescription>
-              Review plan pricing, apply a coupon, and complete checkout through Razorpay.
+              Review plan pricing, apply a coupon, and complete checkout using wallet balance when available or Razorpay otherwise.
             </SheetDescription>
           </SheetHeader>
           {checkoutPlan && (
@@ -489,6 +575,25 @@ export function SubscriptionPage() {
                     <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Estimated tax</span><span className="font-medium">{formatCurrency(summary.estimatedTax, checkoutPlan.currency)}</span></div>
                     <Separator />
                     <div className="flex items-center justify-between"><span className="font-medium">Estimated total</span><span className="text-lg font-semibold">{formatCurrency(summary.total, checkoutPlan.currency)}</span></div>
+                  </div>
+                  <div className="rounded-lg border border-dashed p-4 text-sm">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-medium">Wallet balance</p>
+                        <p className="text-muted-foreground">
+                          {wallet ? formatCurrency(wallet.balance, wallet.currency) : 'Unavailable'}
+                        </p>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => navigate('/wallet')}>
+                        <RefreshCcw className="mr-2 h-4 w-4" />
+                        Open wallet
+                      </Button>
+                    </div>
+                    <p className="mt-3 text-muted-foreground">
+                      {walletCanCoverCheckout
+                        ? 'Your wallet fully covers this checkout. We will debit wallet balance automatically and skip Razorpay.'
+                        : 'If your wallet does not fully cover this amount, checkout will continue with Razorpay for the full payment.'}
+                    </p>
                   </div>
                   <div className="space-y-3">
                     <Label htmlFor="coupon-code">Coupon code</Label>
@@ -534,8 +639,8 @@ export function SubscriptionPage() {
                 <Card className="border-amber-200 bg-amber-50/60">
                   <CardHeader><CardTitle className="text-lg">Plan change behavior</CardTitle></CardHeader>
                   <CardContent className="space-y-2 text-sm text-muted-foreground">
-                    <p>Your current plan will be cancelled immediately with a machine-readable reason of <span className="font-medium text-foreground">plan_changed</span>.</p>
-                    <p>The selected replacement plan becomes active after free activation or successful Razorpay payment verification.</p>
+                    <p>Your current plan stays active until the replacement plan is activated successfully.</p>
+                    <p>After activation, the old plan is closed with a machine-readable reason of <span className="font-medium text-foreground">plan_changed</span>.</p>
                   </CardContent>
                 </Card>
               )}
@@ -545,7 +650,7 @@ export function SubscriptionPage() {
             <Button variant="outline" onClick={closeCheckout}>Close</Button>
             <Button onClick={startCheckout} disabled={!checkoutPlan || checkoutBusy}>
               {checkoutBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {checkoutMode === 'change' ? 'Confirm plan change' : 'Continue to payment'}
+              {checkoutMode === 'change' ? 'Confirm plan change' : 'Continue to checkout'}
             </Button>
           </SheetFooter>
         </SheetContent>

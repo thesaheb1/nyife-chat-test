@@ -33,6 +33,107 @@ function normalizePlanRecord(plan) {
   };
 }
 
+function parseJsonField(value) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return value;
+  }
+}
+
+function computeCouponStatus(coupon, now = new Date()) {
+  const validFrom = coupon?.valid_from ? new Date(coupon.valid_from) : null;
+  const validUntil = coupon?.valid_until ? new Date(coupon.valid_until) : null;
+
+  if (!coupon?.is_active) {
+    return 'inactive';
+  }
+
+  if (validFrom && validFrom > now) {
+    return 'scheduled';
+  }
+
+  if (validUntil && validUntil < now) {
+    return 'expired';
+  }
+
+  return 'active';
+}
+
+function normalizeCouponRecord(coupon) {
+  if (!coupon) {
+    return coupon;
+  }
+
+  const normalized = {
+    ...coupon,
+    discount_value: Number(coupon.discount_value ?? 0),
+    max_uses: coupon.max_uses === null || coupon.max_uses === undefined ? null : Number(coupon.max_uses),
+    used_count: Number(coupon.used_count ?? 0),
+    min_plan_price:
+      coupon.min_plan_price === null || coupon.min_plan_price === undefined
+        ? null
+        : Number(coupon.min_plan_price),
+    is_active: Boolean(coupon.is_active),
+    applicable_plan_ids: parseJsonField(coupon.applicable_plan_ids) || null,
+    applicable_user_ids: parseJsonField(coupon.applicable_user_ids) || null,
+  };
+
+  return {
+    ...normalized,
+    status: computeCouponStatus(normalized),
+  };
+}
+
+function buildCouponWhereClause(filters, replacements = {}) {
+  const whereClauses = ['deleted_at IS NULL'];
+
+  if (filters.search) {
+    whereClauses.push('(code LIKE :search OR description LIKE :search)');
+    replacements.search = `%${filters.search}%`;
+  }
+
+  if (filters.discount_type) {
+    whereClauses.push('discount_type = :discountType');
+    replacements.discountType = filters.discount_type;
+  }
+
+  if (filters.status) {
+    replacements.statusNow = new Date();
+
+    if (filters.status === 'inactive') {
+      whereClauses.push('is_active = :inactiveStatus');
+      replacements.inactiveStatus = false;
+    }
+
+    if (filters.status === 'active') {
+      whereClauses.push('is_active = :activeStatus');
+      whereClauses.push('valid_from <= :statusNow');
+      whereClauses.push('(valid_until IS NULL OR valid_until >= :statusNow)');
+      replacements.activeStatus = true;
+    }
+
+    if (filters.status === 'scheduled') {
+      whereClauses.push('is_active = :activeStatus');
+      whereClauses.push('valid_from > :statusNow');
+      replacements.activeStatus = true;
+    }
+
+    if (filters.status === 'expired') {
+      whereClauses.push('is_active = :activeStatus');
+      whereClauses.push('valid_until IS NOT NULL');
+      whereClauses.push('valid_until < :statusNow');
+      replacements.activeStatus = true;
+    }
+  }
+
+  return whereClauses.join(' AND ');
+}
+
 function normalizeRolePermissions(permissions, options = {}) {
   return normalizeAdminPermissions(permissions, {
     includeReserved: Boolean(options.includeReserved),
@@ -1650,7 +1751,7 @@ async function createCoupon(data) {
     { replacements: values, type: QueryTypes.INSERT }
   );
 
-  return { id, ...data, used_count: 0, created_at: now, updated_at: now };
+  return getCoupon(id);
 }
 
 /**
@@ -1660,13 +1761,30 @@ async function createCoupon(data) {
  * @returns {Promise<{ data: Array, meta: object }>}
  */
 async function listCoupons(filters) {
-  const { page = 1, limit = 20 } = filters;
+  const {
+    page = 1,
+    limit = 20,
+    search,
+    status,
+    discount_type,
+  } = filters;
   const { offset, limit: safeLimit } = getPagination(page, limit);
+  const replacements = {};
+  const whereClause = buildCouponWhereClause(
+    {
+      search,
+      status,
+      discount_type,
+    },
+    replacements
+  );
 
   try {
     const [countResult] = await sequelize.query(
-      'SELECT COUNT(*) AS total FROM sub_coupons WHERE deleted_at IS NULL',
-      { type: QueryTypes.SELECT }
+      `SELECT COUNT(*) AS total
+       FROM sub_coupons
+       WHERE ${whereClause}`,
+      { replacements, type: QueryTypes.SELECT }
     );
     const total = parseInt(countResult.total, 10);
 
@@ -1675,27 +1793,16 @@ async function listCoupons(filters) {
               min_plan_price, applicable_plan_ids, applicable_user_ids,
               valid_from, valid_until, is_active, created_at, updated_at
        FROM sub_coupons
-       WHERE deleted_at IS NULL
+       WHERE ${whereClause}
        ORDER BY created_at DESC
        LIMIT :limit OFFSET :offset`,
       {
-        replacements: { limit: safeLimit, offset },
+        replacements: { ...replacements, limit: safeLimit, offset },
         type: QueryTypes.SELECT,
       }
     );
 
-    // Parse JSON fields
-    const parsedCoupons = coupons.map((c) => ({
-      ...c,
-      applicable_plan_ids:
-        typeof c.applicable_plan_ids === 'string'
-          ? JSON.parse(c.applicable_plan_ids)
-          : c.applicable_plan_ids,
-      applicable_user_ids:
-        typeof c.applicable_user_ids === 'string'
-          ? JSON.parse(c.applicable_user_ids)
-          : c.applicable_user_ids,
-    }));
+    const parsedCoupons = coupons.map(normalizeCouponRecord);
 
     const meta = getPaginationMeta(total, page, limit);
     return { data: parsedCoupons, meta };
@@ -1727,16 +1834,7 @@ async function getCoupon(couponId) {
     throw new AppError('Coupon not found', 404);
   }
 
-  coupon.applicable_plan_ids =
-    typeof coupon.applicable_plan_ids === 'string'
-      ? JSON.parse(coupon.applicable_plan_ids)
-      : coupon.applicable_plan_ids;
-  coupon.applicable_user_ids =
-    typeof coupon.applicable_user_ids === 'string'
-      ? JSON.parse(coupon.applicable_user_ids)
-      : coupon.applicable_user_ids;
-
-  return coupon;
+  return normalizeCouponRecord(coupon);
 }
 
 /**
@@ -1759,6 +1857,25 @@ async function updateCoupon(couponId, data) {
 
   const updateFields = [];
   const replacements = { couponId, now: new Date() };
+
+  if (data.code !== undefined) {
+    const [existingByCode] = await sequelize.query(
+      `SELECT id
+       FROM sub_coupons
+       WHERE code = :code
+         AND id <> :couponId
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      {
+        replacements: { code: data.code, couponId },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    if (existingByCode) {
+      throw new AppError('A coupon with this code already exists', 409);
+    }
+  }
 
   const simpleFields = [
     'code', 'description', 'discount_type', 'discount_value',
@@ -1796,12 +1913,7 @@ async function updateCoupon(couponId, data) {
   return getCoupon(couponId);
 }
 
-/**
- * Soft-deletes a coupon.
- *
- * @param {string} couponId - Coupon UUID
- */
-async function deleteCoupon(couponId) {
+async function updateCouponStatus(couponId, isActive) {
   const [existing] = await sequelize.query(
     'SELECT id FROM sub_coupons WHERE id = :couponId AND deleted_at IS NULL',
     { replacements: { couponId }, type: QueryTypes.SELECT }
@@ -1813,8 +1925,40 @@ async function deleteCoupon(couponId) {
 
   const now = new Date();
   await sequelize.query(
-    'UPDATE sub_coupons SET deleted_at = :now, updated_at = :now WHERE id = :couponId',
-    { replacements: { now, couponId }, type: QueryTypes.UPDATE }
+    'UPDATE sub_coupons SET is_active = :isActive, updated_at = :now WHERE id = :couponId',
+    {
+      replacements: {
+        couponId,
+        isActive,
+        now,
+      },
+      type: QueryTypes.UPDATE,
+    }
+  );
+
+  return getCoupon(couponId);
+}
+
+/**
+ * Soft-deletes a coupon.
+ *
+ * @param {string} couponId - Coupon UUID
+ */
+async function deleteCoupon(couponId) {
+  const [existing] = await sequelize.query(
+    'SELECT id, code FROM sub_coupons WHERE id = :couponId AND deleted_at IS NULL',
+    { replacements: { couponId }, type: QueryTypes.SELECT }
+  );
+
+  if (!existing) {
+    throw new AppError('Coupon not found', 404);
+  }
+
+  const now = new Date();
+  const deletedCode = `${existing.code}--deleted--${Date.now()}`;
+  await sequelize.query(
+    'UPDATE sub_coupons SET code = :deletedCode, deleted_at = :now, updated_at = :now WHERE id = :couponId',
+    { replacements: { deletedCode, now, couponId }, type: QueryTypes.UPDATE }
   );
 }
 
@@ -2254,6 +2398,7 @@ module.exports = {
   listCoupons,
   getCoupon,
   updateCoupon,
+  updateCouponStatus,
   deleteCoupon,
 
   // Notifications

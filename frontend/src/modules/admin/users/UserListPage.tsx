@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { DataTable } from '@/shared/components/DataTable';
-import { DateRangeFilter } from '@/modules/dashboard/DateRangeFilter';
+import { DateRangeFilter } from '@/shared/components/DateRangeFilter';
 import { useDebounce } from '@/core/hooks/useDebounce';
 import { formatCurrency } from '@/shared/utils/formatters';
 import {
@@ -423,8 +423,8 @@ export function UserListPage() {
         </TabsList>
 
         <TabsContent value="users" className="space-y-4">
-          <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+          <div className="flex justify-between flex-wrap gap-3 rounded-lg border bg-card p-4">
+            <div className="flex gap-3">
               <Input
                 placeholder="Search by name, email, phone, organization, or team member"
                 value={search}
@@ -434,48 +434,44 @@ export function UserListPage() {
                 }}
                 className="xl:max-w-md"
               />
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => {
+                  setStatusFilter(value);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-[160px]">
+                  <SelectValue placeholder="All statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
+                </SelectContent>
+              </Select>
 
-              <div className="flex flex-col gap-3 sm:flex-row xl:ml-auto">
-                <Select
-                  value={statusFilter}
-                  onValueChange={(value) => {
-                    setStatusFilter(value);
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-full sm:w-[160px]">
-                    <SelectValue placeholder="All statuses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="suspended">Suspended</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select
-                  value={planFilter}
-                  onValueChange={(value) => {
-                    setPlanFilter(value);
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-full sm:w-[220px]">
-                    <SelectValue placeholder="All plans" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All plans</SelectItem>
-                    {plans.map((plan) => (
-                      <SelectItem key={plan.id} value={plan.id}>
-                        {plan.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select
+                value={planFilter}
+                onValueChange={(value) => {
+                  setPlanFilter(value);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue placeholder="All plans" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All plans</SelectItem>
+                  {plans.map((plan) => (
+                    <SelectItem key={plan.id} value={plan.id}>
+                      {plan.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <DateRangeFilter
                 value={dateRange}

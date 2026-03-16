@@ -14,6 +14,7 @@ router.post('/subscribe', authenticate, organizationResolver, rbac('subscription
 router.post('/change-plan', authenticate, organizationResolver, rbac('subscription', 'update'), asyncHandler(controller.changePlan));
 router.post('/verify-payment', authenticate, organizationResolver, rbac('subscription', 'update'), asyncHandler(controller.verifyPayment));
 router.get('/current', authenticate, organizationResolver, rbac('subscription', 'read'), asyncHandler(controller.getCurrentSubscription));
+router.patch('/current/auto-renew', authenticate, organizationResolver, rbac('subscription', 'update'), asyncHandler(controller.updateAutoRenew));
 router.post('/cancel', authenticate, organizationResolver, rbac('subscription', 'update'), asyncHandler(controller.cancelSubscription));
 router.post('/coupons/validate', authenticate, organizationResolver, rbac('subscription', 'read'), asyncHandler(controller.validateCoupon));
 router.get('/history', authenticate, organizationResolver, rbac('subscription', 'read'), asyncHandler(controller.getHistory));

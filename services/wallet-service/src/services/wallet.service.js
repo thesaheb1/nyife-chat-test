@@ -327,48 +327,96 @@ async function verifyRechargePayment(userId, paymentData, kafkaProducer, redis) 
  * @param {object|null} redis - Redis client instance (optional)
  * @returns {Promise<object>} Debit result with new balance and transaction ID
  */
-async function debitWallet(userId, amount, source, referenceType, referenceId, description, redis, kafkaProducer, meta = null) {
-  const result = await sequelize.transaction(async (t) => {
-    // Lock the wallet row for update
-    const wallet = await Wallet.findOne({
-      where: { user_id: userId },
-      lock: t.LOCK.UPDATE,
-      transaction: t,
-    });
+function buildIdempotentTransactionResult(transactionRecord) {
+  return {
+    success: true,
+    balance_after: transactionRecord.balance_after,
+    balance_formatted: formatCurrency(transactionRecord.balance_after),
+    transaction_id: transactionRecord.id,
+    idempotency_reused: true,
+  };
+}
 
-    if (!wallet) {
-      throw AppError.notFound('Wallet not found');
-    }
+async function findExistingTransactionByIdempotencyKey(idempotencyKey) {
+  if (!idempotencyKey) {
+    return null;
+  }
 
-    if (wallet.balance < amount) {
-      throw AppError.badRequest('Insufficient wallet balance');
-    }
-
-    const newBalance = wallet.balance - amount;
-    await wallet.update({ balance: newBalance }, { transaction: t });
-
-    const transaction = await Transaction.create({
-      id: generateUUID(),
-      user_id: userId,
-      wallet_id: wallet.id,
-      type: 'debit',
-      amount,
-      balance_after: newBalance,
-      source,
-      reference_type: referenceType || null,
-      reference_id: referenceId || null,
-      description,
-      payment_status: 'completed',
-      meta,
-    }, { transaction: t });
-
-    return {
-      success: true,
-      balance_after: newBalance,
-      balance_formatted: formatCurrency(newBalance, wallet.currency),
-      transaction_id: transaction.id,
-    };
+  return Transaction.findOne({
+    where: { idempotency_key: idempotencyKey },
   });
+}
+
+async function debitWallet(
+  userId,
+  amount,
+  source,
+  referenceType,
+  referenceId,
+  description,
+  redis,
+  kafkaProducer,
+  idempotencyKey = null,
+  meta = null
+) {
+  const existingTransaction = await findExistingTransactionByIdempotencyKey(idempotencyKey);
+  if (existingTransaction) {
+    return buildIdempotentTransactionResult(existingTransaction);
+  }
+
+  let result;
+  try {
+    result = await sequelize.transaction(async (t) => {
+    // Lock the wallet row for update
+      const wallet = await Wallet.findOne({
+        where: { user_id: userId },
+        lock: t.LOCK.UPDATE,
+        transaction: t,
+      });
+
+      if (!wallet) {
+        throw AppError.notFound('Wallet not found');
+      }
+
+      if (wallet.balance < amount) {
+        throw AppError.badRequest('Insufficient wallet balance');
+      }
+
+      const newBalance = wallet.balance - amount;
+      await wallet.update({ balance: newBalance }, { transaction: t });
+
+      const transaction = await Transaction.create({
+        id: generateUUID(),
+        user_id: userId,
+        wallet_id: wallet.id,
+        type: 'debit',
+        amount,
+        balance_after: newBalance,
+        source,
+        reference_type: referenceType || null,
+        reference_id: referenceId || null,
+        description,
+        payment_status: 'completed',
+        idempotency_key: idempotencyKey || null,
+        meta,
+      }, { transaction: t });
+
+      return {
+        success: true,
+        balance_after: newBalance,
+        balance_formatted: formatCurrency(newBalance, wallet.currency),
+        transaction_id: transaction.id,
+      };
+    });
+  } catch (err) {
+    if (idempotencyKey && err?.name === 'SequelizeUniqueConstraintError') {
+      const reusedTransaction = await findExistingTransactionByIdempotencyKey(idempotencyKey);
+      if (reusedTransaction) {
+        return buildIdempotentTransactionResult(reusedTransaction);
+      }
+    }
+    throw err;
+  }
 
   // Invalidate balance cache
   if (redis) {
@@ -410,45 +458,74 @@ async function debitWallet(userId, amount, source, referenceType, referenceId, d
  * @param {object|null} redis - Redis client instance (optional)
  * @returns {Promise<object>} Credit result with new balance and transaction ID
  */
-async function creditWallet(userId, amount, source, description, referenceType, referenceId, remarks, kafkaProducer, redis, meta = null) {
-  const result = await sequelize.transaction(async (t) => {
+async function creditWallet(
+  userId,
+  amount,
+  source,
+  description,
+  referenceType,
+  referenceId,
+  remarks,
+  kafkaProducer,
+  redis,
+  idempotencyKey = null,
+  meta = null
+) {
+  const existingTransaction = await findExistingTransactionByIdempotencyKey(idempotencyKey);
+  if (existingTransaction) {
+    return buildIdempotentTransactionResult(existingTransaction);
+  }
+
+  let result;
+  try {
+    result = await sequelize.transaction(async (t) => {
     // Lock the wallet row for update
-    const wallet = await Wallet.findOne({
-      where: { user_id: userId },
-      lock: t.LOCK.UPDATE,
-      transaction: t,
+      const wallet = await Wallet.findOne({
+        where: { user_id: userId },
+        lock: t.LOCK.UPDATE,
+        transaction: t,
+      });
+
+      if (!wallet) {
+        throw AppError.notFound('Wallet not found');
+      }
+
+      const newBalance = wallet.balance + amount;
+      await wallet.update({ balance: newBalance }, { transaction: t });
+
+      const transaction = await Transaction.create({
+        id: generateUUID(),
+        user_id: userId,
+        wallet_id: wallet.id,
+        type: 'credit',
+        amount,
+        balance_after: newBalance,
+        source,
+        reference_type: referenceType || null,
+        reference_id: referenceId || null,
+        description,
+        remarks: remarks || null,
+        payment_status: 'completed',
+        idempotency_key: idempotencyKey || null,
+        meta,
+      }, { transaction: t });
+
+      return {
+        success: true,
+        balance_after: newBalance,
+        balance_formatted: formatCurrency(newBalance, wallet.currency),
+        transaction_id: transaction.id,
+      };
     });
-
-    if (!wallet) {
-      throw AppError.notFound('Wallet not found');
+  } catch (err) {
+    if (idempotencyKey && err?.name === 'SequelizeUniqueConstraintError') {
+      const reusedTransaction = await findExistingTransactionByIdempotencyKey(idempotencyKey);
+      if (reusedTransaction) {
+        return buildIdempotentTransactionResult(reusedTransaction);
+      }
     }
-
-    const newBalance = wallet.balance + amount;
-    await wallet.update({ balance: newBalance }, { transaction: t });
-
-    const transaction = await Transaction.create({
-      id: generateUUID(),
-      user_id: userId,
-      wallet_id: wallet.id,
-      type: 'credit',
-      amount,
-      balance_after: newBalance,
-      source,
-      reference_type: referenceType || null,
-      reference_id: referenceId || null,
-      description,
-      remarks: remarks || null,
-      payment_status: 'completed',
-      meta,
-    }, { transaction: t });
-
-    return {
-      success: true,
-      balance_after: newBalance,
-      balance_formatted: formatCurrency(newBalance, wallet.currency),
-      transaction_id: transaction.id,
-    };
-  });
+    throw err;
+  }
 
   // Invalidate balance cache
   if (redis) {

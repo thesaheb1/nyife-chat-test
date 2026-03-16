@@ -54,6 +54,10 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING(255),
         allowNull: true,
       },
+      payment_method: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
       amount_paid: {
         type: DataTypes.INTEGER,
         allowNull: false,
@@ -76,7 +80,32 @@ module.exports = (sequelize) => {
       auto_renew: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
-        defaultValue: true,
+        defaultValue: false,
+      },
+      renewal_state: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
+      grace_expires_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      next_renewal_attempt_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      renewal_attempt_count: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      last_renewal_error: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      replaces_subscription_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
       },
       usage: {
         type: DataTypes.JSON,
@@ -104,6 +133,18 @@ module.exports = (sequelize) => {
     Subscription.belongsTo(models.Coupon, {
       foreignKey: 'coupon_id',
       as: 'coupon',
+    });
+    Subscription.belongsTo(models.Subscription, {
+      foreignKey: 'replaces_subscription_id',
+      as: 'replacedSubscription',
+    });
+    Subscription.hasMany(models.Subscription, {
+      foreignKey: 'replaces_subscription_id',
+      as: 'replacementSubscriptions',
+    });
+    Subscription.hasMany(models.SubscriptionRenewalAttempt, {
+      foreignKey: 'subscription_id',
+      as: 'renewalAttempts',
     });
   };
 

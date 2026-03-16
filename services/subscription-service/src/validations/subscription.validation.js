@@ -20,6 +20,10 @@ const cancelSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+const autoRenewSchema = z.object({
+  enabled: z.boolean(),
+});
+
 const validateCouponSchema = z.object({
   code: z.string().min(1, 'Coupon code is required').max(50),
   plan_id: z.string().uuid('Invalid plan ID'),
@@ -56,9 +60,7 @@ const incrementUsageSchema = z.object({
     'organizations',
     'whatsapp_numbers',
   ]),
-  count: z.number().int().refine((value) => value !== 0, {
-    message: 'Count must not be zero',
-  }).default(1),
+  count: z.number().int().positive('Count must be greater than zero').default(1),
 });
 
 const paginationSchema = z.object({
@@ -71,6 +73,7 @@ module.exports = {
   changePlanSchema,
   verifyPaymentSchema,
   cancelSchema,
+  autoRenewSchema,
   validateCouponSchema,
   checkLimitParamsSchema,
   internalSubscriptionParamsSchema,

@@ -77,12 +77,12 @@ export function WalletActionDialog({
             </div>
           ) : null}
           <div className="space-y-2">
-            <Label htmlFor="amount">{t('admin.users.amount')}</Label>
+            <Label htmlFor="amount">{t('admin.users.amount')} (₹)</Label>
             <Input
               id="amount"
               type="number"
-              min={1}
-              step={1}
+              min="0.01"
+              step="0.01"
               {...register('amount', { valueAsNumber: true })}
             />
             {errors.amount && (

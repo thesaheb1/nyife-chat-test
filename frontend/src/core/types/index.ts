@@ -513,11 +513,18 @@ export interface Subscription {
   cancelled_at: string | null;
   cancellation_reason?: string | null;
   payment_id?: string | null;
+  payment_method?: 'free' | 'wallet' | 'razorpay' | null;
   amount_paid: number;
   discount_amount: number;
   tax_amount: number;
   coupon_id?: string | null;
   auto_renew: boolean;
+  auto_renew_eligible?: boolean;
+  renewal_state?: 'scheduled' | 'disabled' | 'ineligible' | 'grace_period' | 'failed' | 'renewed' | null;
+  next_billing_at?: string | null;
+  grace_expires_at?: string | null;
+  next_renewal_attempt_at?: string | null;
+  last_renewal_error?: string | null;
   usage: SubscriptionUsage;
   plan?: Plan;
   created_at: string;
@@ -555,6 +562,10 @@ export interface SubscriptionCheckoutResult {
   subscription: Subscription;
   plan: Plan;
   payment_required: boolean;
+  payment_method?: 'free' | 'wallet' | 'razorpay' | null;
+  wallet_debited_amount?: number;
+  wallet_balance_after?: number | null;
+  auto_renew_eligible?: boolean;
   razorpay_order?: RazorpayOrder;
   previous_subscription_id?: string;
 }

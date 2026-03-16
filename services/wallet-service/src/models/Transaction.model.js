@@ -69,6 +69,11 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 'completed',
       },
+      idempotency_key: {
+        type: DataTypes.STRING(191),
+        allowNull: true,
+        unique: true,
+      },
       meta: {
         type: DataTypes.JSON,
         allowNull: true,

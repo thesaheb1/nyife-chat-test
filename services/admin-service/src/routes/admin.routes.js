@@ -82,6 +82,7 @@ router.post('/coupons', adminRbac('plans', 'create'), asyncHandler(ctrl.createCo
 router.get('/coupons', adminRbac('plans', 'read'), asyncHandler(ctrl.listCoupons));
 router.get('/coupons/:id', adminRbac('plans', 'read'), asyncHandler(ctrl.getCoupon));
 router.put('/coupons/:id', adminRbac('plans', 'update'), asyncHandler(ctrl.updateCoupon));
+router.put('/coupons/:id/status', adminRbac('plans', 'update'), asyncHandler(ctrl.updateCouponStatus));
 router.delete('/coupons/:id', adminRbac('plans', 'delete'), asyncHandler(ctrl.deleteCoupon));
 
 // ===========================================================================

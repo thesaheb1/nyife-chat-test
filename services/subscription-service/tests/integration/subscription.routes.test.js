@@ -19,6 +19,8 @@ jest.mock('@nyife/shared-middleware', () => {
       req.user = { id: 'test-user-uuid', email: 'user@example.com', role: 'user' };
       next();
     },
+    organizationResolver: (req, _res, next) => next(),
+    rbac: () => (_req, _res, next) => next(),
     asyncHandler: (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next),
     errorHandler: (err, req, res, _next) => {
       if (err.name === 'ZodError') {
@@ -209,6 +211,30 @@ describe('GET /api/v1/subscriptions/current', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.subscription).toBeNull();
+  });
+});
+
+describe('PATCH /api/v1/subscriptions/current/auto-renew', () => {
+  it('should return 200 when toggling auto-renew', async () => {
+    subscriptionService.updateAutoRenew.mockResolvedValue({ id: 'sub-1', auto_renew: true });
+
+    const res = await request(app)
+      .patch('/api/v1/subscriptions/current/auto-renew')
+      .set('Authorization', 'Bearer mock')
+      .send({ enabled: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.subscription.auto_renew).toBe(true);
+  });
+
+  it('should return 400 on invalid payload', async () => {
+    const res = await request(app)
+      .patch('/api/v1/subscriptions/current/auto-renew')
+      .set('Authorization', 'Bearer mock')
+      .send({ enabled: 'yes' });
+
+    expect(res.status).toBe(400);
   });
 });
 

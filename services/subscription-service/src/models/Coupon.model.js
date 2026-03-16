@@ -67,7 +67,7 @@ module.exports = (sequelize) => {
       tableName: 'sub_coupons',
       timestamps: true,
       underscored: true,
-      paranoid: false,
+      paranoid: true,
     }
   );
 

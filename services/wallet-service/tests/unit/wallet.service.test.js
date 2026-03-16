@@ -251,10 +251,11 @@ describe('creditWallet', () => {
       'wallet.transaction',
       USER_ID,
       expect.objectContaining({
-        user_id: USER_ID,
+        userId: USER_ID,
         type: 'credit',
         source: 'admin_credit',
         amount: 20000,
+        balanceAfter: 70000,
       })
     );
   });

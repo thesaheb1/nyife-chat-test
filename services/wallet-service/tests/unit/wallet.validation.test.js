@@ -10,19 +10,24 @@ const {
 } = require('../../src/validations/wallet.validation');
 
 describe('rechargeSchema', () => {
-  it('should validate with amount >= 10000', () => {
-    const result = rechargeSchema.safeParse({ amount: 10000 });
+  it('should validate with amount >= 100 rupees', () => {
+    const result = rechargeSchema.safeParse({ amount: 100 });
     expect(result.success).toBe(true);
-    expect(result.data.amount).toBe(10000);
+    expect(result.data.amount).toBe(100);
   });
 
-  it('should reject amount < 10000', () => {
-    const result = rechargeSchema.safeParse({ amount: 9999 });
+  it('should reject amount < 100 rupees', () => {
+    const result = rechargeSchema.safeParse({ amount: 99.99 });
     expect(result.success).toBe(false);
   });
 
-  it('should reject non-integer amount', () => {
+  it('should allow decimal rupee amounts with up to two decimal places', () => {
     const result = rechargeSchema.safeParse({ amount: 100.5 });
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject amounts with more than two decimal places', () => {
+    const result = rechargeSchema.safeParse({ amount: 100.555 });
     expect(result.success).toBe(false);
   });
 

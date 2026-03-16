@@ -5,6 +5,7 @@ const {
   changePlanSchema,
   verifyPaymentSchema,
   cancelSchema,
+  autoRenewSchema,
   validateCouponSchema,
   checkLimitParamsSchema,
   incrementUsageSchema,
@@ -68,6 +69,18 @@ describe('cancelSchema', () => {
 
   it('should reject reason > 500 chars', () => {
     expect(cancelSchema.safeParse({ reason: 'x'.repeat(501) }).success).toBe(false);
+  });
+});
+
+describe('autoRenewSchema', () => {
+  it('should validate a boolean enabled flag', () => {
+    expect(autoRenewSchema.safeParse({ enabled: true }).success).toBe(true);
+    expect(autoRenewSchema.safeParse({ enabled: false }).success).toBe(true);
+  });
+
+  it('should reject missing or invalid enabled values', () => {
+    expect(autoRenewSchema.safeParse({}).success).toBe(false);
+    expect(autoRenewSchema.safeParse({ enabled: 'yes' }).success).toBe(false);
   });
 });
 

@@ -10,6 +10,7 @@ import type {
   Subscription,
   SubscriptionCheckoutResult,
   SubscriptionHistoryResult,
+  Wallet,
 } from '@/core/types';
 
 export const subscriptionQueryKeys = {
@@ -18,6 +19,7 @@ export const subscriptionQueryKeys = {
   planDetails: (slug: string | null) => ['subscription', 'plan', slug] as const,
   current: () => ['subscription', 'current'] as const,
   history: (page: number) => ['subscription', 'history', page] as const,
+  walletBalance: () => ['wallet'] as const,
 };
 
 export function useSubscriptionPlans() {
@@ -63,6 +65,16 @@ export function useSubscriptionHistory(page: number) {
         subscriptions: data.data.subscriptions,
         meta: data.meta as PaginationMeta,
       };
+    },
+  });
+}
+
+export function useSubscriptionWalletBalance() {
+  return useQuery({
+    queryKey: subscriptionQueryKeys.walletBalance(),
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<Wallet>>(ENDPOINTS.WALLET.BASE);
+      return data.data;
     },
   });
 }
@@ -159,6 +171,27 @@ export function useCancelSubscription() {
         queryClient.invalidateQueries({ queryKey: subscriptionQueryKeys.current() }),
         queryClient.invalidateQueries({ queryKey: ['subscription', 'history'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      ]);
+    },
+  });
+}
+
+export function useUpdateSubscriptionAutoRenew() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const { data } = await apiClient.patch<ApiResponse<{ subscription: Subscription }>>(
+        ENDPOINTS.SUBSCRIPTIONS.AUTO_RENEW,
+        { enabled }
+      );
+
+      return data.data.subscription;
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: subscriptionQueryKeys.current() }),
+        queryClient.invalidateQueries({ queryKey: ['subscription', 'history'] }),
       ]);
     },
   });

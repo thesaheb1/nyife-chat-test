@@ -1,6 +1,6 @@
 'use strict';
 
-const { successResponse, errorResponse } = require('@nyife/shared-utils');
+const { successResponse, errorResponse, rupeesToPaise } = require('@nyife/shared-utils');
 const adminService = require('../services/admin.service');
 const adminUserService = require('../services/adminUser.service');
 const {
@@ -20,6 +20,8 @@ const {
   planStatusSchema,
   createCouponSchema,
   updateCouponSchema,
+  listCouponsSchema,
+  couponStatusSchema,
   createNotificationSchema,
   sendAdminEmailSchema,
   updateSettingsSchema,
@@ -40,6 +42,39 @@ function resolveAdminActorId(req) {
     || req.headers['x-user-id']
     || req.user?.id
     || null;
+}
+
+function normalizePlanMoneyInput(data) {
+  return {
+    ...data,
+    price: data.price !== undefined ? rupeesToPaise(data.price, { allowZero: true }) : data.price,
+    marketing_message_price:
+      data.marketing_message_price !== undefined
+        ? rupeesToPaise(data.marketing_message_price, { allowZero: true })
+        : data.marketing_message_price,
+    utility_message_price:
+      data.utility_message_price !== undefined
+        ? rupeesToPaise(data.utility_message_price, { allowZero: true })
+        : data.utility_message_price,
+    auth_message_price:
+      data.auth_message_price !== undefined
+        ? rupeesToPaise(data.auth_message_price, { allowZero: true })
+        : data.auth_message_price,
+  };
+}
+
+function normalizeCouponMoneyInput(data) {
+  return {
+    ...data,
+    discount_value:
+      data.discount_value !== undefined && data.discount_type === 'fixed'
+        ? rupeesToPaise(data.discount_value, { allowZero: false })
+        : data.discount_value,
+    min_plan_price:
+      data.min_plan_price !== undefined && data.min_plan_price !== null
+        ? rupeesToPaise(data.min_plan_price, { allowZero: true })
+        : data.min_plan_price,
+  };
 }
 
 // ===========================================================================
@@ -277,7 +312,7 @@ async function creditWallet(req, res) {
   const { amount, remarks, organization_id } = walletActionSchema.parse(req.body);
   const result = await adminUserService.creditWallet(
     id,
-    amount,
+    rupeesToPaise(amount, { allowZero: false }),
     remarks,
     resolveAdminActorId(req),
     organization_id || null
@@ -294,7 +329,7 @@ async function debitWallet(req, res) {
   const { amount, remarks, organization_id } = walletActionSchema.parse(req.body);
   const result = await adminUserService.debitWallet(
     id,
-    amount,
+    rupeesToPaise(amount, { allowZero: false }),
     remarks,
     resolveAdminActorId(req),
     organization_id || null
@@ -369,7 +404,7 @@ async function removeUserAvatar(req, res) {
  * Creates a new subscription plan.
  */
 async function createPlan(req, res) {
-  const data = createPlanSchema.parse(req.body);
+  const data = normalizePlanMoneyInput(createPlanSchema.parse(req.body));
   const result = await adminService.createPlan(data);
   return successResponse(res, result, 'Plan created successfully', 201);
 }
@@ -400,7 +435,7 @@ async function getPlan(req, res) {
  */
 async function updatePlan(req, res) {
   const { id } = idParamSchema.parse(req.params);
-  const data = updatePlanSchema.parse(req.body);
+  const data = normalizePlanMoneyInput(updatePlanSchema.parse(req.body));
   const result = await adminService.updatePlan(id, data);
   return successResponse(res, result, 'Plan updated successfully');
 }
@@ -435,7 +470,7 @@ async function updatePlanStatus(req, res) {
  * Creates a new coupon.
  */
 async function createCoupon(req, res) {
-  const data = createCouponSchema.parse(req.body);
+  const data = normalizeCouponMoneyInput(createCouponSchema.parse(req.body));
   const result = await adminService.createCoupon(data);
   return successResponse(res, result, 'Coupon created successfully', 201);
 }
@@ -445,7 +480,7 @@ async function createCoupon(req, res) {
  * Lists all coupons with pagination.
  */
 async function listCoupons(req, res) {
-  const filters = paginationSchema.parse(req.query);
+  const filters = listCouponsSchema.parse(req.query);
   const { data, meta } = await adminService.listCoupons(filters);
   return successResponse(res, { coupons: data }, 'Coupons retrieved successfully', 200, meta);
 }
@@ -466,9 +501,16 @@ async function getCoupon(req, res) {
  */
 async function updateCoupon(req, res) {
   const { id } = idParamSchema.parse(req.params);
-  const data = updateCouponSchema.parse(req.body);
+  const data = normalizeCouponMoneyInput(updateCouponSchema.parse(req.body));
   const result = await adminService.updateCoupon(id, data);
   return successResponse(res, result, 'Coupon updated successfully');
+}
+
+async function updateCouponStatus(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  const { is_active } = couponStatusSchema.parse(req.body);
+  const result = await adminService.updateCouponStatus(id, is_active);
+  return successResponse(res, result, 'Coupon status updated successfully');
 }
 
 /**
@@ -655,6 +697,7 @@ module.exports = {
   listCoupons,
   getCoupon,
   updateCoupon,
+  updateCouponStatus,
   deleteCoupon,
 
   // Notifications

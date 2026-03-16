@@ -75,15 +75,42 @@ export function useUpdatePlanStatus() {
 
 // ── Coupons ──
 
-export function useAdminCoupons() {
+export interface AdminCouponFilters {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: 'active' | 'inactive' | 'scheduled' | 'expired';
+  discount_type?: 'percentage' | 'fixed';
+}
+
+export function useAdminCoupons(filters: AdminCouponFilters = {}) {
   return useQuery({
-    queryKey: ['admin', 'coupons'],
+    queryKey: ['admin', 'coupons', filters],
     queryFn: async () => {
+      const params = {
+        page: filters.page ?? 1,
+        limit: filters.limit ?? 20,
+        search: filters.search || undefined,
+        status: filters.status || undefined,
+        discount_type: filters.discount_type || undefined,
+      };
       const { data } = await apiClient.get<ApiResponse<{ coupons: Coupon[] }>>(
-        ADMIN_ENDPOINTS.COUPONS.BASE
+        ADMIN_ENDPOINTS.COUPONS.BASE,
+        { params }
       );
-      return data.data.coupons;
+      return data;
     },
+  });
+}
+
+export function useAdminCoupon(id: string | undefined) {
+  return useQuery({
+    queryKey: ['admin', 'coupon', id],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<Coupon>>(ADMIN_ENDPOINTS.COUPONS.DETAIL(id!));
+      return data.data;
+    },
+    enabled: Boolean(id),
   });
 }
 
@@ -105,7 +132,10 @@ export function useUpdateCoupon(id: string) {
       const { data } = await apiClient.put(ADMIN_ENDPOINTS.COUPONS.DETAIL(id), body);
       return data.data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'coupons'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'coupons'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'coupon', id] });
+    },
   });
 }
 
@@ -116,5 +146,19 @@ export function useDeleteCoupon() {
       await apiClient.delete(ADMIN_ENDPOINTS.COUPONS.DETAIL(id));
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'coupons'] }),
+  });
+}
+
+export function useUpdateCouponStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
+      const { data } = await apiClient.put(ADMIN_ENDPOINTS.COUPONS.STATUS(id), { is_active });
+      return data.data;
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'coupons'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'coupon', variables.id] });
+    },
   });
 }

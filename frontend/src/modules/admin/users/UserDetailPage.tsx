@@ -5,11 +5,7 @@ import {
   ArrowLeft,
   Loader2,
   Pencil,
-  ShieldCheck,
-  Ticket,
   Trash2,
-  Users,
-  Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -36,7 +32,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { DataTable } from '@/shared/components/DataTable';
-import { DateRangeFilter } from '@/modules/dashboard/DateRangeFilter';
+import { DateRangeFilter } from '@/shared/components/DateRangeFilter';
 import { useAuthenticatedImageSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
 import { getPresetDateRange } from '@/shared/utils/dateRange';
 import { formatCurrency } from '@/shared/utils/formatters';
@@ -89,12 +85,34 @@ function getDefaultAnalyticsRange() {
   return getPresetDateRange('last30Days');
 }
 
+function parseDateTimeValue(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const normalizedValue = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)
+    ? value.replace(' ', 'T') + 'Z'
+    : value;
+
+  const parsed = new Date(normalizedValue);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString() : 'N/A';
+  const parsed = parseDateTimeValue(value);
+  return parsed
+    ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(parsed)
+    : 'N/A';
 }
 
 function formatDateTime(value?: string | null) {
-  return value ? new Date(value).toLocaleString() : 'N/A';
+  const parsed = parseDateTimeValue(value);
+  return parsed
+    ? new Intl.DateTimeFormat('en-IN', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(parsed)
+    : 'N/A';
 }
 
 function getInitialPages() {
@@ -503,7 +521,7 @@ export function UserDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] xl:items-start">
         <div className="flex items-start gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate('/admin/users')}>
             <ArrowLeft className="h-4 w-4" />
@@ -538,48 +556,8 @@ export function UserDetailPage() {
           </div>
         </div>
 
-        <div className="flex w-full max-w-xl flex-col gap-3 xl:items-end">
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-            <div className="w-full sm:max-w-[280px]">
-              <Select
-                value={selectedOrganization?.id || ''}
-                onValueChange={(value) => setDashboardParams({ organization_id: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select organization" />
-                </SelectTrigger>
-                <SelectContent>
-                  {dashboard.organizations.map((organization) => (
-                    <SelectItem key={organization.id} value={organization.id}>
-                      {organization.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex min-h-10 items-center gap-3 rounded-lg border bg-muted/20 px-3 py-2">
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Status
-              </div>
-              {canUpdate ? (
-                <Select value={user.status} onValueChange={handleStatusChange}>
-                  <SelectTrigger className="h-8 w-[160px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="suspended">Suspended</SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Badge variant={STATUS_COLORS[user.status] || 'outline'}>{user.status}</Badge>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
+        <div className="flex w-full flex-col gap-4 xl:items-stretch">
+          <div className="flex flex-wrap gap-2 xl:justify-end">
             {canUpdate ? (
               <Button variant="outline" onClick={() => setDashboardParams({ edit: '1' })}>
                 <Pencil className="mr-2 h-4 w-4" />
@@ -594,6 +572,53 @@ export function UserDetailPage() {
               </Button>
             ) : null}
           </div>
+
+        </div>
+      </div>
+      <div className="flex justify-between flex-wrap w-full">
+        <div className="space-y-2">
+          <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Organization Scope
+          </div>
+          <Select
+            value={selectedOrganization?.id || ''}
+            onValueChange={(value) => setDashboardParams({ organization_id: value })}
+          >
+            <SelectTrigger className="h-10 w-full">
+              <SelectValue placeholder="Select organization" />
+            </SelectTrigger>
+            <SelectContent>
+              {dashboard.organizations.map((organization) => (
+                <SelectItem key={organization.id} value={organization.id}>
+                  {organization.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Account Status
+          </div>
+          {canUpdate ? (
+            <Select value={user.status} onValueChange={handleStatusChange}>
+              <SelectTrigger className="h-10 w-full">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+                <SelectItem value="suspended">Suspended</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="flex h-10 items-center rounded-md border px-3">
+              <Badge variant={STATUS_COLORS[user.status] || 'outline'}>
+                {user.status}
+              </Badge>
+            </div>
+          )}
         </div>
       </div>
 
@@ -675,71 +700,38 @@ export function UserDetailPage() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-[2fr,1fr]">
-            <Card>
-              <CardHeader>
-                <CardTitle>Profile</CardTitle>
-                <CardDescription>Core identity and account lifecycle details.</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">First name</div>
-                  <div className="mt-1 text-sm font-medium">{user.first_name}</div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Last name</div>
-                  <div className="mt-1 text-sm font-medium">{user.last_name}</div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Email</div>
-                  <div className="mt-1 text-sm font-medium">{user.email}</div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Phone</div>
-                  <div className="mt-1 text-sm font-medium">{user.phone || 'Not set'}</div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Must change password</div>
-                  <div className="mt-1 text-sm font-medium">{user.must_change_password ? 'Yes' : 'No'}</div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Selected organization</div>
-                  <div className="mt-1 text-sm font-medium">{selectedOrganization?.name || 'N/A'}</div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Quick Links</CardTitle>
-                <CardDescription>Jump straight into the selected organization scope.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button className="w-full justify-start" variant="outline" onClick={() => setDashboardParams({ tab: 'wallet' })}>
-                  <Wallet className="mr-2 h-4 w-4" />
-                  Wallet and transactions
-                </Button>
-                <Button className="w-full justify-start" variant="outline" onClick={() => setDashboardParams({ tab: 'plans' })}>
-                  <ShieldCheck className="mr-2 h-4 w-4" />
-                  Plan history
-                </Button>
-                <Button className="w-full justify-start" variant="outline" onClick={() => setDashboardParams({ tab: 'organizations' })}>
-                  <Users className="mr-2 h-4 w-4" />
-                  Organization list
-                </Button>
-                <Button className="w-full justify-start" variant="outline" onClick={() => setDashboardParams({ tab: 'team' })}>
-                  <Users className="mr-2 h-4 w-4" />
-                  Team members
-                </Button>
-                {canSeeSupport ? (
-                  <Button className="w-full justify-start" variant="outline" onClick={() => setDashboardParams({ tab: 'support' })}>
-                    <Ticket className="mr-2 h-4 w-4" />
-                    Support tickets
-                  </Button>
-                ) : null}
-              </CardContent>
-            </Card>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile</CardTitle>
+              <CardDescription>Core identity and account lifecycle details.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">First name</div>
+                <div className="mt-1 text-sm font-medium">{user.first_name}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Last name</div>
+                <div className="mt-1 text-sm font-medium">{user.last_name}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Email</div>
+                <div className="mt-1 text-sm font-medium">{user.email}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Phone</div>
+                <div className="mt-1 text-sm font-medium">{user.phone || 'Not set'}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Must change password</div>
+                <div className="mt-1 text-sm font-medium">{user.must_change_password ? 'Yes' : 'No'}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Selected organization</div>
+                <div className="mt-1 text-sm font-medium">{selectedOrganization?.name || 'N/A'}</div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="wallet" className="space-y-4">
@@ -877,9 +869,9 @@ export function UserDetailPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     <span>{organization.name}</span>
-                    <Badge variant={organization.status === 'active' ? 'default' : 'secondary'}>
-                      {organization.status}
-                    </Badge>
+                    {organization.id === selectedOrganization?.id && <Badge>
+                      Selected
+                    </Badge>}
                   </CardTitle>
                   <CardDescription>{organization.slug}</CardDescription>
                 </CardHeader>

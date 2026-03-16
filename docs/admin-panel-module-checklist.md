@@ -1,4 +1,4 @@
-# Admin Panel Module Inventory and User Module Checklist
+# Admin Panel Module Inventory and Module Checklists
 
 ## Status Legend
 - `[x]` Implemented now
@@ -231,3 +231,71 @@ ANS : take this decision by your self with recommended approach for production g
    - Should admin be able to upload a new avatar file directly, or only set or replace an existing media URL through the same media flow used elsewhere?
 
    ANS : you can upload new avatar file directly and replace/remove existing media url if any.
+
+## Coupon Module: Verified Current Behavior
+
+### Frontend
+- `[x]` Coupon page exists under admin plans
+- `[x]` Coupon table supports pagination
+- `[x]` Coupon table supports free-text search by code or description
+- `[x]` Coupon table supports filters by status and discount type
+- `[x]` Coupon table shows computed coupon status
+- `[x]` Coupon page supports create coupon
+- `[x]` Coupon page supports edit coupon
+- `[x]` Coupon page supports activate or deactivate coupon
+- `[x]` Coupon page supports delete coupon
+- `[-]` Applicable-plan and applicable-user targeting remain backend-supported but are not exposed in the admin form yet
+
+### Backend
+- `[x]` `GET /api/v1/admin/coupons` exists
+- `[x]` `POST /api/v1/admin/coupons` exists
+- `[x]` `GET /api/v1/admin/coupons/:id` exists
+- `[x]` `PUT /api/v1/admin/coupons/:id` exists
+- `[x]` `PUT /api/v1/admin/coupons/:id/status` exists
+- `[x]` `DELETE /api/v1/admin/coupons/:id` exists
+- `[x]` Coupon list supports pagination, search, status filter, and discount-type filter
+- `[x]` Coupon records are normalized with computed `status`
+- `[x]` Coupon delete uses soft delete semantics and renames deleted codes to preserve unique-code reuse
+- `[x]` Subscription-side coupon model now respects soft-deleted coupons
+- `[x]` Coupon schema now includes `deleted_at` through a follow-up migration
+
+## Requested Coupon Module Scope
+
+### Core functionality
+- `[x]` Fix coupon listing error in admin panel
+- `[x]` List coupons in admin panel
+- `[x]` Search coupons
+- `[x]` Filter coupons
+- `[x]` Create coupons
+- `[x]` Edit coupons
+- `[x]` Update coupon status
+- `[x]` Delete coupons
+
+### Current v1 limits
+- `[ ]` Assign coupons to specific plans from the admin form
+- `[ ]` Assign coupons to specific users from the admin form
+- `[ ]` Coupon analytics or redemption drilldown page
+
+## Proposed Verification Checklist For Coupon Module
+
+### Listing and filters
+- `[ ]` Coupons page loads without a 500 error
+- `[ ]` Pagination works across multiple pages of coupons
+- `[ ]` Search works for coupon code
+- `[ ]` Search works for coupon description
+- `[ ]` Status filter works for active, inactive, scheduled, and expired
+- `[ ]` Discount-type filter works for percentage and fixed coupons
+
+### Create and edit
+- `[ ]` Admin can create a percentage coupon
+- `[ ]` Admin can create a fixed-amount coupon
+- `[ ]` Validation blocks percentage discounts over 100
+- `[ ]` Validation blocks `valid_until` earlier than `valid_from`
+- `[ ]` Admin can edit coupon details and see the updated row in the table
+
+### Status and delete
+- `[ ]` Admin can deactivate an active coupon
+- `[ ]` Admin can reactivate an inactive coupon
+- `[ ]` Soft-deleted coupons disappear from the table
+- `[ ]` A deleted coupon code can be reused for a new coupon later
+- `[ ]` Soft-deleted coupons are no longer valid in subscription checkout

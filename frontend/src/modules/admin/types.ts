@@ -115,13 +115,14 @@ export interface Coupon {
   discount_type: 'percentage' | 'fixed';
   discount_value: number;
   max_uses: number | null;
-  uses_count: number;
+  used_count: number;
   min_plan_price: number | null;
   applicable_plan_ids: string[] | null;
   applicable_user_ids: string[] | null;
   valid_from: string;
   valid_until: string | null;
   is_active: boolean;
+  status: 'active' | 'inactive' | 'scheduled' | 'expired';
   created_at: string;
   updated_at: string;
 }

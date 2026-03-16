@@ -40,6 +40,7 @@ export const ADMIN_ENDPOINTS = {
   COUPONS: {
     BASE: '/api/v1/admin/coupons',
     DETAIL: (id: string) => `/api/v1/admin/coupons/${id}`,
+    STATUS: (id: string) => `/api/v1/admin/coupons/${id}/status`,
   },
 
   SUB_ADMINS: {

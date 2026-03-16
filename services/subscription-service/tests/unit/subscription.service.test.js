@@ -34,6 +34,7 @@ function makeSubscription(overrides = {}) {
     user_id: USER_ID,
     plan_id: 'plan-uuid-1',
     status: 'active',
+    expires_at: new Date(Date.now() + 86400000).toISOString(),
     usage: {},
     plan: makePlan(),
     coupon_id: null,
@@ -59,6 +60,14 @@ function makeCoupon(overrides = {}) {
     applicable_user_ids: null,
     min_plan_price: null,
     ...overrides,
+  };
+}
+
+function mockFetchResponse(payload, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: jest.fn().mockResolvedValue(JSON.stringify(payload)),
   };
 }
 
@@ -104,10 +113,17 @@ describe('subscribe', () => {
   it('should create pending subscription for paid plan', async () => {
     const plan = makePlan();
     Plan.findByPk.mockResolvedValue(plan);
-    Subscription.findOne.mockResolvedValue(null);
-    const createdSub = makeSubscription({ status: 'pending' });
+    const createdSub = makeSubscription({ status: 'pending', plan });
     createdSub.destroy = jest.fn();
+    Subscription.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(createdSub);
     Subscription.create.mockResolvedValue(createdSub);
+    global.fetch.mockResolvedValueOnce(mockFetchResponse({
+      success: true,
+      data: { balance: 0 },
+    }));
 
     // Mock Razorpay — service creates a new instance inside subscribe()
     const Razorpay = require('razorpay');
@@ -136,8 +152,11 @@ describe('subscribe', () => {
   it('should activate immediately for free plan', async () => {
     const freePlan = makePlan({ price: 0 });
     Plan.findByPk.mockResolvedValue(freePlan);
-    Subscription.findOne.mockResolvedValue(null);
-    const createdSub = makeSubscription({ status: 'pending' });
+    const createdSub = makeSubscription({ status: 'pending', plan: freePlan, expires_at: null });
+    Subscription.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(createdSub);
     Subscription.create.mockResolvedValue(createdSub);
 
     const result = await subscriptionService.subscribe(USER_ID, { plan_id: 'plan-uuid-1' });
@@ -146,7 +165,11 @@ describe('subscribe', () => {
       where: { user_id: USER_ID, status: 'pending' },
       force: true,
     });
-    expect(createdSub.update).toHaveBeenCalledWith({ status: 'active', payment_id: 'free' });
+    expect(createdSub.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'active',
+      payment_id: 'free',
+      payment_method: 'free',
+    }), expect.any(Object));
     expect(result.payment_required).toBe(false);
   });
 
@@ -167,19 +190,32 @@ describe('subscribe', () => {
 });
 
 describe('changePlan', () => {
-  it('should cancel the old subscription and create a paid replacement order', async () => {
+  it('should keep the old subscription active until the paid replacement is completed', async () => {
     const currentSubscription = makeSubscription({
       id: 'sub-current',
       plan_id: 'plan-old',
       plan: makePlan({ id: 'plan-old' }),
     });
     const newPlan = makePlan({ id: 'plan-new' });
-    const pendingReplacement = makeSubscription({ id: 'sub-new', status: 'pending', plan_id: 'plan-new' });
+    const pendingReplacement = makeSubscription({
+      id: 'sub-new',
+      status: 'pending',
+      plan_id: 'plan-new',
+      plan: newPlan,
+      replaces_subscription_id: 'sub-current',
+    });
     pendingReplacement.destroy = jest.fn();
 
     Plan.findByPk.mockResolvedValue(newPlan);
-    Subscription.findOne.mockResolvedValue(currentSubscription);
+    Subscription.findOne
+      .mockResolvedValueOnce(currentSubscription)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(pendingReplacement);
     Subscription.create.mockResolvedValue(pendingReplacement);
+    global.fetch.mockResolvedValueOnce(mockFetchResponse({
+      success: true,
+      data: { balance: 0 },
+    }));
 
     const Razorpay = require('razorpay');
     Razorpay.mockImplementation(() => ({
@@ -196,11 +232,7 @@ describe('changePlan', () => {
       where: { user_id: USER_ID, status: 'pending' },
       force: true,
     });
-    expect(currentSubscription.update).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'cancelled',
-      cancellation_reason: 'plan_changed',
-      auto_renew: false,
-    }));
+    expect(currentSubscription.update).not.toHaveBeenCalled();
     expect(result.previous_subscription_id).toBe('sub-current');
     expect(result.payment_required).toBe(true);
     expect(result.razorpay_order.id).toBe('order_change');
@@ -213,10 +245,21 @@ describe('changePlan', () => {
       plan: makePlan({ id: 'plan-old' }),
     });
     const freePlan = makePlan({ id: 'plan-free', price: 0 });
-    const pendingReplacement = makeSubscription({ id: 'sub-free', status: 'pending', plan_id: 'plan-free' });
+    const pendingReplacement = makeSubscription({
+      id: 'sub-free',
+      status: 'pending',
+      plan_id: 'plan-free',
+      plan: freePlan,
+      expires_at: null,
+      replaces_subscription_id: 'sub-current',
+    });
 
     Plan.findByPk.mockResolvedValue(freePlan);
-    Subscription.findOne.mockResolvedValue(currentSubscription);
+    Subscription.findByPk.mockResolvedValue(currentSubscription);
+    Subscription.findOne
+      .mockResolvedValueOnce(currentSubscription)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(pendingReplacement);
     Subscription.create.mockResolvedValue(pendingReplacement);
 
     const result = await subscriptionService.changePlan(USER_ID, { plan_id: 'plan-free' });
@@ -224,8 +267,12 @@ describe('changePlan', () => {
     expect(currentSubscription.update).toHaveBeenCalledWith(expect.objectContaining({
       status: 'cancelled',
       cancellation_reason: 'plan_changed',
-    }));
-    expect(pendingReplacement.update).toHaveBeenCalledWith({ status: 'active', payment_id: 'free' });
+    }), expect.any(Object));
+    expect(pendingReplacement.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'active',
+      payment_id: 'free',
+      payment_method: 'free',
+    }), expect.any(Object));
     expect(result.payment_required).toBe(false);
     expect(result.previous_subscription_id).toBe('sub-current');
   });
@@ -275,7 +322,11 @@ describe('verifyPayment', () => {
       subscription_id: 'sub-uuid-1',
     });
 
-    expect(sub.update).toHaveBeenCalledWith({ status: 'active', payment_id: 'pay_1' });
+    expect(sub.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'active',
+      payment_id: 'pay_1',
+      payment_method: 'razorpay',
+    }), expect.any(Object));
   });
 
   it('should throw on invalid signature', async () => {
@@ -311,7 +362,9 @@ describe('verifyPayment', () => {
       subscription_id: 'sub-1',
     });
 
-    expect(Coupon.increment).toHaveBeenCalledWith('used_count', { where: { id: 'coupon-1' } });
+    expect(Coupon.increment).toHaveBeenCalledWith('used_count', expect.objectContaining({
+      where: { id: 'coupon-1' },
+    }));
   });
 });
 
@@ -323,7 +376,10 @@ describe('getCurrentSubscription', () => {
     Subscription.findOne.mockResolvedValue(sub);
 
     const result = await subscriptionService.getCurrentSubscription(USER_ID);
-    expect(result).toBe(sub);
+    expect(result).toEqual(expect.objectContaining({
+      id: sub.id,
+      auto_renew_eligible: true,
+    }));
   });
 
   it('should return null if no active subscription', async () => {
@@ -367,7 +423,10 @@ describe('getHistory', () => {
 
     const result = await subscriptionService.getHistory(USER_ID, 1, 20);
 
-    expect(result.subscriptions).toEqual(subs);
+    expect(result.subscriptions[0]).toEqual(expect.objectContaining({
+      id: subs[0].id,
+      auto_renew_eligible: true,
+    }));
     expect(result.meta.total).toBe(1);
   });
 });
@@ -471,15 +530,22 @@ describe('resetMonthlyUsage', () => {
 // ─── checkAndExpireSubscriptions ──────────────────────────────────────────────
 
 describe('checkAndExpireSubscriptions', () => {
-  it('should update expired subscriptions', async () => {
-    Subscription.update.mockResolvedValue([7]);
+  it('should expire a due subscription when auto-renew is disabled', async () => {
+    Subscription.findAll.mockResolvedValue([
+      makeSubscription({
+        status: 'active',
+        auto_renew: false,
+        expires_at: new Date(Date.now() - 60_000).toISOString(),
+      }),
+    ]);
+    Subscription.update.mockResolvedValue([1]);
 
     const result = await subscriptionService.checkAndExpireSubscriptions();
 
     expect(Subscription.update).toHaveBeenCalledWith(
-      { status: 'expired' },
-      expect.objectContaining({ where: expect.objectContaining({ status: 'active' }) })
+      expect.objectContaining({ status: 'expired' }),
+      expect.objectContaining({ where: { id: 'sub-uuid-1' } })
     );
-    expect(result.expired_count).toBe(7);
+    expect(result.expired_count).toBe(1);
   });
 });

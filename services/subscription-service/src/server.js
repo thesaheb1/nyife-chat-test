@@ -36,17 +36,19 @@ async function startServer() {
 }
 
 function scheduleJobs() {
-  // Check expired subscriptions every hour
+  // Process due renewals and expirations every 10 minutes
   setInterval(async () => {
     try {
       const result = await subscriptionService.checkAndExpireSubscriptions();
-      if (result.expired_count > 0) {
-        console.log(`[subscription-service] Expired ${result.expired_count} subscriptions`);
+      if (result.processed_count > 0) {
+        console.log(
+          `[subscription-service] Renewal sweep processed=${result.processed_count} renewed=${result.renewed_count} grace=${result.grace_count} expired=${result.expired_count}`
+        );
       }
     } catch (err) {
-      console.error('[subscription-service] Expiry check failed:', err.message);
+      console.error('[subscription-service] Renewal sweep failed:', err.message);
     }
-  }, 60 * 60 * 1000); // 1 hour
+  }, 10 * 60 * 1000); // 10 minutes
 
   // Reset monthly usage on the 1st of each month (check every hour)
   setInterval(async () => {

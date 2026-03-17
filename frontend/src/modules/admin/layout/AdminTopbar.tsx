@@ -1,10 +1,18 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Moon, Sun, Monitor, LogOut, User, Shield } from 'lucide-react';
+import {
+  ArrowLeft,
+  LogOut,
+  Menu,
+  Monitor,
+  Moon,
+  PanelLeft,
+  PanelLeftClose,
+  Sun,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,15 +22,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { RootState, AppDispatch } from '@/core/store';
-import { setTheme } from '@/core/store/uiSlice';
+import { setTheme, toggleSidebar } from '@/core/store/uiSlice';
 import { useAuth } from '@/core/hooks/useAuth';
 
-export function AdminTopbar() {
+interface AdminTopbarProps {
+  onOpenSidebar?: () => void;
+}
+
+export function AdminTopbar({ onOpenSidebar }: AdminTopbarProps) {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const theme = useSelector((state: RootState) => state.ui.theme);
+  const sidebarCollapsed = useSelector((state: RootState) => state.ui.sidebarCollapsed);
 
   const initials = user
     ? `${user.first_name?.charAt(0) || ''}${user.last_name?.charAt(0) || ''}`.toUpperCase()
@@ -34,97 +47,104 @@ export function AdminTopbar() {
   };
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-background px-4">
-      {/* Left: Breadcrumbs */}
-      <div className="flex items-center gap-2">
-        <Badge variant="destructive" className="text-xs">
-          <Shield className="mr-1 h-3 w-3" />
-          {t('admin.title')}
-        </Badge>
-        <AdminBreadcrumbs />
-      </div>
+    <header className="sticky top-0 z-30 border-b border-border/70 bg-background/95 backdrop-blur">
+      <div className="flex min-h-16 items-center gap-3 px-3 sm:px-4 md:px-5 xl:px-6">
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-xl text-muted-foreground shadow-none md:hidden"
+            onClick={onOpenSidebar}
+          >
+            <Menu className="h-4 w-4" />
+          </Button>
 
-      {/* Right: Actions */}
-      <div className="flex items-center gap-2">
-        {/* Theme Toggle */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              {theme === 'dark' ? (
-                <Moon className="h-4 w-4" />
-              ) : theme === 'light' ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Monitor className="h-4 w-4" />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => dispatch(setTheme('light'))}>
-              <Sun className="mr-2 h-4 w-4" />Light
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => dispatch(setTheme('dark'))}>
-              <Moon className="mr-2 h-4 w-4" />Dark
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => dispatch(setTheme('system'))}>
-              <Monitor className="mr-2 h-4 w-4" />System
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden rounded-xl text-muted-foreground shadow-none hover:bg-accent hover:text-foreground md:inline-flex"
+            onClick={() => dispatch(toggleSidebar())}
+          >
+            {sidebarCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
+        </div>
 
-        {/* User Menu */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full">
-              <Avatar className="h-8 w-8">
-                <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-              </Avatar>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium">
-                  {user?.first_name} {user?.last_name}
-                </span>
-                <span className="text-xs text-muted-foreground">{user?.role}</span>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate('/dashboard')}>
-              <User className="mr-2 h-4 w-4" />
-              {t('admin.backToApp')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout} className="text-destructive">
-              <LogOut className="mr-2 h-4 w-4" />
-              {t('auth.logout')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="hidden rounded-xl lg:inline-flex"
+            onClick={() => navigate('/dashboard')}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t('admin.backToApp')}
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-xl text-muted-foreground shadow-none hover:bg-accent hover:text-foreground">
+                {theme === 'dark' ? (
+                  <Moon className="h-4 w-4" />
+                ) : theme === 'light' ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Monitor className="h-4 w-4" />
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="rounded-xl p-2">
+              <DropdownMenuItem className="rounded-lg" onClick={() => dispatch(setTheme('light'))}>
+                <Sun className="mr-2 h-4 w-4" />
+                Light
+              </DropdownMenuItem>
+              <DropdownMenuItem className="rounded-lg" onClick={() => dispatch(setTheme('dark'))}>
+                <Moon className="mr-2 h-4 w-4" />
+                Dark
+              </DropdownMenuItem>
+              <DropdownMenuItem className="rounded-lg" onClick={() => dispatch(setTheme('system'))}>
+                <Monitor className="mr-2 h-4 w-4" />
+                System
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-10 rounded-xl px-1.5 shadow-none hover:bg-accent sm:pr-1.5">
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={user?.avatar_url || undefined} alt={user?.first_name || 'Admin'} />
+                  <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 rounded-xl p-2">
+              <DropdownMenuLabel className="px-2 py-1">
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">
+                    {user?.first_name} {user?.last_name}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {user?.role === 'super_admin' ? 'super_admin' : 'admin'}
+                  </span>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="rounded-lg lg:hidden" onClick={() => navigate('/dashboard')}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                {t('admin.backToApp')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="lg:hidden" />
+              <DropdownMenuItem
+                className="rounded-lg text-destructive focus:text-destructive"
+                onClick={handleLogout}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                {t('auth.logout')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </header>
-  );
-}
-
-function AdminBreadcrumbs() {
-  const { pathname } = useLocation();
-  const segments = pathname.split('/').filter(Boolean);
-
-  // Skip the 'admin' prefix for display
-  const displaySegments = segments.slice(1);
-  if (displaySegments.length === 0) return null;
-
-  return (
-    <nav className="flex items-center gap-1 text-sm text-muted-foreground">
-      {displaySegments.map((segment, i) => (
-        <span key={i} className="flex items-center gap-1">
-          {i > 0 && <span>/</span>}
-          <span className={i === displaySegments.length - 1 ? 'font-medium text-foreground' : ''}>
-            {segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, ' ')}
-          </span>
-        </span>
-      ))}
-    </nav>
   );
 }

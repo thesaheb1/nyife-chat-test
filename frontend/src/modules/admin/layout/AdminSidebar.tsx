@@ -1,145 +1,249 @@
 import { Link, useLocation } from 'react-router-dom';
-import { useSelector, useDispatch } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
-  LayoutDashboard,
-  Users,
-  CreditCard,
-  LifeBuoy,
-  ShieldCheck,
+  ArrowLeft,
   Bell,
+  CreditCard,
+  LayoutDashboard,
+  LifeBuoy,
   Mail,
   Settings,
-  ArrowLeft,
-  PanelLeftClose,
-  PanelLeft,
+  ShieldCheck,
+  Users,
+  type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import type { RootState } from '@/core/store';
-import { toggleSidebar } from '@/core/store/uiSlice';
 import { usePermissions } from '@/core/hooks/usePermissions';
 import { useAdminSupportUnreadCount } from '@/modules/admin/support/useAdminSupport';
+import { useAuth } from '@/core/hooks/useAuth';
 
-const NAV_ITEMS = [
-  { path: '/admin/dashboard', i18nKey: 'admin.nav.dashboard', icon: LayoutDashboard, resource: 'dashboard', action: 'read' },
-  { path: '/admin/users', i18nKey: 'admin.nav.users', icon: Users, resource: 'users', action: 'read' },
-  { path: '/admin/plans', i18nKey: 'admin.nav.plans', icon: CreditCard, resource: 'plans', action: 'read' },
-  { path: '/admin/support', i18nKey: 'admin.nav.support', icon: LifeBuoy, resource: 'support', action: 'read' },
-  { path: '/admin/sub-admins', i18nKey: 'admin.nav.subAdmins', icon: ShieldCheck, resource: 'sub_admins', action: 'read' },
-  { path: '/admin/notifications', i18nKey: 'admin.nav.notifications', icon: Bell, resource: 'notifications', action: 'read' },
-  { path: '/admin/email', i18nKey: 'admin.nav.email', icon: Mail, resource: 'emails', action: 'create' },
-  { path: '/admin/settings', i18nKey: 'admin.nav.settings', icon: Settings, resource: 'settings', action: 'read' },
-] as const;
+interface AdminSidebarProps {
+  mobile?: boolean;
+  onNavigate?: () => void;
+}
 
-export function AdminSidebar() {
+interface NavItem {
+  path: string;
+  i18nKey: string;
+  icon: LucideIcon;
+  resource: string;
+  action: 'create' | 'read' | 'update' | 'delete';
+}
+
+interface NavSection {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: 'Overview',
+    items: [
+      { path: '/admin/dashboard', i18nKey: 'admin.nav.dashboard', icon: LayoutDashboard, resource: 'dashboard', action: 'read' },
+      { path: '/admin/support', i18nKey: 'admin.nav.support', icon: LifeBuoy, resource: 'support', action: 'read' },
+      { path: '/admin/notifications', i18nKey: 'admin.nav.notifications', icon: Bell, resource: 'notifications', action: 'read' },
+    ],
+  },
+  {
+    label: 'Management',
+    items: [
+      { path: '/admin/users', i18nKey: 'admin.nav.users', icon: Users, resource: 'users', action: 'read' },
+      { path: '/admin/plans', i18nKey: 'admin.nav.plans', icon: CreditCard, resource: 'plans', action: 'read' },
+      { path: '/admin/sub-admins', i18nKey: 'admin.nav.subAdmins', icon: ShieldCheck, resource: 'sub_admins', action: 'read' },
+      { path: '/admin/email', i18nKey: 'admin.nav.email', icon: Mail, resource: 'emails', action: 'create' },
+      { path: '/admin/settings', i18nKey: 'admin.nav.settings', icon: Settings, resource: 'settings', action: 'read' },
+    ],
+  },
+];
+
+function getInitials(value?: string | null) {
+  if (!value) {
+    return '?';
+  }
+
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
+}
+
+export function AdminSidebar({ mobile = false, onNavigate }: AdminSidebarProps) {
   const location = useLocation();
-  const dispatch = useDispatch();
   const { t } = useTranslation();
+  const { user } = useAuth();
   const collapsed = useSelector((state: RootState) => state.ui.sidebarCollapsed);
+  const isCompact = !mobile && collapsed;
   const { canAdmin } = usePermissions();
   const canReadSupport = canAdmin('support', 'read');
   const supportUnreadCount = useAdminSupportUnreadCount(canReadSupport);
+  const supportUnread = supportUnreadCount.data || 0;
+
+  const visibleSections = NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => canAdmin(item.resource, item.action)),
+  })).filter((section) => section.items.length > 0);
 
   return (
     <aside
       className={cn(
-        'flex h-screen flex-col border-r bg-sidebar text-sidebar-foreground transition-all duration-200',
-        collapsed ? 'w-16' : 'w-60'
+        'flex min-h-0 flex-col overflow-hidden border-r border-border/70 bg-background text-foreground',
+        mobile ? 'h-full w-full shadow-xl shadow-slate-950/10' : 'h-screen transition-[width] duration-200 ease-out',
+        isCompact ? 'w-[5.5rem]' : 'w-[17.5rem] xl:w-[18.5rem]'
       )}
     >
-      {/* Logo */}
-      <div className="flex h-14 items-center border-b px-4">
-        {!collapsed && <span className="text-lg font-bold tracking-tight text-red-500">Admin</span>}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn('h-8 w-8', collapsed ? 'mx-auto' : 'ml-auto')}
-          onClick={() => dispatch(toggleSidebar())}
-        >
-          {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </Button>
+      <div className="border-b border-border/70 px-3 py-4">
+        <div className={cn('flex items-center gap-3', isCompact && 'justify-center')}>
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-sm font-semibold text-white shadow-sm">
+            A
+          </div>
+
+          {!isCompact ? (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold tracking-tight">Nyife Admin</p>
+              <p className="text-xs text-muted-foreground">Platform control</p>
+            </div>
+          ) : null}
+        </div>
+
+        {!isCompact ? (
+          <div className="mt-4 rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              Access Level
+            </p>
+            <p className="mt-2 text-sm font-medium text-foreground">
+              {user?.role === 'super_admin' ? 'Super admin' : 'Admin'}
+            </p>
+          </div>
+        ) : null}
       </div>
 
-      {/* Navigation */}
-      <ScrollArea className="flex-1 py-2">
-        <nav className="flex flex-col gap-1 px-2">
-          {NAV_ITEMS.filter((item) => canAdmin(item.resource, item.action)).map((item) => {
-            const isActive =
-              location.pathname === item.path ||
-              (item.path !== '/admin/dashboard' && location.pathname.startsWith(item.path));
-            const Icon = item.icon;
-            const label = t(item.i18nKey);
+      <ScrollArea className="min-h-0 flex-1">
+        <div className={cn('space-y-5 px-2 py-4', !isCompact && 'px-3')}>
+          {visibleSections.map((section) => (
+            <div key={section.label} className="space-y-2">
+              {!isCompact ? (
+                <div className="px-3 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  {section.label}
+                </div>
+              ) : null}
 
-            const linkContent = (
-              <Link
-                to={item.path}
-                className={cn(
-                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
-                )}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span>{label}</span>}
-                {!collapsed && item.path === '/admin/support' && (supportUnreadCount.data || 0) > 0 ? (
-                  <Badge variant="destructive" className="ml-auto min-w-5 px-1.5 text-[10px]">
-                    {supportUnreadCount.data}
-                  </Badge>
-                ) : null}
-              </Link>
-            );
+              <div className="space-y-1">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive =
+                    location.pathname === item.path ||
+                    (item.path !== '/admin/dashboard' && location.pathname.startsWith(`${item.path}/`)) ||
+                    (item.path !== '/admin/dashboard' && location.pathname.startsWith(item.path));
+                  const label = t(item.i18nKey);
 
-            if (collapsed) {
-              return (
-                <Tooltip key={item.path} delayDuration={0}>
-                  <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-                  <TooltipContent side="right" className="flex items-center gap-2">
-                    <span>{label}</span>
-                    {item.path === '/admin/support' && (supportUnreadCount.data || 0) > 0 ? (
-                      <Badge variant="destructive" className="min-w-5 px-1.5 text-[10px]">
-                        {supportUnreadCount.data}
-                      </Badge>
-                    ) : null}
-                  </TooltipContent>
-                </Tooltip>
-              );
-            }
+                  const content = (
+                    <Link
+                      to={item.path}
+                      onClick={onNavigate}
+                      className={cn(
+                        'relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                        isCompact && 'justify-center px-0',
+                        isActive
+                          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                      )}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {!isCompact ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
+                      {item.path === '/admin/support' && supportUnread > 0 ? (
+                        <Badge
+                          variant="destructive"
+                          className={cn(
+                            'min-w-5 px-1.5 text-[10px]',
+                            isCompact ? 'absolute right-1 top-1' : 'ml-auto'
+                          )}
+                        >
+                          {supportUnread}
+                        </Badge>
+                      ) : null}
+                    </Link>
+                  );
 
-            return <div key={item.path}>{linkContent}</div>;
-          })}
-        </nav>
+                  if (!isCompact) {
+                    return <div key={item.path}>{content}</div>;
+                  }
+
+                  return (
+                    <Tooltip key={item.path} delayDuration={0}>
+                      <TooltipTrigger asChild>
+                        <div className="relative">{content}</div>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="flex items-center gap-2">
+                        <span>{label}</span>
+                        {item.path === '/admin/support' && supportUnread > 0 ? (
+                          <Badge variant="destructive" className="min-w-5 px-1.5 text-[10px]">
+                            {supportUnread}
+                          </Badge>
+                        ) : null}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
       </ScrollArea>
 
-      {/* Back to App */}
-      <Separator />
-      <div className="p-2">
-        {collapsed ? (
-          <Tooltip delayDuration={0}>
-            <TooltipTrigger asChild>
-              <Link
-                to="/dashboard"
-                className="flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
-              >
+      <div className="border-t border-border/70 px-3 py-4">
+        <div className={cn(
+          'rounded-xl border border-border/70 bg-muted/20 p-3',
+          isCompact && 'flex flex-col items-center gap-2 p-2'
+        )}>
+          <div className={cn('flex items-center gap-3', isCompact && 'justify-center')}>
+            <Avatar className="ring-1 ring-border/70">
+              <AvatarImage src={user?.avatar_url || undefined} alt={user?.first_name || 'Admin'} />
+              <AvatarFallback>
+                {getInitials(`${user?.first_name || ''} ${user?.last_name || ''}`)}
+              </AvatarFallback>
+            </Avatar>
+
+            {!isCompact ? (
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {user?.first_name} {user?.last_name}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {user?.role === 'super_admin' ? 'Super admin access' : 'Admin access'}
+                </p>
+              </div>
+            ) : null}
+          </div>
+
+          {!isCompact ? (
+            <Button asChild variant="outline" size="sm" className="mt-3 w-full rounded-lg shadow-none">
+              <Link to="/dashboard" onClick={onNavigate}>
                 <ArrowLeft className="h-4 w-4" />
+                {t('admin.backToApp')}
               </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t('admin.backToApp')}</TooltipContent>
-          </Tooltip>
-        ) : (
-          <Link
-            to="/dashboard"
-            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
-          >
-            <ArrowLeft className="h-4 w-4 shrink-0" />
-            <span>{t('admin.backToApp')}</span>
-          </Link>
-        )}
+            </Button>
+          ) : (
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button asChild variant="ghost" size="icon-sm" className="rounded-lg text-muted-foreground">
+                  <Link to="/dashboard" onClick={onNavigate}>
+                    <ArrowLeft className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{t('admin.backToApp')}</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
       </div>
     </aside>
   );

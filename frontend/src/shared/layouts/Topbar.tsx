@@ -1,12 +1,24 @@
 import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bell, Moon, Sun, Monitor, LogOut, User, Settings, CreditCard, Building2, Check } from 'lucide-react';
 import { useQueryClient, type Query } from '@tanstack/react-query';
+import {
+  Building2,
+  CreditCard,
+  LifeBuoy,
+  LogOut,
+  Menu,
+  Monitor,
+  Moon,
+  PanelLeft,
+  PanelLeftClose,
+  Settings,
+  Sun,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,13 +28,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { RootState, AppDispatch } from '@/core/store';
-import { setTheme } from '@/core/store/uiSlice';
+import { setTheme, toggleSidebar } from '@/core/store/uiSlice';
 import { useAuth } from '@/core/hooks/useAuth';
-import { formatCurrency } from '@/shared/utils/formatters';
-import { buildOrganizationNavigationTarget, buildOrganizationPath, setStoredActiveOrganization } from '@/modules/organizations/context';
+import { buildOrganizationPath } from '@/modules/organizations/context';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
-import type { Organization } from '@/core/types';
 import { usePermissions } from '@/core/hooks/usePermissions';
+import { useSupportUnreadCount } from '@/modules/support/useSupportDesk';
 
 const ORG_SCOPED_QUERY_ROOTS = new Set([
   'dashboard',
@@ -51,22 +62,29 @@ const ORG_SCOPED_QUERY_ROOTS = new Set([
   'subscriptions',
 ]);
 
+interface TopbarProps {
+  onOpenSidebar?: () => void;
+}
+
 function isOrganizationScopedQuery(query: Query) {
   const [root] = query.queryKey;
   return typeof root === 'string' && ORG_SCOPED_QUERY_ROOTS.has(root);
 }
 
-export function Topbar() {
+export function Topbar({ onOpenSidebar }: TopbarProps) {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const location = useLocation();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const theme = useSelector((state: RootState) => state.ui.theme);
+  const sidebarCollapsed = useSelector((state: RootState) => state.ui.sidebarCollapsed);
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
-  const { organizations, activeOrganization } = useOrganizationContext(null, !isAdmin);
+  const { activeOrganization } = useOrganizationContext(null, !isAdmin);
   const { canOrganization } = usePermissions();
+  const canReadSupport = canOrganization('support', 'read');
+  const supportUnreadCount = useSupportUnreadCount(activeOrganization?.id, canReadSupport);
+  const supportUnread = supportUnreadCount.data || 0;
   const previousOrganizationIdRef = useRef<string | null>(null);
 
   const initials = user
@@ -85,23 +103,6 @@ export function Topbar() {
     }
 
     navigate(buildOrganizationPath(activeOrganization.slug, path));
-  };
-
-  const handleOrganizationSwitch = (organization: Organization) => {
-    setStoredActiveOrganization(user?.id, organization);
-
-    if (location.pathname.startsWith('/organizations')) {
-      return;
-    }
-
-    navigate(
-      buildOrganizationNavigationTarget(
-        organization.slug,
-        location.pathname,
-        location.search,
-        location.hash
-      )
-    );
   };
 
   useEffect(() => {
@@ -129,155 +130,133 @@ export function Topbar() {
   }, [activeOrganization?.id, isAdmin, queryClient]);
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-background px-4">
-      {/* Left: Breadcrumbs placeholder */}
-      <div className="flex items-center gap-2">
-        {!isAdmin ? (
+    <header className="sticky top-0 z-30 border-b border-border/70 bg-background/95 backdrop-blur">
+      <div className="flex min-h-16 items-center gap-3 px-3 sm:px-4 md:px-5 xl:px-6">
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-xl text-muted-foreground shadow-none md:hidden"
+            onClick={onOpenSidebar}
+          >
+            <Menu className="h-4 w-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden rounded-xl text-muted-foreground shadow-none hover:bg-accent hover:text-foreground md:inline-flex"
+            onClick={() => dispatch(toggleSidebar())}
+          >
+            {sidebarCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
+        </div>
+
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {canReadSupport ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => navigateToScopedPath('/support')}
+            >
+              <LifeBuoy className="h-4 w-4" />
+              {supportUnread > 0 ? (
+                <Badge variant="destructive" className="absolute -right-1 -top-1 min-w-5 px-1.5 text-[10px]">
+                  {supportUnread}
+                </Badge>
+              ) : null}
+            </Button>
+          ) : null}
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="max-w-[220px] justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Building2 className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{activeOrganization?.name || 'Organization'}</span>
-                </span>
+              <Button variant="ghost" size="icon" className="rounded-xl text-muted-foreground shadow-none hover:bg-accent hover:text-foreground">
+                {theme === 'dark' ? (
+                  <Moon className="h-4 w-4" />
+                ) : theme === 'light' ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Monitor className="h-4 w-4" />
+                )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel>Switch organization</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {organizations.map((organization) => (
-                <DropdownMenuItem
-                  key={organization.id}
-                  className="flex items-center justify-between"
-                  onClick={() => handleOrganizationSwitch(organization)}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{organization.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{organization.slug}</p>
-                  </div>
-                  {activeOrganization?.id === organization.id ? <Check className="h-4 w-4" /> : null}
-                </DropdownMenuItem>
-              ))}
+            <DropdownMenuContent align="end" className="rounded-xl p-2">
+              <DropdownMenuItem className="rounded-lg" onClick={() => dispatch(setTheme('light'))}>
+                <Sun className="mr-2 h-4 w-4" />
+                Light
+              </DropdownMenuItem>
+              <DropdownMenuItem className="rounded-lg" onClick={() => dispatch(setTheme('dark'))}>
+                <Moon className="mr-2 h-4 w-4" />
+                Dark
+              </DropdownMenuItem>
+              <DropdownMenuItem className="rounded-lg" onClick={() => dispatch(setTheme('system'))}>
+                <Monitor className="mr-2 h-4 w-4" />
+                System
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        ) : null}
-        <Breadcrumbs />
-      </div>
 
-      {/* Right: Actions */}
-      <div className="flex items-center gap-2">
-        {/* Wallet Balance */}
-        {canOrganization('wallet', 'read') ? (
-          <Button variant="outline" size="sm" className="hidden sm:flex" onClick={() => navigateToScopedPath('/wallet')}>
-            <span className="text-xs">{formatCurrency(0)}</span>
-          </Button>
-        ) : null}
-
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative" onClick={() => navigate('/notifications')}>
-          <Bell className="h-4 w-4" />
-          <Badge className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-[10px]" variant="destructive">
-            0
-          </Badge>
-        </Button>
-
-        {/* Theme Toggle */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              {theme === 'dark' ? (
-                <Moon className="h-4 w-4" />
-              ) : theme === 'light' ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Monitor className="h-4 w-4" />
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => dispatch(setTheme('light'))}>
-              <Sun className="mr-2 h-4 w-4" />
-              Light
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => dispatch(setTheme('dark'))}>
-              <Moon className="mr-2 h-4 w-4" />
-              Dark
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => dispatch(setTheme('system'))}>
-              <Monitor className="mr-2 h-4 w-4" />
-              System
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* User Menu */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full">
-              <Avatar className="h-8 w-8">
-                <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-              </Avatar>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium">
-                  {user?.first_name} {user?.last_name}
-                </span>
-                <span className="text-xs text-muted-foreground">{user?.email}</span>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {canOrganization('settings', 'read') ? (
-              <DropdownMenuItem onClick={() => navigateToScopedPath('/settings')}>
-                <User className="mr-2 h-4 w-4" />
-                {t('settings.profile')}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-10 rounded-xl px-1.5 shadow-none hover:bg-accent sm:pr-1.5">
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={user?.avatar_url || undefined} alt={user?.first_name || 'User'} />
+                  <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 rounded-xl p-2">
+              <DropdownMenuLabel className="px-2 py-1">
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">
+                    {user?.first_name} {user?.last_name}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{user?.email}</span>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {canOrganization('organizations', 'read') ? (
+                <DropdownMenuItem className="rounded-lg" onClick={() => navigate('/organizations')}>
+                  <Building2 className="mr-2 h-4 w-4" />
+                  {t('nav.organizations')}
+                </DropdownMenuItem>
+              ) : null}
+              {canOrganization('subscription', 'read') ? (
+                <DropdownMenuItem className="rounded-lg" onClick={() => navigateToScopedPath('/subscription')}>
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  {t('nav.subscription')}
+                </DropdownMenuItem>
+              ) : null}
+              {canOrganization('settings', 'read') ? (
+                <DropdownMenuItem className="rounded-lg" onClick={() => navigateToScopedPath('/settings')}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  {t('nav.settings')}
+                </DropdownMenuItem>
+              ) : null}
+              {canReadSupport ? (
+                <DropdownMenuItem className="rounded-lg lg:hidden" onClick={() => navigateToScopedPath('/support')}>
+                  <LifeBuoy className="mr-2 h-4 w-4" />
+                  Support
+                  {supportUnread > 0 ? (
+                    <Badge variant="destructive" className="ml-auto min-w-5 px-1.5 text-[10px]">
+                      {supportUnread}
+                    </Badge>
+                  ) : null}
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="rounded-lg text-destructive focus:text-destructive"
+                onClick={handleLogout}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                {t('auth.logout')}
               </DropdownMenuItem>
-            ) : null}
-            {canOrganization('subscription', 'read') ? (
-              <DropdownMenuItem onClick={() => navigateToScopedPath('/subscription')}>
-                <CreditCard className="mr-2 h-4 w-4" />
-                {t('nav.subscription')}
-              </DropdownMenuItem>
-            ) : null}
-            {canOrganization('settings', 'read') ? (
-              <DropdownMenuItem onClick={() => navigateToScopedPath('/settings')}>
-                <Settings className="mr-2 h-4 w-4" />
-                {t('nav.settings')}
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout} className="text-destructive">
-              <LogOut className="mr-2 h-4 w-4" />
-              {t('auth.logout')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </header>
-  );
-}
-
-function Breadcrumbs() {
-  const { pathname } = useLocation();
-  const segments = pathname
-    .split('/')
-    .filter(Boolean)
-    .filter((_, index, values) => !(values[0] === 'org' && (index === 0 || index === 1)));
-
-  if (segments.length === 0) return null;
-
-  return (
-    <nav className="flex items-center gap-1 text-sm text-muted-foreground">
-      {segments.map((segment, i) => (
-        <span key={i} className="flex items-center gap-1">
-          {i > 0 && <span>/</span>}
-          <span className={i === segments.length - 1 ? 'font-medium text-foreground' : ''}>
-            {segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, ' ')}
-          </span>
-        </span>
-      ))}
-    </nav>
   );
 }

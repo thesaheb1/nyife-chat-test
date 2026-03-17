@@ -1,7 +1,6 @@
+import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { Menu } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
@@ -9,36 +8,32 @@ import { ErrorBoundary } from '@/shared/components/ErrorBoundary';
 import { useNotificationSocket, useSupportSocket } from '@/core/hooks';
 
 export function AppLayout() {
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
   // Global real-time listeners for notifications + campaign status
   useNotificationSocket();
   useSupportSocket();
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="flex h-screen overflow-hidden">
-        {/* Desktop sidebar */}
-        <div className="hidden md:block">
+      <div className="relative flex h-screen overflow-hidden bg-muted/20">
+        <div className="hidden shrink-0 md:block">
           <Sidebar />
         </div>
 
-        {/* Mobile sidebar */}
-        <div className="md:hidden">
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="fixed left-2 top-3 z-40">
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-60 p-0">
-              <Sidebar />
-            </SheetContent>
-          </Sheet>
-        </div>
+        <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+          <SheetContent
+            side="left"
+            showCloseButton={false}
+            className="w-[92vw] max-w-[340px] border-r-0 bg-transparent p-0 shadow-none md:hidden"
+          >
+            <Sidebar mobile onNavigate={() => setMobileSidebarOpen(false)} />
+          </SheetContent>
+        </Sheet>
 
-        {/* Main content area */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Topbar />
-          <main className="flex-1 overflow-auto p-4 md:p-6">
+        <div className="flex min-w-0 min-h-0 flex-1 flex-col bg-background">
+          <Topbar onOpenSidebar={() => setMobileSidebarOpen(true)} />
+          <main className="min-h-0 flex-1 overflow-auto px-3 pb-4 pt-4 sm:px-4 md:px-5 md:pb-5 xl:px-6 xl:pb-6">
             <ErrorBoundary>
               <Outlet />
             </ErrorBoundary>

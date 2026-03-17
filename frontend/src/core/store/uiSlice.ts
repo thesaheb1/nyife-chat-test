@@ -8,6 +8,8 @@ interface UiState {
   theme: Theme;
 }
 
+const SIDEBAR_COLLAPSED_KEY = 'nyife-sidebar-collapsed';
+
 const getInitialTheme = (): Theme => {
   const stored = localStorage.getItem('nyife-theme');
   if (stored === 'light' || stored === 'dark' || stored === 'system') {
@@ -16,8 +18,32 @@ const getInitialTheme = (): Theme => {
   return 'system';
 };
 
+const getInitialSidebarCollapsed = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const persistSidebarCollapsed = (collapsed: boolean) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+  } catch {
+    // Ignore storage failures in restrictive environments.
+  }
+};
+
 const initialState: UiState = {
-  sidebarCollapsed: false,
+  sidebarCollapsed: getInitialSidebarCollapsed(),
   theme: getInitialTheme(),
 };
 
@@ -27,9 +53,11 @@ export const uiSlice = createSlice({
   reducers: {
     toggleSidebar: (state) => {
       state.sidebarCollapsed = !state.sidebarCollapsed;
+      persistSidebarCollapsed(state.sidebarCollapsed);
     },
     setSidebarCollapsed: (state, action: PayloadAction<boolean>) => {
       state.sidebarCollapsed = action.payload;
+      persistSidebarCollapsed(action.payload);
     },
     setTheme: (state, action: PayloadAction<Theme>) => {
       state.theme = action.payload;

@@ -767,16 +767,26 @@ export interface SupportTicket {
   id: string;
   ticket_number: string;
   user_id: string;
+  organization_id: string;
   subject: string;
   description: string;
   category: 'billing' | 'technical' | 'account' | 'whatsapp' | 'other';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in_progress' | 'waiting_on_user' | 'resolved' | 'closed';
   assigned_to: string | null;
+  assigned_at?: string | null;
   resolved_at: string | null;
   closed_at: string | null;
   satisfaction_rating: number | null;
   satisfaction_feedback: string | null;
+  last_message_at?: string | null;
+  last_message_preview?: string | null;
+  unread_count?: number;
+  message_count?: number;
+  can_rate?: boolean;
+  user?: SupportActorSummary | null;
+  assigned_admin?: SupportActorSummary | null;
+  organization?: SupportOrganizationSummary | null;
   created_at: string;
   updated_at: string;
 }
@@ -786,9 +796,37 @@ export interface TicketReply {
   ticket_id: string;
   user_id: string;
   reply_type: 'user' | 'admin' | 'system';
+  message_kind?: 'root' | 'reply';
   body: string;
   attachments: string[] | null;
+  sender?: SupportActorSummary | null;
   created_at: string;
+}
+
+export interface SupportActorSummary {
+  id: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  avatar_url: string | null;
+  role: string | null;
+  status: string | null;
+  full_name: string | null;
+}
+
+export interface SupportOrganizationSummary {
+  id: string;
+  name: string | null;
+  slug: string | null;
+  status: string | null;
+  logo_url: string | null;
+}
+
+export interface SupportThreadBootstrap {
+  ticket: SupportTicket;
+  messages: TicketReply[];
+  messages_meta: PaginationMeta;
 }
 
 // Media

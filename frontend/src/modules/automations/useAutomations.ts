@@ -1,7 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
+import type { RootState } from '@/core/store';
 import type { Automation, AutomationLog, ApiResponse, PaginationMeta } from '@/core/types';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
 interface AutomationListParams {
   page?: number;
@@ -12,6 +16,8 @@ interface AutomationListParams {
 }
 
 export function useAutomations(params: AutomationListParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = new URLSearchParams();
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
@@ -21,33 +27,38 @@ export function useAutomations(params: AutomationListParams = {}) {
   const qs = query.toString();
 
   return useQuery<{ data: { automations: Automation[] }; meta: PaginationMeta }>({
-    queryKey: ['automations', params],
+    queryKey: organizationQueryKey(['automations', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ automations: Automation[] }>>(`${ENDPOINTS.AUTOMATIONS.BASE}${qs ? `?${qs}` : ''}`);
       return { data: data.data, meta: data.meta! };
     },
+    enabled: Boolean(userId && activeOrganization?.id),
   });
 }
 
 export function useAutomation(id: string | undefined) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   return useQuery<Automation>({
-    queryKey: ['automations', id],
+    queryKey: organizationQueryKey(['automations', id] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ automation: Automation }>>(`${ENDPOINTS.AUTOMATIONS.BASE}/${id}`);
       return data.data.automation;
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 
 export function useAutomationLogs(id: string | undefined, page = 1) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   return useQuery<{ data: { logs: AutomationLog[] }; meta: PaginationMeta }>({
-    queryKey: ['automations', id, 'logs', page],
+    queryKey: organizationQueryKey(['automations', id, 'logs', page] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ logs: AutomationLog[] }>>(`${ENDPOINTS.AUTOMATIONS.BASE}/${id}/logs?page=${page}&limit=20`);
       return { data: data.data, meta: data.meta! };
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 

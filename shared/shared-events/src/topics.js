@@ -16,6 +16,12 @@ const TOPICS = {
   WHATSAPP_FLOW_COMPLETED: 'whatsapp.flow.completed',
   WALLET_TRANSACTION: 'wallet.transaction',
   USER_EVENTS: 'user.events',
+  SUPPORT_TICKET_CREATED: 'support.ticket.created',
+  SUPPORT_MESSAGE_CREATED: 'support.message.created',
+  SUPPORT_TICKET_ASSIGNED: 'support.ticket.assigned',
+  SUPPORT_TICKET_STATUS_UPDATED: 'support.ticket.status.updated',
+  SUPPORT_TICKET_DELETED: 'support.ticket.deleted',
+  SUPPORT_TICKET_RATED: 'support.ticket.rated',
 };
 
 /**

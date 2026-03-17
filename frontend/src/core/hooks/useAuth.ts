@@ -4,7 +4,7 @@ import { setCredentials, logout as logoutAction, setLoading } from '@/core/store
 import { apiClient, refreshSession } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import type { User, ApiResponse } from '@/core/types';
-import { clearStoredActiveOrganization } from '@/modules/organizations/context';
+import { clearLegacyStoredOrganizationState } from '@/modules/organizations/context';
 
 export function useAuth() {
   const dispatch = useDispatch<AppDispatch>();
@@ -23,7 +23,7 @@ export function useAuth() {
     try {
       await apiClient.post(ENDPOINTS.AUTH.LOGOUT);
     } finally {
-      clearStoredActiveOrganization();
+      clearLegacyStoredOrganizationState();
       dispatch(logoutAction());
     }
   };
@@ -33,7 +33,7 @@ export function useAuth() {
       dispatch(setLoading(true));
       await refreshSession();
     } catch {
-      clearStoredActiveOrganization();
+      clearLegacyStoredOrganizationState();
       dispatch(logoutAction());
     }
   };

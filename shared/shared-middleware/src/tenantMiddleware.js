@@ -68,6 +68,19 @@ async function fetchOrganizationContext(userId, organizationId) {
   return payload?.data || null;
 }
 
+function applyOrganizationContext(req, context) {
+  req.organization = context.organization;
+  req.organizationId = context.organization.id;
+  req.organizationMembership = context.membership || null;
+  req.tenantId = context.organization.id;
+
+  req.user = {
+    ...(req.user || {}),
+    organizationRole: context.role || (req.user?.role === 'super_admin' ? 'owner' : 'team'),
+    permissions: context.permissions || req.user?.permissions || {},
+  };
+}
+
 /**
  * Organization-first context resolver.
  *
@@ -94,16 +107,7 @@ async function organizationResolver(req, _res, next) {
       );
     }
 
-    req.organization = context.organization;
-    req.organizationId = context.organization.id;
-    req.organizationMembership = context.membership || null;
-    req.tenantId = context.organization.id;
-
-    req.user = {
-      ...(req.user || {}),
-      organizationRole: context.role || (req.user?.role === 'super_admin' ? 'owner' : 'team'),
-      permissions: context.permissions || req.user?.permissions || {},
-    };
+    applyOrganizationContext(req, context);
 
     next();
   } catch (error) {
@@ -111,8 +115,41 @@ async function organizationResolver(req, _res, next) {
   }
 }
 
+function organizationParamResolver(paramName = 'id') {
+  return async (req, _res, next) => {
+    try {
+      const userId = resolveUserId(req);
+
+      if (!userId) {
+        throw AppError.unauthorized('Authentication is required.', 'AUTH_REQUIRED');
+      }
+
+      const requestedOrganizationId = req.params?.[paramName];
+
+      if (!requestedOrganizationId) {
+        throw AppError.badRequest('Organization ID is required.', [], 'ORG_ID_REQUIRED');
+      }
+
+      const context = await fetchOrganizationContext(userId, requestedOrganizationId);
+
+      if (!context?.organization?.id) {
+        throw AppError.forbidden(
+          'No accessible organization was found for this account.',
+          'ORG_CONTEXT_MISSING'
+        );
+      }
+
+      applyOrganizationContext(req, context);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
 module.exports = {
   tenantResolver,
   organizationResolver,
+  organizationParamResolver,
   resolveUserId,
 };

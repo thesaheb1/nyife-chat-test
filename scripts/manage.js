@@ -111,7 +111,7 @@ Stack commands:
   node scripts/manage.js stack up [--build]
   node scripts/manage.js stack stop
   node scripts/manage.js stack down [--volumes]
-  node scripts/manage.js stack restart
+  node scripts/manage.js stack restart [--build]
   node scripts/manage.js stack ps
   node scripts/manage.js stack logs [service]
 
@@ -124,7 +124,7 @@ Infrastructure commands:
 Single service commands:
   node scripts/manage.js service start <service>
   node scripts/manage.js service stop <service>
-  node scripts/manage.js service restart <service>
+  node scripts/manage.js service restart <service> [--build]
   node scripts/manage.js service logs <service>
 
 Migration commands:
@@ -140,6 +140,7 @@ Examples:
   docker compose -f ${COMPOSE_FILE} up -d --build
   npm run stack:up:build
   npm run service:restart -- auth-service
+  node scripts/manage.js service restart support-service --build
   npm run migrate -- auth-service
 `);
 }
@@ -166,6 +167,10 @@ function handleStackCommand(action, extraArgs) {
       return;
     }
     case 'restart':
+      if (extraArgs.includes('--build')) {
+        dockerCompose(['up', '-d', '--build']);
+        return;
+      }
       dockerCompose(['restart']);
       return;
     case 'ps':
@@ -203,7 +208,7 @@ function handleInfraCommand(action) {
   }
 }
 
-function handleServiceCommand(action, service) {
+function handleServiceCommand(action, service, extraArgs = []) {
   if (!service) {
     console.error('A service name is required.');
     printHelp();
@@ -214,12 +219,20 @@ function handleServiceCommand(action, service) {
 
   switch (action) {
     case 'start':
+      if (extraArgs.includes('--build')) {
+        dockerCompose(['up', '-d', '--build', service]);
+        return;
+      }
       dockerCompose(['up', '-d', service]);
       return;
     case 'stop':
       dockerCompose(['stop', service]);
       return;
     case 'restart':
+      if (extraArgs.includes('--build')) {
+        dockerCompose(['up', '-d', '--build', service]);
+        return;
+      }
       dockerCompose(['restart', service]);
       return;
     case 'logs':
@@ -293,7 +306,7 @@ switch (group) {
     handleInfraCommand(action);
     break;
   case 'service':
-    handleServiceCommand(action, extraArgs[0]);
+    handleServiceCommand(action, extraArgs[0], extraArgs.slice(1));
     break;
   case 'migrate':
     handleMigrationCommand(action, extraArgs[0]);

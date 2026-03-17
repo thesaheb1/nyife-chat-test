@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
+import type { RootState } from '@/core/store';
 import type {
   ApiResponse,
   Contact,
@@ -17,6 +20,7 @@ import type {
   CreateTagFormData,
   UpdateContactFormData,
 } from './validations';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
 interface ListContactsParams {
   page?: number;
@@ -66,6 +70,8 @@ async function downloadCsvSample(url: string, filename: string) {
 }
 
 export function useContacts(params: ListContactsParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = buildQuery({
     page: params.page,
     limit: params.limit,
@@ -76,23 +82,25 @@ export function useContacts(params: ListContactsParams = {}) {
   });
 
   return useQuery({
-    queryKey: ['contacts', 'list', params],
+    queryKey: organizationQueryKey(['contacts', 'list', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get(`${ENDPOINTS.CONTACTS.BASE}${query}`);
       return data as ApiResponse<{ contacts: Contact[] }> & { meta: PaginationMeta };
     },
-    enabled: params.enabled ?? true,
+    enabled: (params.enabled ?? true) && Boolean(userId && activeOrganization?.id),
   });
 }
 
 export function useContact(id: string | undefined) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   return useQuery({
-    queryKey: ['contacts', 'detail', id],
+    queryKey: organizationQueryKey(['contacts', 'detail', id] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get(`${ENDPOINTS.CONTACTS.BASE}/${id}`);
       return data.data.contact as Contact;
     },
-    enabled: Boolean(id),
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 
@@ -137,7 +145,7 @@ export function useDeleteContact() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
-      queryClient.invalidateQueries({ queryKey: ['subscriptions', 'current'] });
+      queryClient.invalidateQueries({ queryKey: ['subscription', 'current'] });
     },
   });
 }
@@ -153,7 +161,7 @@ export function useBulkDeleteContacts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
-      queryClient.invalidateQueries({ queryKey: ['subscriptions', 'current'] });
+      queryClient.invalidateQueries({ queryKey: ['subscription', 'current'] });
     },
   });
 }
@@ -172,7 +180,7 @@ export function useImportCSV() {
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
       queryClient.invalidateQueries({ queryKey: ['tags'] });
-      queryClient.invalidateQueries({ queryKey: ['subscriptions', 'current'] });
+      queryClient.invalidateQueries({ queryKey: ['subscription', 'current'] });
     },
   });
 }
@@ -191,7 +199,7 @@ export function useImportGroupsCSV() {
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
       queryClient.invalidateQueries({ queryKey: ['tags'] });
-      queryClient.invalidateQueries({ queryKey: ['subscriptions', 'current'] });
+      queryClient.invalidateQueries({ queryKey: ['subscription', 'current'] });
     },
   });
 }
@@ -205,12 +213,15 @@ export function downloadGroupCsvSample() {
 }
 
 export function useTags() {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   return useQuery({
-    queryKey: ['tags'],
+    queryKey: organizationQueryKey(['tags'] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get(ENDPOINTS.CONTACTS.TAGS);
       return data.data.tags as Tag[];
     },
+    enabled: Boolean(userId && activeOrganization?.id),
   });
 }
 
@@ -312,6 +323,8 @@ export function useBulkRemoveTagsFromContacts() {
 }
 
 export function useGroups(params: ListGroupsParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = buildQuery({
     page: params.page,
     limit: params.limit,
@@ -319,22 +332,25 @@ export function useGroups(params: ListGroupsParams = {}) {
   });
 
   return useQuery({
-    queryKey: ['groups', 'list', params],
+    queryKey: organizationQueryKey(['groups', 'list', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get(`${ENDPOINTS.CONTACTS.GROUPS}${query}`);
       return data as ApiResponse<{ groups: Group[] }> & { meta: PaginationMeta };
     },
+    enabled: Boolean(userId && activeOrganization?.id),
   });
 }
 
 export function useGroup(id: string | undefined, params: GroupDetailParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = buildQuery({
     page: params.page,
     limit: params.limit,
   });
 
   return useQuery({
-    queryKey: ['groups', 'detail', id, params],
+    queryKey: organizationQueryKey(['groups', 'detail', id, params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get(`${ENDPOINTS.CONTACTS.GROUPS}/${id}${query}`);
       return {
@@ -343,7 +359,7 @@ export function useGroup(id: string | undefined, params: GroupDetailParams = {})
         meta: data.meta as PaginationMeta,
       } as GroupDetailResult;
     },
-    enabled: Boolean(id),
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 

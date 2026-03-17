@@ -14,6 +14,7 @@ const {
   whatsappFlowCompletedSchema,
   walletTransactionSchema,
   userEventsSchema,
+  supportEventSchema,
   TOPIC_SCHEMAS,
 } = require('./schemas');
 const { publishEvent } = require('./producer');
@@ -34,6 +35,7 @@ module.exports = {
   whatsappFlowCompletedSchema,
   walletTransactionSchema,
   userEventsSchema,
+  supportEventSchema,
   TOPIC_SCHEMAS,
   publishEvent,
   createEventConsumer,

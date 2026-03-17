@@ -6,8 +6,11 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminTopbar } from './AdminTopbar';
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary';
+import { useSupportSocket } from '@/core/hooks';
 
 export function AdminLayout() {
+  useSupportSocket();
+
   return (
     <TooltipProvider delayDuration={0}>
       <div className="flex h-screen overflow-hidden">

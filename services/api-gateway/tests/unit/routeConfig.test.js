@@ -24,4 +24,14 @@ describe('routeConfig', () => {
       ])
     );
   });
+
+  it('allows the support socket handshake path without gateway auth', () => {
+    const supportRoute = routeConfig.find((route) => route.prefix === '/api/v1/support');
+
+    expect(supportRoute).toBeDefined();
+    expect(supportRoute.auth).toBe(true);
+    expect(supportRoute.publicPaths).toEqual(
+      expect.arrayContaining(['/api/v1/support/socket.io'])
+    );
+  });
 });

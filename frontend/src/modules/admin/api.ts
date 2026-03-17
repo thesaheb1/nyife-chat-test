@@ -64,10 +64,15 @@ export const ADMIN_ENDPOINTS = {
 
   SUPPORT: {
     TICKETS: '/api/v1/admin/support/tickets',
+    UNREAD_COUNT: '/api/v1/admin/support/tickets/unread-count',
+    ASSIGNABLE_ADMINS: '/api/v1/admin/support/tickets/assignable-admins',
     TICKET_DETAIL: (id: string) => `/api/v1/admin/support/tickets/${id}`,
+    TICKET_MESSAGES: (id: string) => `/api/v1/admin/support/tickets/${id}/messages`,
+    TICKET_READ: (id: string) => `/api/v1/admin/support/tickets/${id}/read`,
     TICKET_REPLY: (id: string) => `/api/v1/admin/support/tickets/${id}/reply`,
     TICKET_ASSIGN: (id: string) => `/api/v1/admin/support/tickets/${id}/assign`,
     TICKET_STATUS: (id: string) => `/api/v1/admin/support/tickets/${id}/status`,
+    TICKET_DELETE: (id: string) => `/api/v1/admin/support/tickets/${id}`,
     USER_TICKETS: (userId: string) => `/api/v1/admin/support/tickets/user/${userId}`,
   },
 } as const;

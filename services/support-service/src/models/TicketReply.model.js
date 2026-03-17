@@ -23,6 +23,11 @@ module.exports = (sequelize) => {
         type: DataTypes.ENUM('user', 'admin', 'system'),
         allowNull: false,
       },
+      message_kind: {
+        type: DataTypes.ENUM('root', 'reply'),
+        allowNull: false,
+        defaultValue: 'reply',
+      },
       body: {
         type: DataTypes.TEXT,
         allowNull: false,

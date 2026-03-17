@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { ArrowLeft, Plus, Save, Trash2, Loader2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,7 +21,9 @@ import {
 import { DataTable } from '@/shared/components/DataTable';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey, sessionQueryKey } from '@/core/queryKeys';
 import { getApiErrorMessage } from '@/core/errors/apiError';
+import type { RootState } from '@/core/store';
 import type { Organization, TeamMember, ApiResponse, PaginationMeta } from '@/core/types';
 import {
   getStoredActiveOrganizationId,
@@ -28,27 +31,27 @@ import {
   setStoredActiveOrganization,
   syncStoredOrganizationRegistry,
 } from './context';
-import { ACCESSIBLE_ORGANIZATIONS_QUERY_KEY } from './useOrganizationContext';
+import { accessibleOrganizationsQueryKey } from './useOrganizationContext';
 
-function useOrg(id: string | undefined) {
+function useOrg(id: string | undefined, userId?: string | null) {
   return useQuery<Organization>({
-    queryKey: ['organizations', id],
+    queryKey: sessionQueryKey(['organizations', id] as const, userId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ organization: Organization }>>(`${ENDPOINTS.ORGANIZATIONS.BASE}/${id}`);
       return data.data.organization;
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId),
   });
 }
 
-function useMembers(orgId: string | undefined, page = 1) {
+function useMembers(orgId: string | undefined, page = 1, userId?: string | null) {
   return useQuery<{ data: { members: TeamMember[] }; meta: PaginationMeta }>({
-    queryKey: ['organizations', orgId, 'members', page],
+    queryKey: organizationQueryKey(['organizations', orgId, 'members', page] as const, userId, orgId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ members: TeamMember[] }>>(`${ENDPOINTS.ORGANIZATIONS.BASE}/${orgId}/members?page=${page}&limit=20`);
       return { data: data.data, meta: data.meta! };
     },
-    enabled: !!orgId,
+    enabled: Boolean(orgId && userId),
   });
 }
 
@@ -77,9 +80,10 @@ export function OrgDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { data: org, isLoading } = useOrg(id);
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { data: org, isLoading } = useOrg(id, userId);
   const [memberPage, setMemberPage] = useState(1);
-  const { data: membersData, isLoading: membersLoading } = useMembers(id, memberPage);
+  const { data: membersData, isLoading: membersLoading } = useMembers(id, memberPage, userId);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [removeId, setRemoveId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState('');
@@ -154,10 +158,10 @@ export function OrgDetailPage() {
       toast.success('Organization updated');
       qc.invalidateQueries({ queryKey: ['organizations', id] });
       qc.invalidateQueries({ queryKey: ['organizations'] });
-      qc.invalidateQueries({ queryKey: ACCESSIBLE_ORGANIZATIONS_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: accessibleOrganizationsQueryKey(userId) });
 
       const cachedAccessibleOrganizations =
-        qc.getQueryData<Organization[]>(ACCESSIBLE_ORGANIZATIONS_QUERY_KEY) || [];
+        qc.getQueryData<Organization[]>(accessibleOrganizationsQueryKey(userId)) || [];
 
       const organizations = cachedAccessibleOrganizations.length
         ? (
@@ -169,11 +173,11 @@ export function OrgDetailPage() {
           )
         : [updatedOrganization];
 
-      syncStoredOrganizationRegistry(organizations);
+      syncStoredOrganizationRegistry(userId, organizations);
 
-      if ((getStoredActiveOrganizationId() || updatedOrganization.id) === updatedOrganization.id) {
-        const activeOrganization = resolvePreferredOrganization(organizations, updatedOrganization.slug) || updatedOrganization;
-        setStoredActiveOrganization(activeOrganization);
+      if ((getStoredActiveOrganizationId(userId) || updatedOrganization.id) === updatedOrganization.id) {
+        const activeOrganization = resolvePreferredOrganization(organizations, userId, updatedOrganization.slug) || updatedOrganization;
+        setStoredActiveOrganization(userId, activeOrganization);
       }
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to update the organization.'));

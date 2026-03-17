@@ -1,12 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
+import type { RootState } from '@/core/store';
 import type {
   ApiResponse,
   FlowSubmission,
   PaginationMeta,
   WhatsAppFlow,
 } from '@/core/types';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
 interface FlowListParams {
   page?: number;
@@ -26,9 +30,16 @@ interface FlowSubmissionParams {
 
 export const flowQueryKeys = {
   all: ['flows'] as const,
-  list: (params: FlowListParams) => ['flows', 'list', params] as const,
-  detail: (id: string | undefined) => ['flows', 'detail', id] as const,
-  submissions: (id: string | undefined, params: FlowSubmissionParams) => ['flows', 'submissions', id, params] as const,
+  list: (params: FlowListParams, userId?: string | null, organizationId?: string | null) =>
+    organizationQueryKey(['flows', 'list', params] as const, userId, organizationId),
+  detail: (id: string | undefined, userId?: string | null, organizationId?: string | null) =>
+    organizationQueryKey(['flows', 'detail', id] as const, userId, organizationId),
+  submissions: (
+    id: string | undefined,
+    params: FlowSubmissionParams,
+    userId?: string | null,
+    organizationId?: string | null
+  ) => organizationQueryKey(['flows', 'submissions', id, params] as const, userId, organizationId),
 };
 
 function buildQueryString(params: Record<string, string | number | undefined>) {
@@ -43,6 +54,8 @@ function buildQueryString(params: Record<string, string | number | undefined>) {
 }
 
 export function useFlows(params: FlowListParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const queryString = buildQueryString({
     page: params.page,
     limit: params.limit,
@@ -53,7 +66,7 @@ export function useFlows(params: FlowListParams = {}) {
   });
 
   return useQuery({
-    queryKey: flowQueryKeys.list(params),
+    queryKey: flowQueryKeys.list(params, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ flows: WhatsAppFlow[] }>>(
         `${ENDPOINTS.FLOWS.BASE}${queryString}`
@@ -63,23 +76,28 @@ export function useFlows(params: FlowListParams = {}) {
         meta: data.meta as PaginationMeta,
       };
     },
+    enabled: Boolean(userId && activeOrganization?.id),
   });
 }
 
 export function useFlow(id: string | undefined) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   return useQuery({
-    queryKey: flowQueryKeys.detail(id),
+    queryKey: flowQueryKeys.detail(id, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ flow: WhatsAppFlow }>>(
         `${ENDPOINTS.FLOWS.BASE}/${id}`
       );
       return data.data.flow;
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 
 export function useFlowSubmissions(id: string | undefined, params: FlowSubmissionParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const queryString = buildQueryString({
     page: params.page,
     limit: params.limit,
@@ -88,7 +106,7 @@ export function useFlowSubmissions(id: string | undefined, params: FlowSubmissio
   });
 
   return useQuery({
-    queryKey: flowQueryKeys.submissions(id, params),
+    queryKey: flowQueryKeys.submissions(id, params, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ submissions: FlowSubmission[] }>>(
         `${ENDPOINTS.FLOWS.BASE}/${id}/submissions${queryString}`
@@ -99,7 +117,7 @@ export function useFlowSubmissions(id: string | undefined, params: FlowSubmissio
         meta: data.meta as PaginationMeta,
       };
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 
@@ -129,7 +147,7 @@ export function useUpdateFlow() {
     onSuccess: async (_data, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: flowQueryKeys.all }),
-        queryClient.invalidateQueries({ queryKey: flowQueryKeys.detail(variables.id) }),
+        queryClient.invalidateQueries({ queryKey: ['flows', 'detail', variables.id] }),
       ]);
     },
   });
@@ -175,7 +193,7 @@ export function useSaveFlowToMeta() {
     onSuccess: async (flow) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: flowQueryKeys.all }),
-        queryClient.invalidateQueries({ queryKey: flowQueryKeys.detail(flow.id) }),
+        queryClient.invalidateQueries({ queryKey: ['flows', 'detail', flow.id] }),
       ]);
     },
   });
@@ -194,7 +212,7 @@ export function usePublishFlow() {
     onSuccess: async (flow) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: flowQueryKeys.all }),
-        queryClient.invalidateQueries({ queryKey: flowQueryKeys.detail(flow.id) }),
+        queryClient.invalidateQueries({ queryKey: ['flows', 'detail', flow.id] }),
       ]);
     },
   });
@@ -212,7 +230,7 @@ export function useDeprecateFlow() {
     onSuccess: async (flow) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: flowQueryKeys.all }),
-        queryClient.invalidateQueries({ queryKey: flowQueryKeys.detail(flow.id) }),
+        queryClient.invalidateQueries({ queryKey: ['flows', 'detail', flow.id] }),
       ]);
     },
   });

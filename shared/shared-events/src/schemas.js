@@ -209,6 +209,22 @@ const userEventsSchema = z.object({
   timestamp: timestampField,
 });
 
+const supportEventSchema = z.object({
+  ticketId: uuidField,
+  ticketNumber: z.string(),
+  organizationId: uuidField,
+  userId: uuidField.optional(),
+  actorId: uuidField.optional(),
+  actorType: z.enum(['user', 'admin']).optional(),
+  assignedTo: uuidField.optional(),
+  messageId: uuidField.optional(),
+  replyType: z.enum(['user', 'admin', 'system']).optional(),
+  status: z.enum(['open', 'in_progress', 'waiting_on_user', 'resolved', 'closed']).optional(),
+  rating: z.number().int().min(1).max(5).optional(),
+  deletedBy: uuidField.optional(),
+  timestamp: timestampField,
+});
+
 /**
  * Map of topic names to their validation schemas.
  */
@@ -225,6 +241,12 @@ const TOPIC_SCHEMAS = {
   'whatsapp.flow.completed': whatsappFlowCompletedSchema,
   'wallet.transaction': walletTransactionSchema,
   'user.events': userEventsSchema,
+  'support.ticket.created': supportEventSchema,
+  'support.message.created': supportEventSchema,
+  'support.ticket.assigned': supportEventSchema,
+  'support.ticket.status.updated': supportEventSchema,
+  'support.ticket.deleted': supportEventSchema,
+  'support.ticket.rated': supportEventSchema,
 };
 
 module.exports = {
@@ -240,5 +262,6 @@ module.exports = {
   whatsappFlowCompletedSchema,
   walletTransactionSchema,
   userEventsSchema,
+  supportEventSchema,
   TOPIC_SCHEMAS,
 };

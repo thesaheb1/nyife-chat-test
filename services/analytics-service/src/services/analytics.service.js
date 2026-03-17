@@ -576,7 +576,7 @@ async function getAdminDashboard(filters, sequelize, redis) {
   // ── Support stats ────────────────────────────────────────────────────────────
   const openTicketRows = await safeQuery(
     sequelize,
-    "SELECT COUNT(*) AS count FROM support_tickets WHERE status IN ('open', 'in_progress')",
+    "SELECT COUNT(*) AS count FROM support_tickets WHERE deleted_at IS NULL AND status IN ('open', 'in_progress')",
     {}
   );
   results.support = { open_tickets: parseInt(openTicketRows[0]?.count || 0, 10) };
@@ -584,7 +584,7 @@ async function getAdminDashboard(filters, sequelize, redis) {
   // Avg resolution time (hours between created_at and resolved_at)
   const avgResRows = await safeQuery(
     sequelize,
-    'SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, resolved_at)) AS avg_hours FROM support_tickets WHERE resolved_at IS NOT NULL',
+    'SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, resolved_at)) AS avg_hours FROM support_tickets WHERE deleted_at IS NULL AND resolved_at IS NOT NULL',
     {}
   );
   results.support.avg_resolution_hours = parseFloat(avgResRows[0]?.avg_hours || 0).toFixed(1);
@@ -592,7 +592,7 @@ async function getAdminDashboard(filters, sequelize, redis) {
   // Satisfaction score
   const satRows = await safeQuery(
     sequelize,
-    'SELECT AVG(satisfaction_rating) AS avg_rating FROM support_tickets WHERE satisfaction_rating IS NOT NULL',
+    'SELECT AVG(satisfaction_rating) AS avg_rating FROM support_tickets WHERE deleted_at IS NULL AND satisfaction_rating IS NOT NULL',
     {}
   );
   results.support.avg_satisfaction = parseFloat(satRows[0]?.avg_rating || 0).toFixed(1);

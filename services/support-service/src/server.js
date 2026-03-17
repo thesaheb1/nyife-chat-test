@@ -5,11 +5,13 @@ const app = require('./app');
 const config = require('./config');
 const { sequelize } = require('./models');
 const { testConnection, createRedisClient, createKafkaProducer } = require('@nyife/shared-config');
+const { setupSocketIO } = require('./socket');
 
 const server = http.createServer(app);
 
 let redis = null;
 let kafkaProducer = null;
+let io = null;
 
 async function startServer() {
   // Test database connection
@@ -38,12 +40,14 @@ async function startServer() {
     app.locals.kafkaProducer = null;
   }
 
-  // No Kafka consumer needed for support-service.
-  // Notifications are published to Kafka but consumed by notification-service.
+  io = setupSocketIO(server, redis);
+  app.locals.io = io;
+  console.log('[support-service] Socket.IO initialized');
 
   server.listen(config.port, () => {
     console.log(`[support-service] Server running on port ${config.port} (${config.nodeEnv})`);
     console.log(`[support-service] Health check: http://localhost:${config.port}/health`);
+    console.log(`[support-service] Socket.IO path: /api/v1/support/socket.io`);
   });
 }
 
@@ -80,6 +84,15 @@ const gracefulShutdown = (signal) => {
         console.log('[support-service] Kafka producer disconnected');
       } catch (err) {
         console.error('[support-service] Error disconnecting Kafka producer:', err.message);
+      }
+    }
+
+    if (io) {
+      try {
+        io.close();
+        console.log('[support-service] Socket.IO closed');
+      } catch (err) {
+        console.error('[support-service] Error closing Socket.IO:', err.message);
       }
     }
 

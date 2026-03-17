@@ -16,6 +16,7 @@ import { DataTable } from '@/shared/components/DataTable';
 import { PermissionMatrix } from '@/shared/components/PermissionMatrix';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { ApiResponse, OrganizationInvitation, PaginationMeta, Permissions, Subscription, TeamMember } from '@/core/types';
 import { usePermissions } from '@/core/hooks/usePermissions';
@@ -56,10 +57,10 @@ const EMPTY_INVITE_FORM = (): InviteFormState => ({
   permissions: createEmptyPermissions(),
 });
 
-function useTeamMembers(orgId: string | undefined, page = 1, enabled = true) {
+function useTeamMembers(orgId: string | undefined, page = 1, userId?: string | null, enabled = true) {
   return useQuery<{ data: TeamMember[]; meta: PaginationMeta }>({
-    queryKey: ['team-members', orgId, page],
-    enabled: Boolean(orgId) && enabled,
+    queryKey: organizationQueryKey(['team-members', orgId, page] as const, userId, orgId),
+    enabled: Boolean(userId && orgId) && enabled,
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<TeamMember[]>>(
         `${ENDPOINTS.ORGANIZATIONS.MEMBERS(orgId!)}?page=${page}&limit=20`
@@ -69,10 +70,10 @@ function useTeamMembers(orgId: string | undefined, page = 1, enabled = true) {
   });
 }
 
-function useInvitations(orgId: string | undefined, page = 1, enabled = true) {
+function useInvitations(orgId: string | undefined, page = 1, userId?: string | null, enabled = true) {
   return useQuery<{ data: OrganizationInvitation[]; meta: PaginationMeta }>({
-    queryKey: ['team-invitations', orgId, page],
-    enabled: Boolean(orgId) && enabled,
+    queryKey: organizationQueryKey(['team-invitations', orgId, page] as const, userId, orgId),
+    enabled: Boolean(userId && orgId) && enabled,
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<OrganizationInvitation[]>>(
         `${ENDPOINTS.ORGANIZATIONS.INVITATIONS(orgId!)}?page=${page}&limit=20`
@@ -82,23 +83,24 @@ function useInvitations(orgId: string | undefined, page = 1, enabled = true) {
   });
 }
 
-function useCurrentSubscription(enabled = true) {
+function useCurrentSubscription(orgId: string | undefined, userId?: string | null, enabled = true) {
   return useQuery<Subscription | null>({
-    queryKey: ['subscription', 'current'],
-    enabled,
+    queryKey: organizationQueryKey(['subscription', 'current'] as const, userId, orgId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ subscription: Subscription | null }>>(
         ENDPOINTS.SUBSCRIPTIONS.CURRENT
       );
       return data.data.subscription;
     },
+    enabled: Boolean(userId && orgId) && enabled,
   });
 }
 
 export function TeamMembersPage() {
   const queryClient = useQueryClient();
-  const { activeOrganization, canOrganization } = usePermissions();
+  const { activeOrganization, canOrganization, user } = usePermissions();
   const organizationId = activeOrganization?.id;
+  const userId = user?.id;
   const canRead = canOrganization('team_members', 'read');
   const canCreate = canOrganization('team_members', 'create');
   const canUpdate = canOrganization('team_members', 'update');
@@ -115,9 +117,9 @@ export function TeamMembersPage() {
   const [editStatus, setEditStatus] = useState<'active' | 'inactive' | 'invited'>('active');
   const [editPermissions, setEditPermissions] = useState<Permissions>(createEmptyPermissions());
 
-  const membersQuery = useTeamMembers(organizationId, memberPage, canRead);
-  const invitationsQuery = useInvitations(organizationId, invitePage, canRead);
-  const subscriptionQuery = useCurrentSubscription(canRead);
+  const membersQuery = useTeamMembers(organizationId, memberPage, userId, canRead);
+  const invitationsQuery = useInvitations(organizationId, invitePage, userId, canRead);
+  const subscriptionQuery = useCurrentSubscription(organizationId, userId, canRead);
 
   const members = membersQuery.data?.data || [];
   const invitations = invitationsQuery.data?.data || [];

@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
+import type { RootState } from '@/core/store';
 import type {
   ApiResponse,
   CouponValidationResult,
@@ -12,50 +15,75 @@ import type {
   SubscriptionHistoryResult,
   Wallet,
 } from '@/core/types';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
 export const subscriptionQueryKeys = {
   all: ['subscription'] as const,
-  plans: () => ['subscription', 'plans'] as const,
-  planDetails: (slug: string | null) => ['subscription', 'plan', slug] as const,
-  current: () => ['subscription', 'current'] as const,
-  history: (page: number) => ['subscription', 'history', page] as const,
-  walletBalance: () => ['wallet'] as const,
+  plans: (userId?: string | null, organizationId?: string | null) =>
+    organizationQueryKey(['subscription', 'plans'] as const, userId, organizationId),
+  planDetails: (slug: string | null, userId?: string | null, organizationId?: string | null) =>
+    organizationQueryKey(['subscription', 'plan', slug] as const, userId, organizationId),
+  current: (userId?: string | null, organizationId?: string | null) =>
+    organizationQueryKey(['subscription', 'current'] as const, userId, organizationId),
+  history: (page: number, userId?: string | null, organizationId?: string | null) =>
+    organizationQueryKey(['subscription', 'history', page] as const, userId, organizationId),
+  walletBalance: (userId?: string | null, organizationId?: string | null) =>
+    organizationQueryKey(['wallet'] as const, userId, organizationId),
 };
 
+function useSubscriptionScope() {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
+  return {
+    userId,
+    organizationId: activeOrganization?.id,
+  };
+}
+
 export function useSubscriptionPlans() {
+  const { userId, organizationId } = useSubscriptionScope();
+
   return useQuery({
-    queryKey: subscriptionQueryKeys.plans(),
+    queryKey: subscriptionQueryKeys.plans(userId, organizationId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ plans: Plan[] }>>(ENDPOINTS.SUBSCRIPTIONS.PLANS);
       return data.data.plans;
     },
+    enabled: Boolean(userId && organizationId),
   });
 }
 
 export function useSubscriptionPlanDetails(slug: string | null) {
+  const { userId, organizationId } = useSubscriptionScope();
+
   return useQuery({
-    queryKey: subscriptionQueryKeys.planDetails(slug),
+    queryKey: subscriptionQueryKeys.planDetails(slug, userId, organizationId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<PlanDetailsResult>>(ENDPOINTS.SUBSCRIPTIONS.PLAN_DETAILS(slug!));
       return data.data.plan;
     },
-    enabled: !!slug,
+    enabled: Boolean(slug && userId && organizationId),
   });
 }
 
 export function useCurrentSubscription() {
+  const { userId, organizationId } = useSubscriptionScope();
+
   return useQuery({
-    queryKey: subscriptionQueryKeys.current(),
+    queryKey: subscriptionQueryKeys.current(userId, organizationId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ subscription: Subscription | null }>>(ENDPOINTS.SUBSCRIPTIONS.CURRENT);
       return data.data.subscription;
     },
+    enabled: Boolean(userId && organizationId),
   });
 }
 
 export function useSubscriptionHistory(page: number) {
+  const { userId, organizationId } = useSubscriptionScope();
+
   return useQuery({
-    queryKey: subscriptionQueryKeys.history(page),
+    queryKey: subscriptionQueryKeys.history(page, userId, organizationId),
     queryFn: async (): Promise<SubscriptionHistoryResult> => {
       const { data } = await apiClient.get<ApiResponse<{ subscriptions: Subscription[] }>>(
         `${ENDPOINTS.SUBSCRIPTIONS.HISTORY}?page=${page}&limit=10`
@@ -66,16 +94,20 @@ export function useSubscriptionHistory(page: number) {
         meta: data.meta as PaginationMeta,
       };
     },
+    enabled: Boolean(userId && organizationId),
   });
 }
 
 export function useSubscriptionWalletBalance() {
+  const { userId, organizationId } = useSubscriptionScope();
+
   return useQuery({
-    queryKey: subscriptionQueryKeys.walletBalance(),
+    queryKey: subscriptionQueryKeys.walletBalance(userId, organizationId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<Wallet>>(ENDPOINTS.WALLET.BASE);
       return data.data;
     },
+    enabled: Boolean(userId && organizationId),
   });
 }
 
@@ -147,7 +179,7 @@ export function useVerifySubscriptionPayment() {
     },
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: subscriptionQueryKeys.current() }),
+        queryClient.invalidateQueries({ queryKey: ['subscription', 'current'] }),
         queryClient.invalidateQueries({ queryKey: ['subscription', 'history'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
       ]);
@@ -168,7 +200,7 @@ export function useCancelSubscription() {
     },
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: subscriptionQueryKeys.current() }),
+        queryClient.invalidateQueries({ queryKey: ['subscription', 'current'] }),
         queryClient.invalidateQueries({ queryKey: ['subscription', 'history'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
       ]);
@@ -190,7 +222,7 @@ export function useUpdateSubscriptionAutoRenew() {
     },
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: subscriptionQueryKeys.current() }),
+        queryClient.invalidateQueries({ queryKey: ['subscription', 'current'] }),
         queryClient.invalidateQueries({ queryKey: ['subscription', 'history'] }),
       ]);
     },

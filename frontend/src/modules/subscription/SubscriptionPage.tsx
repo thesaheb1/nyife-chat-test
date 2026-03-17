@@ -50,7 +50,6 @@ import { DataTable } from '@/shared/components/DataTable';
 import { loadRazorpayCheckout, unloadRazorpayCheckout } from '@/shared/utils/loadRazorpayCheckout';
 import { PlanCard, PlanDetailsSheet } from './SubscriptionComponents';
 import {
-  subscriptionQueryKeys,
   useCancelSubscription,
   useChangePlan,
   useCurrentSubscription,
@@ -156,7 +155,7 @@ export function SubscriptionPage() {
 
   const refreshSubscriptionState = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: subscriptionQueryKeys.current() }),
+      queryClient.invalidateQueries({ queryKey: ['subscription', 'current'] }),
       queryClient.invalidateQueries({ queryKey: ['subscription', 'history'] }),
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
       queryClient.invalidateQueries({ queryKey: ['wallet'] }),

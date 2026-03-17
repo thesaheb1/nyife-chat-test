@@ -22,6 +22,23 @@ const PUBLIC_AUTH_PATHS = [
   '/api/v1/auth/facebook',
 ];
 
+const ORGANIZATION_HEADER_ALLOWED_PREFIXES = [
+  '/api/v1/analytics/',
+  '/api/v1/contacts',
+  '/api/v1/templates',
+  '/api/v1/flows',
+  '/api/v1/campaigns',
+  '/api/v1/chat',
+  '/api/v1/whatsapp',
+  '/api/v1/automations',
+  '/api/v1/support',
+  '/api/v1/wallet',
+  '/api/v1/subscriptions',
+  '/api/v1/settings',
+  '/api/v1/developer',
+  '/api/v1/notifications',
+];
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
@@ -76,6 +93,34 @@ function isAuthRequest(url?: string) {
   return !!url && url.includes('/api/v1/auth/');
 }
 
+function getRequestPath(url?: string) {
+  if (!url) {
+    return '';
+  }
+
+  try {
+    return new URL(url, API_BASE_URL).pathname;
+  } catch {
+    return url;
+  }
+}
+
+function shouldAttachOrganizationHeader(url?: string) {
+  const path = getRequestPath(url);
+
+  if (!path || path.startsWith('/api/v1/admin/') || path.startsWith('/api/v1/auth/')) {
+    return false;
+  }
+
+  if (path === '/api/v1/settings/public') {
+    return false;
+  }
+
+  return ORGANIZATION_HEADER_ALLOWED_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`)
+  );
+}
+
 export async function refreshSession() {
   if (refreshSessionPromise) {
     return refreshSessionPromise;
@@ -114,10 +159,12 @@ export async function refreshSession() {
 
 // Request interceptor: attach access token
 apiClient.interceptors.request.use(async (config) => {
-  const { accessToken } = store.getState().auth;
+  const { accessToken, user } = store.getState().auth;
   const isPublicAuthRequest = PUBLIC_AUTH_PATHS.some((path) => config.url?.includes(path));
   const method = (config.method || 'get').toLowerCase();
   const isFormDataPayload = typeof FormData !== 'undefined' && config.data instanceof FormData;
+
+  config.headers = config.headers || {};
 
   if (isFormDataPayload && config.headers) {
     delete (config.headers as Record<string, unknown>)['Content-Type'];
@@ -128,9 +175,10 @@ apiClient.interceptors.request.use(async (config) => {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  if (typeof window !== 'undefined' && !isPublicAuthRequest && !config.url?.startsWith('/api/v1/admin/')) {
+  if (typeof window !== 'undefined' && !isPublicAuthRequest && shouldAttachOrganizationHeader(config.url)) {
     const organizationId =
-      getOrganizationIdForCurrentPath(window.location.pathname) || getStoredActiveOrganizationId();
+      getOrganizationIdForCurrentPath(window.location.pathname, user?.id) ||
+      getStoredActiveOrganizationId(user?.id);
 
     if (organizationId) {
       config.headers['X-Organization-Id'] = organizationId;

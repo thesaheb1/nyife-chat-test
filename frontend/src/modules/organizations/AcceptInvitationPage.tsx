@@ -64,15 +64,17 @@ export function AcceptInvitationPage() {
       );
 
       const payload = data.data;
-      const existingOrganizations = getStoredOrganizationRegistry();
-      const nextOrganizations = existingOrganizations.some((organization) => organization.id === payload.organization.id)
-        ? existingOrganizations.map((organization) =>
-            organization.id === payload.organization.id ? payload.organization : organization
-          )
-        : [...existingOrganizations, payload.organization];
+      if (user?.id) {
+        const existingOrganizations = getStoredOrganizationRegistry(user.id);
+        const nextOrganizations = existingOrganizations.some((organization) => organization.id === payload.organization.id)
+          ? existingOrganizations.map((organization) =>
+              organization.id === payload.organization.id ? payload.organization : organization
+            )
+          : [...existingOrganizations, payload.organization];
 
-      syncStoredOrganizationRegistry(nextOrganizations as Organization[]);
-      setStoredActiveOrganization(payload.organization);
+        syncStoredOrganizationRegistry(user.id, nextOrganizations as Organization[]);
+        setStoredActiveOrganization(user.id, payload.organization);
+      }
 
       if (isAuthenticated) {
         toast.success(`You now have access to ${payload.organization.name}.`);

@@ -6,11 +6,12 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary';
-import { useNotificationSocket } from '@/core/hooks';
+import { useNotificationSocket, useSupportSocket } from '@/core/hooks';
 
 export function AppLayout() {
   // Global real-time listeners for notifications + campaign status
   useNotificationSocket();
+  useSupportSocket();
 
   return (
     <TooltipProvider delayDuration={0}>

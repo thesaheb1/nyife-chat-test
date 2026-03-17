@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { Plus, Loader2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -13,22 +14,25 @@ import { Textarea } from '@/components/ui/textarea';
 import { DataTable } from '@/shared/components/DataTable';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { sessionQueryKey } from '@/core/queryKeys';
 import { getApiErrorMessage } from '@/core/errors/apiError';
+import type { RootState } from '@/core/store';
 import type { Organization, ApiResponse, PaginationMeta } from '@/core/types';
 import { syncStoredOrganizationRegistry } from './context';
-import { ACCESSIBLE_ORGANIZATIONS_QUERY_KEY } from './useOrganizationContext';
+import { accessibleOrganizationsQueryKey } from './useOrganizationContext';
 
-function useOrganizations(page = 1) {
+function useOrganizations(page = 1, userId?: string | null) {
   return useQuery<{ data: Organization[]; meta: PaginationMeta }>({
-    queryKey: ['organizations', page],
+    queryKey: sessionQueryKey(['organizations', page] as const, userId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<Organization[]>>(`${ENDPOINTS.ORGANIZATIONS.BASE}?page=${page}&limit=20`);
       return { data: data.data, meta: data.meta! };
     },
+    enabled: Boolean(userId),
   });
 }
 
-function useCreateOrg() {
+function useCreateOrg(userId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: { name: string; description?: string; logo_url?: string }) => {
@@ -37,16 +41,17 @@ function useCreateOrg() {
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['organizations'] });
-      await qc.invalidateQueries({ queryKey: ACCESSIBLE_ORGANIZATIONS_QUERY_KEY });
+      await qc.invalidateQueries({ queryKey: accessibleOrganizationsQueryKey(userId) });
     },
   });
 }
 
 export function OrganizationsPage() {
   const navigate = useNavigate();
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
   const [page, setPage] = useState(1);
-  const { data, isLoading } = useOrganizations(page);
-  const createOrg = useCreateOrg();
+  const { data, isLoading } = useOrganizations(page, userId);
+  const createOrg = useCreateOrg(userId);
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -56,10 +61,10 @@ export function OrganizationsPage() {
   const meta = data?.meta;
 
   useEffect(() => {
-    if (orgs.length) {
-      syncStoredOrganizationRegistry(orgs);
+    if (userId && orgs.length) {
+      syncStoredOrganizationRegistry(userId, orgs);
     }
-  }, [orgs]);
+  }, [orgs, userId]);
 
   const handleCreate = async () => {
     if (!name.trim()) return;

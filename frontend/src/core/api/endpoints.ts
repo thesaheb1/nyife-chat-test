@@ -99,6 +99,10 @@ export const ENDPOINTS = {
   },
   SUPPORT: {
     TICKETS: '/api/v1/support/tickets',
+    UNREAD_COUNT: '/api/v1/support/tickets/unread-count',
+    TICKET_DETAIL: (id: string) => `/api/v1/support/tickets/${id}`,
+    TICKET_MESSAGES: (id: string) => `/api/v1/support/tickets/${id}/messages`,
+    TICKET_READ: (id: string) => `/api/v1/support/tickets/${id}/read`,
   },
   ANALYTICS: {
     DASHBOARD: '/api/v1/analytics/dashboard',
@@ -125,5 +129,6 @@ export const ENDPOINTS = {
     NOTIFICATIONS: '/api/v1/admin/notifications',
     SETTINGS: '/api/v1/admin/settings',
     SUPPORT_TICKETS: '/api/v1/admin/support/tickets',
+    SUPPORT_UNREAD_COUNT: '/api/v1/admin/support/tickets/unread-count',
   },
 } as const;

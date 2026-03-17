@@ -59,12 +59,13 @@ import {
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
-function useAssignableTeamMembers(organizationId: string | undefined, enabled: boolean) {
+function useAssignableTeamMembers(organizationId: string | undefined, userId: string | undefined, enabled: boolean) {
   return useQuery<TeamMember[]>({
-    queryKey: ['team-members', 'chat-assignable', organizationId],
-    enabled: Boolean(organizationId) && enabled,
+    queryKey: organizationQueryKey(['team-members', 'chat-assignable', organizationId] as const, userId, organizationId),
+    enabled: Boolean(userId && organizationId) && enabled,
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<TeamMember[]>>(
         `${ENDPOINTS.ORGANIZATIONS.MEMBERS(organizationId!)}?page=1&limit=100&status=active&resource=chat&permission=update`
@@ -85,7 +86,11 @@ export function ChatPage() {
   const [accountFilterId, setAccountFilterId] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const { data: waAccounts } = useWhatsAppAccounts();
-  const { data: assignableMembers = [] } = useAssignableTeamMembers(activeOrganization?.id, Boolean(isOwner));
+  const { data: assignableMembers = [] } = useAssignableTeamMembers(
+    activeOrganization?.id,
+    currentUser?.id,
+    Boolean(isOwner)
+  );
   const activeAccountOptions = useMemo(() => buildActiveWhatsAppAccountOptions(waAccounts), [waAccounts]);
   const accountsById = useMemo(
     () => new Map((waAccounts || []).map((account) => [account.id, account])),

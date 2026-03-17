@@ -74,6 +74,8 @@ cd frontend && npm run dev
 ```
 
 
+
+
 Stop any locally running services on ports `3000-3017`, `3307`, `6379`, `9092`, or `2181` before starting the Docker dev stack.
 
 Command reference: [docs/DEV_COMMANDS.md](/c:/Users/mdsah/OneDrive/Desktop/nyife/docs/DEV_COMMANDS.md)

@@ -15,6 +15,7 @@ import {
   PanelLeft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -22,6 +23,7 @@ import { cn } from '@/lib/utils';
 import type { RootState } from '@/core/store';
 import { toggleSidebar } from '@/core/store/uiSlice';
 import { usePermissions } from '@/core/hooks/usePermissions';
+import { useAdminSupportUnreadCount } from '@/modules/admin/support/useAdminSupport';
 
 const NAV_ITEMS = [
   { path: '/admin/dashboard', i18nKey: 'admin.nav.dashboard', icon: LayoutDashboard, resource: 'dashboard', action: 'read' },
@@ -40,6 +42,8 @@ export function AdminSidebar() {
   const { t } = useTranslation();
   const collapsed = useSelector((state: RootState) => state.ui.sidebarCollapsed);
   const { canAdmin } = usePermissions();
+  const canReadSupport = canAdmin('support', 'read');
+  const supportUnreadCount = useAdminSupportUnreadCount(canReadSupport);
 
   return (
     <aside
@@ -83,6 +87,11 @@ export function AdminSidebar() {
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 {!collapsed && <span>{label}</span>}
+                {!collapsed && item.path === '/admin/support' && (supportUnreadCount.data || 0) > 0 ? (
+                  <Badge variant="destructive" className="ml-auto min-w-5 px-1.5 text-[10px]">
+                    {supportUnreadCount.data}
+                  </Badge>
+                ) : null}
               </Link>
             );
 
@@ -90,7 +99,14 @@ export function AdminSidebar() {
               return (
                 <Tooltip key={item.path} delayDuration={0}>
                   <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-                  <TooltipContent side="right">{label}</TooltipContent>
+                  <TooltipContent side="right" className="flex items-center gap-2">
+                    <span>{label}</span>
+                    {item.path === '/admin/support' && (supportUnreadCount.data || 0) > 0 ? (
+                      <Badge variant="destructive" className="min-w-5 px-1.5 text-[10px]">
+                        {supportUnreadCount.data}
+                      </Badge>
+                    ) : null}
+                  </TooltipContent>
                 </Tooltip>
               );
             }

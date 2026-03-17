@@ -1,9 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useCallback, useRef } from 'react';
+import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { useSocket } from '@/core/hooks';
+import { organizationQueryKey } from '@/core/queryKeys';
+import type { RootState } from '@/core/store';
 import type { Conversation, ChatMessage, ApiResponse, PaginationMeta } from '@/core/types';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
 interface ConversationListParams {
   page?: number;
@@ -17,6 +21,8 @@ interface ConversationListParams {
 
 // List conversations
 export function useConversations(params: ConversationListParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = new URLSearchParams();
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
@@ -30,28 +36,33 @@ export function useConversations(params: ConversationListParams = {}) {
   const url = `${ENDPOINTS.CHAT.CONVERSATIONS}${qs ? `?${qs}` : ''}`;
 
   return useQuery<{ data: { conversations: Conversation[] }; meta: PaginationMeta }>({
-    queryKey: ['conversations', params],
+    queryKey: organizationQueryKey(['conversations', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ conversations: Conversation[] }>>(url);
       return { data: data.data, meta: data.meta! };
     },
+    enabled: Boolean(userId && activeOrganization?.id),
   });
 }
 
 // Get single conversation
 export function useConversation(id: string | undefined) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   return useQuery<Conversation>({
-    queryKey: ['conversations', id],
+    queryKey: organizationQueryKey(['conversations', id] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ conversation: Conversation }>>(`${ENDPOINTS.CHAT.CONVERSATIONS}/${id}`);
       return data.data.conversation;
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 
 // Get messages for a conversation
 export function useMessages(conversationId: string | undefined, params: { page?: number; limit?: number; before?: string } = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = new URLSearchParams();
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
@@ -59,14 +70,14 @@ export function useMessages(conversationId: string | undefined, params: { page?:
   const qs = query.toString();
 
   return useQuery<{ data: { messages: ChatMessage[] }; meta: PaginationMeta }>({
-    queryKey: ['messages', conversationId, params],
+    queryKey: organizationQueryKey(['messages', conversationId, params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ messages: ChatMessage[] }>>(
         `${ENDPOINTS.CHAT.CONVERSATIONS}/${conversationId}/messages${qs ? `?${qs}` : ''}`
       );
       return { data: data.data, meta: data.meta! };
     },
-    enabled: !!conversationId,
+    enabled: Boolean(conversationId && userId && activeOrganization?.id),
   });
 }
 

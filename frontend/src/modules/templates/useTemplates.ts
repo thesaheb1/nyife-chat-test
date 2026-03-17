@@ -1,8 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
+import type { RootState } from '@/core/store';
 import type { Template, ApiResponse, MediaFile, PaginationMeta } from '@/core/types';
 import type { CreateTemplateFormData, UpdateTemplateFormData } from './validations';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
 interface TemplateListParams {
   page?: number;
@@ -22,6 +26,8 @@ interface TemplateListResponse {
 
 // List templates
 export function useTemplates(params: TemplateListParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = new URLSearchParams();
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
@@ -36,23 +42,26 @@ export function useTemplates(params: TemplateListParams = {}) {
   const url = `${ENDPOINTS.TEMPLATES.BASE}${qs ? `?${qs}` : ''}`;
 
   return useQuery<TemplateListResponse>({
-    queryKey: ['templates', params],
+    queryKey: organizationQueryKey(['templates', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ templates: Template[] }>>(url);
       return { data: data.data, meta: data.meta! };
     },
+    enabled: Boolean(userId && activeOrganization?.id),
   });
 }
 
 // Get single template
 export function useTemplate(id: string | undefined) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   return useQuery<Template>({
-    queryKey: ['templates', id],
+    queryKey: organizationQueryKey(['templates', id] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ template: Template }>>(`${ENDPOINTS.TEMPLATES.BASE}/${id}`);
       return data.data.template;
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 

@@ -3,7 +3,7 @@
 const { authenticate, authenticateOptional } = require('./authMiddleware');
 const { adminRbac, superAdminOnly, resolveAdminActorContext } = require('./adminAuthorization');
 const { rbac } = require('./rbacMiddleware');
-const { tenantResolver, organizationResolver, resolveUserId } = require('./tenantMiddleware');
+const { tenantResolver, organizationResolver, organizationParamResolver, resolveUserId } = require('./tenantMiddleware');
 const { errorHandler, AppError } = require('./errorHandler');
 const { asyncHandler } = require('./asyncHandler');
 const { createRateLimiter } = require('./rateLimiter');
@@ -19,6 +19,7 @@ module.exports = {
   rbac,
   tenantResolver,
   organizationResolver,
+  organizationParamResolver,
   resolveUserId,
   errorHandler,
   AppError,

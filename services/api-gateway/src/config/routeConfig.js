@@ -112,6 +112,7 @@ const routeConfig = [
     service: 'support',
     auth: true,
     rateLimit: 'global',
+    publicPaths: ['/api/v1/support/socket.io'],
   },
   {
     prefix: '/api/v1/admin/support',

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSelector } from 'react-redux';
 import {
   Select,
   SelectContent,
@@ -15,10 +16,14 @@ import { QuickActions } from './QuickActions';
 import { RecentActivity } from './RecentActivity';
 import { DateRangeFilter } from '@/shared/components/DateRangeFilter';
 import { useDashboardData } from './useDashboardData';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import type { RootState } from '@/core/store';
 
 export function DashboardPage() {
   const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({});
   const [selectedWaAccountId, setSelectedWaAccountId] = useState<string>('all');
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const { data: waAccounts = [] } = useWhatsAppAccounts();
   const waAccountOptions = useMemo(
     () => waAccounts
@@ -35,6 +40,8 @@ export function DashboardPage() {
     dateFrom: dateRange.from,
     dateTo: dateRange.to,
     waAccountId: dashboardWaAccountId,
+    userId,
+    organizationId: activeOrganization?.id,
   });
   const { t } = useTranslation();
 

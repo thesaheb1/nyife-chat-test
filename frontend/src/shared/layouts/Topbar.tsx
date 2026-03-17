@@ -88,7 +88,7 @@ export function Topbar() {
   };
 
   const handleOrganizationSwitch = (organization: Organization) => {
-    setStoredActiveOrganization(organization);
+    setStoredActiveOrganization(user?.id, organization);
 
     if (location.pathname.startsWith('/organizations')) {
       return;

@@ -2,9 +2,9 @@ import type { Organization } from '@/core/types';
 
 type StoredOrganizationRef = Pick<Organization, 'id' | 'slug' | 'name'>;
 
-const ACTIVE_ORGANIZATION_ID_KEY = 'nyife.activeOrganizationId';
-const ACTIVE_ORGANIZATION_SLUG_KEY = 'nyife.activeOrganizationSlug';
-const ORGANIZATION_REGISTRY_KEY = 'nyife.organizationRegistry';
+const LEGACY_ACTIVE_ORGANIZATION_ID_KEY = 'nyife.activeOrganizationId';
+const LEGACY_ACTIVE_ORGANIZATION_SLUG_KEY = 'nyife.activeOrganizationSlug';
+const LEGACY_ORGANIZATION_REGISTRY_KEY = 'nyife.organizationRegistry';
 
 const ORG_SCOPED_PREFIXES = [
   '/dashboard',
@@ -59,8 +59,23 @@ function removeLocalStorage(key: string) {
   }
 }
 
-export function getStoredOrganizationRegistry(): StoredOrganizationRef[] {
-  const raw = readLocalStorage(ORGANIZATION_REGISTRY_KEY);
+function getOrganizationStorageKey(userId: string | null | undefined, field: 'activeId' | 'activeSlug' | 'registry') {
+  if (!userId) {
+    return null;
+  }
+
+  return `nyife.org.${userId}.${field}`;
+}
+
+export function clearLegacyStoredOrganizationState() {
+  removeLocalStorage(LEGACY_ACTIVE_ORGANIZATION_ID_KEY);
+  removeLocalStorage(LEGACY_ACTIVE_ORGANIZATION_SLUG_KEY);
+  removeLocalStorage(LEGACY_ORGANIZATION_REGISTRY_KEY);
+}
+
+export function getStoredOrganizationRegistry(userId?: string | null): StoredOrganizationRef[] {
+  const key = getOrganizationStorageKey(userId, 'registry');
+  const raw = key ? readLocalStorage(key) : null;
   if (!raw) {
     return [];
   }
@@ -73,33 +88,64 @@ export function getStoredOrganizationRegistry(): StoredOrganizationRef[] {
   }
 }
 
-export function syncStoredOrganizationRegistry(organizations: Organization[]) {
+export function syncStoredOrganizationRegistry(userId: string | null | undefined, organizations: Organization[]) {
+  const key = getOrganizationStorageKey(userId, 'registry');
+  if (!key) {
+    return;
+  }
+
   const registry = organizations.map((organization) => ({
     id: organization.id,
     slug: organization.slug,
     name: organization.name,
   }));
 
-  writeLocalStorage(ORGANIZATION_REGISTRY_KEY, JSON.stringify(registry));
+  writeLocalStorage(key, JSON.stringify(registry));
 }
 
-export function getStoredActiveOrganizationId() {
-  return readLocalStorage(ACTIVE_ORGANIZATION_ID_KEY);
+export function getStoredActiveOrganizationId(userId?: string | null) {
+  const key = getOrganizationStorageKey(userId, 'activeId');
+  return key ? readLocalStorage(key) : null;
 }
 
-export function getStoredActiveOrganizationSlug() {
-  return readLocalStorage(ACTIVE_ORGANIZATION_SLUG_KEY);
+export function getStoredActiveOrganizationSlug(userId?: string | null) {
+  const key = getOrganizationStorageKey(userId, 'activeSlug');
+  return key ? readLocalStorage(key) : null;
 }
 
-export function setStoredActiveOrganization(organization: Pick<Organization, 'id' | 'slug'>) {
-  writeLocalStorage(ACTIVE_ORGANIZATION_ID_KEY, organization.id);
-  writeLocalStorage(ACTIVE_ORGANIZATION_SLUG_KEY, organization.slug);
+export function setStoredActiveOrganization(
+  userId: string | null | undefined,
+  organization: Pick<Organization, 'id' | 'slug'>
+) {
+  const idKey = getOrganizationStorageKey(userId, 'activeId');
+  const slugKey = getOrganizationStorageKey(userId, 'activeSlug');
+
+  if (!idKey || !slugKey) {
+    return;
+  }
+
+  writeLocalStorage(idKey, organization.id);
+  writeLocalStorage(slugKey, organization.slug);
 }
 
-export function clearStoredActiveOrganization() {
-  removeLocalStorage(ACTIVE_ORGANIZATION_ID_KEY);
-  removeLocalStorage(ACTIVE_ORGANIZATION_SLUG_KEY);
-  removeLocalStorage(ORGANIZATION_REGISTRY_KEY);
+export function clearStoredActiveOrganization(userId?: string | null) {
+  const idKey = getOrganizationStorageKey(userId, 'activeId');
+  const slugKey = getOrganizationStorageKey(userId, 'activeSlug');
+
+  if (idKey) {
+    removeLocalStorage(idKey);
+  }
+
+  if (slugKey) {
+    removeLocalStorage(slugKey);
+  }
+}
+
+export function clearStoredOrganizationRegistry(userId?: string | null) {
+  const key = getOrganizationStorageKey(userId, 'registry');
+  if (key) {
+    removeLocalStorage(key);
+  }
 }
 
 export function getOrganizationSlugFromPath(pathname: string) {
@@ -107,23 +153,27 @@ export function getOrganizationSlugFromPath(pathname: string) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function getOrganizationIdForCurrentPath(pathname: string) {
+export function getOrganizationIdForCurrentPath(pathname: string, userId?: string | null) {
   const slug = getOrganizationSlugFromPath(pathname);
   if (!slug) {
     return null;
   }
 
-  const registry = getStoredOrganizationRegistry();
+  const registry = getStoredOrganizationRegistry(userId);
   return registry.find((organization) => organization.slug === slug)?.id || null;
 }
 
-export function resolvePreferredOrganization(organizations: Organization[], preferredSlug?: string | null) {
+export function resolvePreferredOrganization(
+  organizations: Organization[],
+  userId?: string | null,
+  preferredSlug?: string | null
+) {
   if (!organizations.length) {
     return null;
   }
 
-  const storedSlug = preferredSlug || getStoredActiveOrganizationSlug();
-  const storedId = getStoredActiveOrganizationId();
+  const storedSlug = preferredSlug || getStoredActiveOrganizationSlug(userId);
+  const storedId = getStoredActiveOrganizationId(userId);
 
   if (storedSlug) {
     const bySlug = organizations.find((organization) => organization.slug === storedSlug);
@@ -139,7 +189,16 @@ export function resolvePreferredOrganization(organizations: Organization[], pref
     }
   }
 
-  return organizations[0];
+  const firstOwnedOrganization = organizations.find(
+    (organization) => organization.organization_role === 'owner' && organization.status === 'active'
+  );
+
+  if (firstOwnedOrganization) {
+    return firstOwnedOrganization;
+  }
+
+  const firstActiveOrganization = organizations.find((organization) => organization.status === 'active');
+  return firstActiveOrganization || organizations[0];
 }
 
 function normalizeScopedSuffix(pathname: string) {

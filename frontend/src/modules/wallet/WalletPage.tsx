@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { CreditCard, Download, Loader2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSelector } from 'react-redux';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,55 +19,72 @@ import { loadRazorpayCheckout, unloadRazorpayCheckout } from '@/shared/utils/loa
 import { isValidRupeeAmount } from '@/shared/utils';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
+import type { RootState } from '@/core/store';
 import type { Wallet, Transaction, Invoice, ApiResponse, PaginationMeta } from '@/core/types';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
-function useWalletBalance() {
+function useWalletBalance(userId?: string | null, organizationId?: string | null) {
   return useQuery<Wallet>({
-    queryKey: ['wallet'],
+    queryKey: organizationQueryKey(['wallet'] as const, userId, organizationId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<Wallet>>(ENDPOINTS.WALLET.BASE);
       return data.data;
     },
+    enabled: Boolean(userId && organizationId),
   });
 }
 
-function useTransactions(params: { page?: number; type?: string; source?: string }) {
+function useTransactions(
+  params: { page?: number; type?: string; source?: string },
+  userId?: string | null,
+  organizationId?: string | null
+) {
   const q = new URLSearchParams();
   if (params.page) q.set('page', String(params.page));
   q.set('limit', '20');
   if (params.type) q.set('type', params.type);
   if (params.source) q.set('source', params.source);
   return useQuery<{ data: Transaction[]; meta: PaginationMeta }>({
-    queryKey: ['transactions', params],
+    queryKey: organizationQueryKey(['transactions', params] as const, userId, organizationId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<Transaction[]>>(`${ENDPOINTS.WALLET.TRANSACTIONS}?${q}`);
       return { data: data.data, meta: data.meta! };
     },
+    enabled: Boolean(userId && organizationId),
   });
 }
 
-function useInvoices(page = 1) {
+function useInvoices(page = 1, userId?: string | null, organizationId?: string | null) {
   return useQuery<{ data: Invoice[]; meta: PaginationMeta }>({
-    queryKey: ['invoices', page],
+    queryKey: organizationQueryKey(['invoices', page] as const, userId, organizationId),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<Invoice[]>>(`${ENDPOINTS.WALLET.INVOICES}?page=${page}&limit=20`);
       return { data: data.data, meta: data.meta! };
     },
+    enabled: Boolean(userId && organizationId),
   });
 }
 
 export function WalletPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const { data: wallet } = useWalletBalance();
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
+  const organizationId = activeOrganization?.id;
+  const { data: wallet } = useWalletBalance(userId, organizationId);
   const [rechargeOpen, setRechargeOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [txPage, setTxPage] = useState(1);
   const [txType, setTxType] = useState('');
   const [invPage, setInvPage] = useState(1);
 
-  const { data: txData, isLoading: txLoading } = useTransactions({ page: txPage, type: txType || undefined });
-  const { data: invData, isLoading: invLoading } = useInvoices(invPage);
+  const { data: txData, isLoading: txLoading } = useTransactions(
+    { page: txPage, type: txType || undefined },
+    userId,
+    organizationId
+  );
+  const { data: invData, isLoading: invLoading } = useInvoices(invPage, userId, organizationId);
 
   const transactions = txData?.data ?? [];
   const txMeta = txData?.meta;

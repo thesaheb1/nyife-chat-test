@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
+import type { RootState } from '@/core/store';
 import type { ApiResponse, PaginationMeta, Webhook } from '@/core/types';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
 interface WebhookListParams {
   page?: number;
@@ -25,6 +29,8 @@ interface WebhookPayload {
 }
 
 export function useWebhooks(params: WebhookListParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = new URLSearchParams();
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
@@ -33,7 +39,7 @@ export function useWebhooks(params: WebhookListParams = {}) {
   const url = `${ENDPOINTS.AUTOMATIONS.WEBHOOKS}${queryString ? `?${queryString}` : ''}`;
 
   return useQuery<WebhookListResponse>({
-    queryKey: ['webhooks', params],
+    queryKey: organizationQueryKey(['webhooks', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ webhooks: Webhook[] }>>(url);
       return {
@@ -41,6 +47,7 @@ export function useWebhooks(params: WebhookListParams = {}) {
         meta: data.meta!,
       };
     },
+    enabled: Boolean(userId && activeOrganization?.id),
   });
 }
 

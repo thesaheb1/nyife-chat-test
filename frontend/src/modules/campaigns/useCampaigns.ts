@@ -1,8 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
+import { organizationQueryKey } from '@/core/queryKeys';
+import type { RootState } from '@/core/store';
 import type { Campaign, CampaignMessage, ApiResponse, PaginationMeta } from '@/core/types';
 import type { CreateCampaignFormData, UpdateCampaignFormData } from './validations';
+import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
 interface CampaignListParams {
   page?: number;
@@ -39,6 +43,8 @@ interface CampaignAnalytics {
 
 // List campaigns
 export function useCampaigns(params: CampaignListParams = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = new URLSearchParams();
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
@@ -51,40 +57,47 @@ export function useCampaigns(params: CampaignListParams = {}) {
   const url = `${ENDPOINTS.CAMPAIGNS.BASE}${qs ? `?${qs}` : ''}`;
 
   return useQuery<{ data: { campaigns: Campaign[] }; meta: PaginationMeta }>({
-    queryKey: ['campaigns', params],
+    queryKey: organizationQueryKey(['campaigns', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ campaigns: Campaign[] }>>(url);
       return { data: data.data, meta: data.meta! };
     },
+    enabled: Boolean(userId && activeOrganization?.id),
   });
 }
 
 // Get single campaign
 export function useCampaign(id: string | undefined) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   return useQuery<Campaign>({
-    queryKey: ['campaigns', id],
+    queryKey: organizationQueryKey(['campaigns', id] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ campaign: Campaign }>>(`${ENDPOINTS.CAMPAIGNS.BASE}/${id}`);
       return data.data.campaign;
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 
 // Get campaign analytics
 export function useCampaignAnalytics(id: string | undefined) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   return useQuery<CampaignAnalytics>({
-    queryKey: ['campaigns', id, 'analytics'],
+    queryKey: organizationQueryKey(['campaigns', id, 'analytics'] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ analytics: CampaignAnalytics }>>(`${ENDPOINTS.CAMPAIGNS.BASE}/${id}/analytics`);
       return data.data.analytics;
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 
 // Get campaign messages
 export function useCampaignMessages(id: string | undefined, params: { page?: number; limit?: number; status?: string } = {}) {
+  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const query = new URLSearchParams();
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
@@ -92,12 +105,12 @@ export function useCampaignMessages(id: string | undefined, params: { page?: num
   const qs = query.toString();
 
   return useQuery<{ data: { messages: CampaignMessage[] }; meta: PaginationMeta }>({
-    queryKey: ['campaigns', id, 'messages', params],
+    queryKey: organizationQueryKey(['campaigns', id, 'messages', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ messages: CampaignMessage[] }>>(`${ENDPOINTS.CAMPAIGNS.BASE}/${id}/messages${qs ? `?${qs}` : ''}`);
       return { data: data.data, meta: data.meta! };
     },
-    enabled: !!id,
+    enabled: Boolean(id && userId && activeOrganization?.id),
   });
 }
 

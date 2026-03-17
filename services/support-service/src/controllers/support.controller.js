@@ -5,6 +5,7 @@ const { successResponse, AppError } = require('@nyife/shared-utils');
 const {
   createTicketSchema,
   listTicketsSchema,
+  listMessagesSchema,
   replyTicketSchema,
   rateTicketSchema,
   adminListTicketsSchema,
@@ -29,192 +30,223 @@ function getSupportUserContext(req) {
     );
   }
 
-  return {
-    actorUserId,
-    organizationId,
-  };
+  return supportService.buildUserViewer(actorUserId, organizationId);
 }
 
-// ────────────────────────────────────────────────
-// User Handlers
-// ────────────────────────────────────────────────
+function getSupportAdminContext(req) {
+  const actor = req.adminUser || null;
+  if (!actor && !req.headers['x-user-id']) {
+    throw AppError.unauthorized('Authentication is required to access support.', 'AUTH_REQUIRED');
+  }
 
-/**
- * POST /api/v1/support/tickets
- * Creates a new support ticket for the authenticated user.
- */
+  return supportService.buildAdminViewer(
+    actor || {
+      user: { id: req.headers['x-user-id'] || req.user?.id || null },
+      is_super_admin: req.headers['x-user-role'] === 'super_admin',
+      permissions: { resources: { support: { read: true, update: true, delete: true } } },
+    }
+  );
+}
+
 async function createTicket(req, res) {
-  const { actorUserId, organizationId } = getSupportUserContext(req);
+  const viewer = getSupportUserContext(req);
   const data = createTicketSchema.parse(req.body);
   const kafkaProducer = req.app.locals.kafkaProducer;
+  const io = req.app.locals.io || null;
 
-  const ticket = await supportService.createTicket(actorUserId, organizationId, data, kafkaProducer);
+  const result = await supportService.createTicket(
+    viewer.user_id,
+    viewer.organization_id,
+    data,
+    io,
+    kafkaProducer
+  );
 
-  return successResponse(res, { ticket }, 'Support ticket created successfully', 201);
+  return successResponse(res, result, 'Support ticket created successfully', 201);
 }
 
-/**
- * GET /api/v1/support/tickets
- * Lists tickets for the authenticated user with pagination and optional filters.
- */
 async function listTickets(req, res) {
-  const { organizationId } = getSupportUserContext(req);
+  const viewer = getSupportUserContext(req);
   const filters = listTicketsSchema.parse(req.query);
-
-  const { tickets, meta } = await supportService.listUserTickets(organizationId, filters);
-
+  const { tickets, meta } = await supportService.listUserTickets(viewer, filters);
   return successResponse(res, { tickets }, 'Tickets retrieved', 200, meta);
 }
 
-/**
- * GET /api/v1/support/tickets/:id
- * Gets a single ticket with all replies for the authenticated user.
- */
 async function getTicket(req, res) {
-  const { organizationId } = getSupportUserContext(req);
+  const viewer = getSupportUserContext(req);
   const { id } = idParamSchema.parse(req.params);
-
-  const ticket = await supportService.getTicket(organizationId, id);
-
-  return successResponse(res, { ticket }, 'Ticket retrieved');
+  const result = await supportService.getUserTicket(viewer, id);
+  return successResponse(res, result, 'Ticket retrieved');
 }
 
-/**
- * POST /api/v1/support/tickets/:id/reply
- * Adds a user reply to a ticket.
- */
+async function getTicketMessages(req, res) {
+  const viewer = getSupportUserContext(req);
+  const { id } = idParamSchema.parse(req.params);
+  const filters = listMessagesSchema.parse(req.query);
+  const { messages, meta } = await supportService.getUserTicketMessages(viewer, id, filters);
+  return successResponse(res, { messages }, 'Messages retrieved', 200, meta);
+}
+
+async function markTicketRead(req, res) {
+  const viewer = getSupportUserContext(req);
+  const { id } = idParamSchema.parse(req.params);
+  const io = req.app.locals.io || null;
+  const result = await supportService.markTicketRead(viewer, id, io);
+  return successResponse(res, result, 'Ticket marked as read');
+}
+
 async function replyToTicket(req, res) {
-  const { actorUserId, organizationId } = getSupportUserContext(req);
+  const viewer = getSupportUserContext(req);
   const { id } = idParamSchema.parse(req.params);
   const data = replyTicketSchema.parse(req.body);
   const kafkaProducer = req.app.locals.kafkaProducer;
+  const io = req.app.locals.io || null;
 
-  const reply = await supportService.replyToTicket(organizationId, actorUserId, id, data, kafkaProducer);
-
-  return successResponse(res, { reply }, 'Reply added successfully', 201);
+  const result = await supportService.replyToTicket(viewer, id, data, io, kafkaProducer);
+  return successResponse(res, result, 'Reply added successfully', 201);
 }
 
-/**
- * PUT /api/v1/support/tickets/:id/close
- * Closes a user's ticket.
- */
 async function closeTicket(req, res) {
-  const { organizationId } = getSupportUserContext(req);
+  const viewer = getSupportUserContext(req);
   const { id } = idParamSchema.parse(req.params);
-
-  const ticket = await supportService.closeTicket(organizationId, id);
-
+  const io = req.app.locals.io || null;
+  const kafkaProducer = req.app.locals.kafkaProducer;
+  const ticket = await supportService.closeTicket(viewer, id, io, kafkaProducer);
   return successResponse(res, { ticket }, 'Ticket closed successfully');
 }
 
-/**
- * PUT /api/v1/support/tickets/:id/rate
- * Rates a resolved or closed ticket.
- */
 async function rateTicket(req, res) {
-  const { organizationId } = getSupportUserContext(req);
+  const viewer = getSupportUserContext(req);
   const { id } = idParamSchema.parse(req.params);
   const data = rateTicketSchema.parse(req.body);
-
-  const ticket = await supportService.rateTicket(organizationId, id, data);
-
+  const io = req.app.locals.io || null;
+  const kafkaProducer = req.app.locals.kafkaProducer;
+  const ticket = await supportService.rateTicket(viewer, id, data, io, kafkaProducer);
   return successResponse(res, { ticket }, 'Ticket rated successfully');
 }
 
-// ────────────────────────────────────────────────
-// Admin Handlers
-// ────────────────────────────────────────────────
+async function getUnreadCount(req, res) {
+  const viewer = getSupportUserContext(req);
+  const unreadCount = await supportService.getUserUnreadCount(viewer);
+  return successResponse(res, { unread_count: unreadCount }, 'Unread count retrieved');
+}
 
-/**
- * GET /api/v1/admin/support/tickets
- * Lists all tickets with advanced filters, search, and pagination (admin).
- */
 async function adminListTickets(req, res) {
+  const viewer = getSupportAdminContext(req);
   const filters = adminListTicketsSchema.parse(req.query);
-
-  const { tickets, meta } = await supportService.adminListTickets(filters);
-
+  const { tickets, meta } = await supportService.adminListTickets(viewer, filters);
   return successResponse(res, { tickets }, 'Tickets retrieved', 200, meta);
 }
 
-/**
- * GET /api/v1/admin/support/tickets/:id
- * Gets a single ticket with replies and user information (admin).
- */
 async function adminGetTicket(req, res) {
+  const viewer = getSupportAdminContext(req);
   const { id } = idParamSchema.parse(req.params);
-
-  const ticketData = await supportService.adminGetTicket(id);
-  const { replies, ...ticket } = ticketData;
-
-  return successResponse(res, { ticket, replies: replies || [] }, 'Ticket retrieved');
+  const result = await supportService.adminGetTicket(viewer, id);
+  return successResponse(res, result, 'Ticket retrieved');
 }
 
-/**
- * POST /api/v1/admin/support/tickets/:id/reply
- * Adds an admin reply to a ticket.
- */
+async function adminGetTicketMessages(req, res) {
+  const viewer = getSupportAdminContext(req);
+  const { id } = idParamSchema.parse(req.params);
+  const filters = listMessagesSchema.parse(req.query);
+  const { messages, meta } = await supportService.adminGetTicketMessages(viewer, id, filters);
+  return successResponse(res, { messages }, 'Messages retrieved', 200, meta);
+}
+
+async function adminMarkTicketRead(req, res) {
+  const viewer = getSupportAdminContext(req);
+  const { id } = idParamSchema.parse(req.params);
+  const io = req.app.locals.io || null;
+  const result = await supportService.markTicketRead(viewer, id, io);
+  return successResponse(res, result, 'Ticket marked as read');
+}
+
 async function adminReplyToTicket(req, res) {
-  const adminUserId = req.headers['x-user-id'];
+  const viewer = getSupportAdminContext(req);
   const { id } = idParamSchema.parse(req.params);
   const data = replyTicketSchema.parse(req.body);
   const kafkaProducer = req.app.locals.kafkaProducer;
-
-  const reply = await supportService.adminReplyToTicket(adminUserId, id, data, kafkaProducer);
-
-  return successResponse(res, { reply }, 'Admin reply added successfully', 201);
+  const io = req.app.locals.io || null;
+  const result = await supportService.adminReplyToTicket(viewer, id, data, io, kafkaProducer);
+  return successResponse(res, result, 'Admin reply added successfully', 201);
 }
 
-/**
- * PUT /api/v1/admin/support/tickets/:id/assign
- * Assigns a ticket to an admin user.
- */
 async function assignTicket(req, res) {
+  const viewer = getSupportAdminContext(req);
   const { id } = idParamSchema.parse(req.params);
   const { admin_user_id } = assignTicketSchema.parse(req.body);
+  const kafkaProducer = req.app.locals.kafkaProducer;
+  const io = req.app.locals.io || null;
 
-  const ticket = await supportService.assignTicket(id, admin_user_id);
+  const ticket = await supportService.assignTicket(
+    viewer,
+    id,
+    admin_user_id,
+    io,
+    kafkaProducer
+  );
 
   return successResponse(res, { ticket }, 'Ticket assigned successfully');
 }
 
-/**
- * PUT /api/v1/admin/support/tickets/:id/status
- * Updates the status of a ticket.
- */
 async function updateTicketStatus(req, res) {
+  const viewer = getSupportAdminContext(req);
   const { id } = idParamSchema.parse(req.params);
   const { status } = updateTicketStatusSchema.parse(req.body);
-
-  const ticket = await supportService.updateTicketStatus(id, status);
-
+  const io = req.app.locals.io || null;
+  const kafkaProducer = req.app.locals.kafkaProducer;
+  const ticket = await supportService.updateTicketStatus(viewer, id, status, io, kafkaProducer);
   return successResponse(res, { ticket }, 'Ticket status updated successfully');
 }
 
-/**
- * GET /api/v1/admin/support/tickets/user/:userId
- * Lists all tickets for a specific user (admin view).
- */
+async function deleteTicket(req, res) {
+  const viewer = getSupportAdminContext(req);
+  const { id } = idParamSchema.parse(req.params);
+  const io = req.app.locals.io || null;
+  const kafkaProducer = req.app.locals.kafkaProducer;
+  const result = await supportService.deleteTicket(viewer, id, io, kafkaProducer);
+  return successResponse(res, result, 'Ticket deleted successfully');
+}
+
+async function getAssignableAdmins(req, res) {
+  getSupportAdminContext(req);
+  const admins = await supportService.getAssignableAdmins();
+  return successResponse(res, { admins }, 'Assignable admins retrieved');
+}
+
 async function getTicketsByUser(req, res) {
+  const viewer = getSupportAdminContext(req);
   const { userId } = userIdParamSchema.parse(req.params);
-  const filters = listTicketsSchema.parse(req.query);
-
-  const { tickets, meta } = await supportService.getTicketsByUser(userId, filters);
-
+  const filters = adminListTicketsSchema.parse(req.query);
+  const { tickets, meta } = await supportService.getTicketsByUser(viewer, userId, filters);
   return successResponse(res, { tickets }, 'User tickets retrieved', 200, meta);
+}
+
+async function getAdminUnreadCount(req, res) {
+  const viewer = getSupportAdminContext(req);
+  const unreadCount = await supportService.getAdminUnreadCount(viewer);
+  return successResponse(res, { unread_count: unreadCount }, 'Unread count retrieved');
 }
 
 module.exports = {
   createTicket,
   listTickets,
   getTicket,
+  getTicketMessages,
+  markTicketRead,
   replyToTicket,
   closeTicket,
   rateTicket,
+  getUnreadCount,
   adminListTickets,
   adminGetTicket,
+  adminGetTicketMessages,
+  adminMarkTicketRead,
   adminReplyToTicket,
   assignTicket,
   updateTicketStatus,
+  deleteTicket,
+  getAssignableAdmins,
   getTicketsByUser,
+  getAdminUnreadCount,
 };

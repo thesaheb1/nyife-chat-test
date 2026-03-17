@@ -3,3 +3,4 @@ export { useSocket } from './useSocket';
 export { usePermissions } from './usePermissions';
 export { useDebounce } from './useDebounce';
 export { useNotificationSocket } from './useNotificationSocket';
+export { useSupportSocket, useSupportThreadSocket } from './useSupportSocket';

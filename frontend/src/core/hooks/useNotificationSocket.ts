@@ -42,7 +42,7 @@ export function useNotificationSocket() {
     const onCampaignStatus = (payload: { campaign_id: string; status: string }) => {
       qc.invalidateQueries({ queryKey: ['campaigns'] });
       qc.invalidateQueries({ queryKey: ['campaigns', payload.campaign_id] });
-      qc.invalidateQueries({ queryKey: ['campaign-analytics', payload.campaign_id] });
+      qc.invalidateQueries({ queryKey: ['campaigns', payload.campaign_id, 'analytics'] });
       if (payload.status === 'completed') {
         toast.success('Campaign completed');
       } else if (payload.status === 'failed') {
@@ -52,8 +52,8 @@ export function useNotificationSocket() {
 
     // Campaign progress (sent/delivered/read count updates)
     const onCampaignProgress = (payload: { campaign_id: string }) => {
-      qc.invalidateQueries({ queryKey: ['campaign-analytics', payload.campaign_id] });
-      qc.invalidateQueries({ queryKey: ['campaign-messages', payload.campaign_id] });
+      qc.invalidateQueries({ queryKey: ['campaigns', payload.campaign_id, 'analytics'] });
+      qc.invalidateQueries({ queryKey: ['campaigns', payload.campaign_id, 'messages'] });
     };
 
     notificationSocket.on('notification', onNotification);

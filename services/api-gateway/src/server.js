@@ -39,6 +39,7 @@ function createSocketUpgradeProxy(target, label) {
 
 const chatSocketProxy = createSocketUpgradeProxy(config.services.chat, 'chat');
 const notificationSocketProxy = createSocketUpgradeProxy(config.services.notification, 'notification');
+const supportSocketProxy = createSocketUpgradeProxy(config.services.support, 'support');
 
 server.on('upgrade', (req, socket, head) => {
   const requestPath = (req.url || '').split('?')[0];
@@ -50,6 +51,11 @@ server.on('upgrade', (req, socket, head) => {
 
   if (requestPath.startsWith('/api/v1/notifications/socket.io')) {
     notificationSocketProxy.upgrade(req, socket, head);
+    return;
+  }
+
+  if (requestPath.startsWith('/api/v1/support/socket.io')) {
+    supportSocketProxy.upgrade(req, socket, head);
     return;
   }
 });
@@ -108,6 +114,7 @@ const startServer = async () => {
 };
 
 startServer();
+
 
 // ---------------------------------------------------------------------------
 // Graceful shutdown

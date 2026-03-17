@@ -54,6 +54,14 @@ module.exports = (sequelize) => {
         type: DataTypes.DATE,
         allowNull: true,
       },
+      last_message_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      last_message_preview: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+      },
       resolved_at: {
         type: DataTypes.DATE,
         allowNull: true,
@@ -70,6 +78,14 @@ module.exports = (sequelize) => {
         type: DataTypes.TEXT,
         allowNull: true,
       },
+      deleted_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      deleted_by: {
+        type: DataTypes.CHAR(36),
+        allowNull: true,
+      },
     },
     {
       tableName: 'support_tickets',
@@ -83,6 +99,11 @@ module.exports = (sequelize) => {
     Ticket.hasMany(models.TicketReply, {
       foreignKey: 'ticket_id',
       as: 'replies',
+    });
+
+    Ticket.hasMany(models.TicketRead, {
+      foreignKey: 'ticket_id',
+      as: 'reads',
     });
   };
 

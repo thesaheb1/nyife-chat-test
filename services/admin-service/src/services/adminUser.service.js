@@ -554,7 +554,8 @@ async function getUserDashboard(userId, actor, organizationId = null) {
       `SELECT COUNT(*) AS total
        FROM support_tickets
        WHERE user_id = :userId
-         AND organization_id = :organizationId`,
+         AND organization_id = :organizationId
+         AND deleted_at IS NULL`,
       {
         replacements: {
           userId: user.id,

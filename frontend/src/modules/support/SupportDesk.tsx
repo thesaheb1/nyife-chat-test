@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, MoreHorizontal, Plus, Send, Star } from 'lucide-react';
 import { toast } from 'sonner';
@@ -56,6 +56,15 @@ function isTerminalTicketStatus(status?: string | null) {
   return status === 'resolved' || status === 'closed';
 }
 
+function renderRatingStars(value: number) {
+  return Array.from({ length: 5 }, (_, index) => (
+    <Star
+      key={`user-rating-star-${value}-${index}`}
+      className={cn('h-4 w-4', index < value ? 'fill-current text-yellow-500' : 'text-muted-foreground/40')}
+    />
+  ));
+}
+
 function ThreadItem({
   active,
   onOpen,
@@ -67,12 +76,22 @@ function ThreadItem({
   onRate: () => void;
   ticket: SupportTicket;
 }) {
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onOpen();
+    }
+  };
+
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={handleKeyDown}
       className={cn(
         'w-full max-w-full overflow-hidden rounded-xl border px-3 py-3 text-left transition hover:border-primary/40 hover:bg-muted/30',
+        'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         active ? 'border-primary bg-primary/5' : 'border-border bg-background'
       )}
     >
@@ -110,6 +129,18 @@ function ThreadItem({
             <Badge variant="secondary" className="text-[11px]">
               {ticket.message_count || 0} msgs
             </Badge>
+            {isTerminalTicketStatus(ticket.status) ? (
+              ticket.satisfaction_rating ? (
+                <Badge variant="secondary" className="inline-flex items-center gap-1 text-[11px]">
+                  <Star className="h-3.5 w-3.5 fill-current text-yellow-500" />
+                  {ticket.satisfaction_rating}/5
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-[11px]">
+                  Not rated
+                </Badge>
+              )
+            ) : null}
             {ticket.unread_count ? (
               <Badge variant="destructive" className="text-[11px]">
                 {ticket.unread_count}
@@ -121,7 +152,7 @@ function ThreadItem({
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -488,6 +519,22 @@ export function SupportDesk() {
                   <Star className="mr-2 h-4 w-4" />
                   Rate chat
                 </Button>
+              </div>
+            ) : null}
+            {selectedTicket.satisfaction_rating ? (
+              <div className="border-t px-4 py-4 sm:px-5">
+                <div className="rounded-2xl border bg-muted/20 px-4 py-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1">{renderRatingStars(selectedTicket.satisfaction_rating)}</div>
+                    <span className="text-sm font-medium">{selectedTicket.satisfaction_rating}/5</span>
+                    <span className="text-sm text-muted-foreground">Your feedback for this support conversation</span>
+                  </div>
+                  {selectedTicket.satisfaction_feedback ? (
+                    <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">
+                      {selectedTicket.satisfaction_feedback}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             ) : null}
             {isTerminalTicket ? (

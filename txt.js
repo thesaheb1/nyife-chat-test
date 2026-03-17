@@ -125,7 +125,5 @@
 
 // Once a chat is resolved or closed then both user or admin must not able to chat again with same ticket untill admin reopen it. also when chat is resolved or closed the user give rating and feedback but the admin is not able to see it so he can review who performing best please handle this part also with production grade approach
 
-// Now help me to understand that is our support desk is scalable.
-// suppose if 100k users are using our support desk then will it handle? will it crash?.
-// suppose a user sent me 1k messages then how it will handle? will it crash?.
+
 

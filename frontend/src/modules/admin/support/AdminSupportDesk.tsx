@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, MoreHorizontal, RotateCcw, Send, Star, Trash2, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
@@ -94,12 +94,22 @@ function AdminTicketRow({
   onStatusChange: (ticketId: string, status: string) => void;
   ticket: SupportTicket;
 }) {
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onOpen(ticket.id);
+    }
+  };
+
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen(ticket.id)}
+      onKeyDown={handleKeyDown}
       className={cn(
         'w-full max-w-full overflow-hidden rounded-xl border px-3 py-3 text-left transition hover:border-primary/40 hover:bg-muted/30',
+        'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         active ? 'border-primary bg-primary/5' : 'border-border bg-background'
       )}
     >
@@ -176,7 +186,7 @@ function AdminTicketRow({
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 

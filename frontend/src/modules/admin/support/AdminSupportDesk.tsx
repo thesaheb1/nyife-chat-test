@@ -476,32 +476,11 @@ export function AdminSupportDesk() {
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>#{selectedTicket.ticket_number}</span>
-                  {/* <Badge variant="outline">
-                    {STATUS_OPTIONS.find((option) => option.value === selectedTicket.status)?.label || selectedTicket.status}
-                  </Badge> */}
+
                   <Badge variant="secondary" className="capitalize">{selectedTicket.category}</Badge>
                   <Badge variant="secondary" className="capitalize">{selectedTicket.priority}</Badge>
-                  {/* <Badge variant="secondary">{selectedTicket.message_count || messages.length} messages</Badge>
-                  <span>{formatTimestamp(selectedTicket.created_at)}</span> */}
+
                 </div>
-                {/* <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-                  <div className="rounded-xl border bg-muted/30 px-3 py-2">
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">User</p>
-                    <p className="font-medium text-foreground">
-                      {selectedTicket.user?.full_name || selectedTicket.user?.email || selectedTicket.user_id}
-                    </p>
-                    {selectedTicket.user?.email ? <p>{selectedTicket.user.email}</p> : null}
-                    {selectedTicket.user?.phone ? <p>{selectedTicket.user.phone}</p> : null}
-                  </div>
-                  <div className="rounded-xl border bg-muted/30 px-3 py-2">
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">Organization</p>
-                    <p className="font-medium text-foreground">
-                      {selectedTicket.organization?.name || selectedTicket.organization_id}
-                    </p>
-                    {selectedTicket.organization?.slug ? <p>{selectedTicket.organization.slug}</p> : null}
-                    {selectedTicket.organization?.status ? <p className="capitalize">{selectedTicket.organization.status}</p> : null}
-                  </div>
-                </div> */}
               </div>
               <div className="flex w-full flex-col gap-2 sm:flex-row xl:w-auto xl:flex-wrap xl:justify-end">
                 <Select

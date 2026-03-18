@@ -35,6 +35,7 @@ jest.mock('../src/models', () => {
       findOne: jest.fn(),
       findByPk: jest.fn(),
       create: jest.fn().mockResolvedValue(mockUserInstance),
+      destroy: jest.fn().mockResolvedValue(1),
       unscoped: jest.fn().mockReturnValue({ findOne: jest.fn() }),
       scope: jest.fn().mockReturnValue({ findOne: jest.fn() }),
       __mockInstance: mockUserInstance,
@@ -81,6 +82,8 @@ jest.mock('@nyife/shared-utils', () => {
 
 jest.mock('../src/config', () => ({
   jwt: { secret: 'test-secret', accessExpiry: '15m', refreshExpiry: '7d' },
+  frontendUrl: 'http://localhost:5173',
+  emailServiceUrl: 'http://email-service:3013',
 }));
 
 beforeEach(() => { jest.clearAllMocks(); });

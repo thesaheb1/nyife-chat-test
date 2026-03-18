@@ -34,5 +34,6 @@ module.exports = {
     },
   },
   frontendUrl: resolveFrontendAppUrl(process.env),
+  emailServiceUrl: process.env.EMAIL_SERVICE_URL || 'http://localhost:3013',
   userCacheTtl: 900, // 15 minutes in seconds
 };

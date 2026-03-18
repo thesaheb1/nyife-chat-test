@@ -6,6 +6,7 @@ const {
   registerSchema,
   loginSchema,
   verifyEmailSchema,
+  resendVerificationSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   oauthTokenSchema,
@@ -40,25 +41,6 @@ async function register(req, res) {
   const data = registerSchema.parse(req.body);
   const result = await authService.register(data);
 
-  // Publish email verification event to Kafka (best-effort, don't fail registration)
-  try {
-    if (req.app.locals.kafkaProducer) {
-      const { publishEvent } = require('@nyife/shared-events');
-      const { TOPICS } = require('@nyife/shared-events');
-      await publishEvent(req.app.locals.kafkaProducer, TOPICS.EMAIL_SEND, result.user.id, {
-        to: result.user.email,
-        subject: 'Verify your email - Nyife',
-        template: 'email_verification',
-        templateData: {
-          name: result.user.first_name,
-          verificationUrl: `${config.frontendUrl}/verify-email?token=${result.emailVerificationToken}`,
-        },
-      });
-    }
-  } catch (err) {
-    console.error('[auth-service] Failed to publish email verification event:', err.message);
-  }
-
   return successResponse(res, { user: result.user }, 'Registration successful. Please check your email to verify your account.', 201);
 }
 
@@ -75,6 +57,12 @@ async function verifyEmail(req, res) {
   const { token } = verifyEmailSchema.parse(req.body);
   const user = await authService.verifyEmail(token);
   return successResponse(res, { user }, 'Email verified successfully');
+}
+
+async function resendVerificationEmail(req, res) {
+  const { user_id } = resendVerificationSchema.parse(req.body);
+  const result = await authService.resendVerificationEmail(user_id);
+  return successResponse(res, { user: result.user }, 'Verification email sent successfully');
 }
 
 /**
@@ -312,6 +300,7 @@ module.exports = {
   getCsrfToken,
   register,
   verifyEmail,
+  resendVerificationEmail,
   login,
   refresh,
   logout,

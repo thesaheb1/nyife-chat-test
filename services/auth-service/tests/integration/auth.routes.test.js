@@ -46,6 +46,7 @@ jest.mock('../../src/config', () => ({
   port: 3001,
   jwtSecret: 'test-secret',
   frontendUrl: 'http://localhost:5173',
+  emailServiceUrl: 'http://email-service:3013',
   userCacheTtl: 3600,
 }));
 jest.mock('@nyife/shared-utils', () => {
@@ -156,6 +157,34 @@ describe('POST /api/v1/auth/verify-email', () => {
     const res = await request(app).post('/api/v1/auth/verify-email').set('Cookie', CSRF_COOKIE).set(CSRF_HEADER).send({});
 
     expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/v1/auth/resend-verification', () => {
+  it('should return 200 when resend succeeds', async () => {
+    authService.resendVerificationEmail.mockResolvedValue({
+      user: { id: 'u1', email: 'user@example.com', status: 'pending_verification' },
+    });
+
+    const res = await request(app)
+      .post('/api/v1/auth/resend-verification')
+      .set('Cookie', CSRF_COOKIE)
+      .set(CSRF_HEADER)
+      .send({ user_id: '550e8400-e29b-41d4-a716-446655440000' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('should return 400 when user_id is missing', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/resend-verification')
+      .set('Cookie', CSRF_COOKIE)
+      .set(CSRF_HEADER)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
 });
 

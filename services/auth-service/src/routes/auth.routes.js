@@ -11,6 +11,7 @@ const { csrfProtection } = require('../middlewares/csrf.middleware');
 router.get('/csrf-token', asyncHandler(authController.getCsrfToken));
 router.post('/register', csrfProtection, asyncHandler(authController.register));
 router.post('/verify-email', csrfProtection, asyncHandler(authController.verifyEmail));
+router.post('/resend-verification', csrfProtection, asyncHandler(authController.resendVerificationEmail));
 router.post('/login', csrfProtection, asyncHandler(authController.login));
 router.post('/refresh', csrfProtection, asyncHandler(authController.refresh));
 router.post('/forgot-password', csrfProtection, asyncHandler(authController.forgotPassword));

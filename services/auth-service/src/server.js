@@ -10,6 +10,41 @@ const server = http.createServer(app);
 
 let redis = null;
 let kafkaProducer = null;
+let kafkaProducerRetryTimer = null;
+let kafkaProducerConnecting = false;
+
+const KAFKA_PRODUCER_RETRY_DELAY_MS = 5000;
+
+async function startKafkaProducer() {
+  if (kafkaProducerConnecting || kafkaProducer) {
+    return;
+  }
+
+  kafkaProducerConnecting = true;
+
+  try {
+    const { createKafkaProducer } = require('@nyife/shared-config');
+    kafkaProducer = await createKafkaProducer('auth-service');
+    app.locals.kafkaProducer = kafkaProducer;
+    console.log('[auth-service] Kafka producer connected');
+  } catch (err) {
+    console.warn('[auth-service] Could not connect to Kafka:', err.message);
+    app.locals.kafkaProducer = null;
+
+    if (kafkaProducerRetryTimer) {
+      clearTimeout(kafkaProducerRetryTimer);
+    }
+
+    kafkaProducerRetryTimer = setTimeout(() => {
+      kafkaProducerRetryTimer = null;
+      startKafkaProducer().catch((retryError) => {
+        console.error('[auth-service] Kafka producer retry failed:', retryError.message);
+      });
+    }, KAFKA_PRODUCER_RETRY_DELAY_MS);
+  } finally {
+    kafkaProducerConnecting = false;
+  }
+}
 
 async function startServer() {
   // Test database connection
@@ -28,16 +63,8 @@ async function startServer() {
     console.warn('[auth-service] Could not connect to Redis:', err.message);
   }
 
-  // Connect to Kafka producer (best-effort)
-  try {
-    const { createKafkaProducer } = require('@nyife/shared-config');
-    kafkaProducer = await createKafkaProducer('auth-service');
-    app.locals.kafkaProducer = kafkaProducer;
-    console.log('[auth-service] Kafka producer connected');
-  } catch (err) {
-    console.warn('[auth-service] Could not connect to Kafka:', err.message);
-    app.locals.kafkaProducer = null;
-  }
+  // Connect to Kafka producer (best-effort with retry)
+  void startKafkaProducer();
 
   server.listen(config.port, () => {
     console.log(`[auth-service] Server running on port ${config.port} (${config.nodeEnv})`);
@@ -77,6 +104,11 @@ const gracefulShutdown = (signal) => {
       } catch (err) {
         console.error('[auth-service] Error disconnecting Kafka:', err.message);
       }
+    }
+
+    if (kafkaProducerRetryTimer) {
+      clearTimeout(kafkaProducerRetryTimer);
+      kafkaProducerRetryTimer = null;
     }
 
     console.log('[auth-service] Graceful shutdown complete');

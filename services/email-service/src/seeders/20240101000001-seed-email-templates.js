@@ -3,11 +3,8 @@
 const { v4: uuidv4 } = require('uuid');
 
 /** @type {import('sequelize-cli').Migration} */
-module.exports = {
-  async up(queryInterface) {
-    const now = new Date();
-
-    const templates = [
+function buildCoreEmailTemplates(now = new Date()) {
+  return [
       {
         id: uuidv4(),
         name: 'welcome',
@@ -682,7 +679,13 @@ This invitation will expire in 7 days. If you did not expect this invitation, yo
         created_at: now,
         updated_at: now,
       },
-    ];
+  ];
+}
+
+module.exports = {
+  async up(queryInterface) {
+    const now = new Date();
+    const templates = buildCoreEmailTemplates(now);
 
     await queryInterface.bulkInsert('email_templates', templates);
   },
@@ -691,3 +694,5 @@ This invitation will expire in 7 days. If you did not expect this invitation, yo
     await queryInterface.bulkDelete('email_templates', null, {});
   },
 };
+
+module.exports.buildCoreEmailTemplates = buildCoreEmailTemplates;

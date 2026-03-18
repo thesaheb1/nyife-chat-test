@@ -27,6 +27,10 @@ const verifyEmailSchema = z.object({
   token: z.string().min(1, 'Verification token is required'),
 });
 
+const resendVerificationSchema = z.object({
+  user_id: z.string().uuid('Valid user ID is required'),
+});
+
 const forgotPasswordSchema = z.object({
   email: z.string().email('Invalid email format').toLowerCase().trim(),
 });
@@ -44,6 +48,7 @@ module.exports = {
   registerSchema,
   loginSchema,
   verifyEmailSchema,
+  resendVerificationSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   oauthTokenSchema,

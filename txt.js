@@ -36,3 +36,45 @@
 //     "stack": "AppError: Organization not found\n    at AppError.notFound (/app/shared/shared-utils/src/AppError.js:67:12)\n    at ensureOwnerOrganization (/app/services/organization-service/src/services/organization.service.js:116:20)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.removeTeamMember (/app/services/organization-service/src/services/organization.service.js:967:3)\n    at async removeTeamMember (/app/services/organization-service/src/controllers/organization.controller.js:205:3)"
 // }
 // NOTE : i must be able to delete team member, re invite same team member and again delete same team member.
+
+
+// I delete docker images, containers, and volumes and then re run my docker with these commands
+
+// npm run stack:up:build
+
+// # Run all migrations
+// npm run migrate:all
+
+// # Optional: create Kafka topics explicitly
+// npm run kafka:setup
+
+// # Start the frontend separately
+// cd frontend && npm run dev
+
+// after all services are up and running, i try to register a new user and i got this response : 
+
+// {
+//     "success": true,
+//     "message": "Registration successful. Please check your email to verify your account.",
+//     "data": {
+//         "user": {
+//             "id": "112d716f-bc3a-4059-9c28-10d953fbff99",
+//             "email": "sahebbca2020@gmail.com",
+//             "first_name": "Md",
+//             "last_name": "Saheb",
+//             "phone": null,
+//             "role": "user",
+//             "status": "pending_verification",
+//             "must_change_password": false,
+//             "created_at": "2026-03-18T07:24:49.956Z",
+//             "updated_at": "2026-03-18T07:24:49.956Z"
+//         }
+//     }
+// }
+
+// But when i check my email and i didn't receive any verification email. I checked my spam folder and i didn't find any email.
+// i always get this issue whenever i hard restart my project. please fix this email issue and implement a hardcore validation that untill email is not sent, it should not be able to register a new user.
+// and after getting registration successful resposne i should not redirect to login page. it should show send email again Ui. so i can send email again.
+
+// Again i am facing the same issue. I didn't receive any email. I checked my spam folder and i didn't find any email. however i got "Registration successful. Please check your email to verify your account." response.
+// please do a deep review on this issue and fix it with production ready grade approach.

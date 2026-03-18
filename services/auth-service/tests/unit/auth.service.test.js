@@ -34,6 +34,14 @@ function freshUser(overrides = {}) {
 /** Reset all mocks between tests. */
 beforeEach(() => {
   jest.clearAllMocks();
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    text: async () => JSON.stringify({
+      data: {
+        emails: [{ status: 'sent' }],
+      },
+    }),
+  });
 
   // Default: unscoped().findOne returns null (no existing user)
   User.unscoped.mockReturnValue({ findOne: jest.fn().mockResolvedValue(null) });
@@ -48,6 +56,10 @@ beforeEach(() => {
   RefreshToken.create.mockResolvedValue(true);
   RefreshToken.update.mockResolvedValue([1]);
   sequelize.query.mockResolvedValue([[], null]);
+});
+
+afterEach(() => {
+  delete global.fetch;
 });
 
 // ===========================================================================
@@ -85,6 +97,12 @@ describe('authService.register', () => {
     expect(result.emailVerificationToken).toBeDefined();
     expect(typeof result.emailVerificationToken).toBe('string');
     expect(created.toSafeJSON).toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://email-service:3013/api/v1/emails/send',
+      expect.objectContaining({
+        method: 'POST',
+      })
+    );
   });
 
   it('should seed the default organization from the user first name', async () => {
@@ -110,6 +128,32 @@ describe('authService.register', () => {
 
     await expect(authService.register(registerData)).rejects.toThrow('A user with this email already exists');
     await expect(authService.register(registerData)).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('should roll back the new account when verification email sending fails', async () => {
+    const created = freshUser({ id: 'user-uuid-1', email: 'new@example.com', first_name: 'New', last_name: 'User' });
+    User.create.mockResolvedValue(created);
+    sequelize.query
+      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null])
+      .mockResolvedValueOnce([[], null]);
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        data: {
+          emails: [{ status: 'failed', error_message: 'SMTP rejected the recipient' }],
+        },
+      }),
+    });
+
+    await expect(authService.register(registerData)).rejects.toThrow('SMTP rejected the recipient');
+    expect(User.destroy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'user-uuid-1' },
+        force: true,
+      })
+    );
   });
 });
 
@@ -138,6 +182,28 @@ describe('authService.verifyEmail', () => {
 
     await expect(authService.verifyEmail('bad-token')).rejects.toThrow('Invalid or expired verification token');
     await expect(authService.verifyEmail('bad-token')).rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
+describe('authService.resendVerificationEmail', () => {
+  it('should refresh the token and send a new verification email for pending accounts', async () => {
+    const user = freshUser({
+      id: 'pending-user-1',
+      email: 'pending@example.com',
+      first_name: 'Pending',
+      status: 'pending_verification',
+      email_verified_at: null,
+    });
+    User.unscoped.mockReturnValue({ findOne: jest.fn().mockResolvedValue(user) });
+
+    const result = await authService.resendVerificationEmail('pending-user-1');
+
+    expect(user.update).toHaveBeenCalledWith(expect.objectContaining({
+      email_verification_token: expect.any(String),
+      email_verification_expires: expect.any(Date),
+    }));
+    expect(global.fetch).toHaveBeenCalled();
+    expect(result.user.email).toBe('pending@example.com');
   });
 });
 

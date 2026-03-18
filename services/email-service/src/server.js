@@ -1,13 +1,17 @@
 'use strict';
 
 const http = require('http');
+const { Op } = require('sequelize');
 const app = require('./app');
 const config = require('./config');
 const { sequelize, EmailTemplate } = require('./models');
 const { testConnection, createRedisClient, createKafkaConsumer } = require('@nyife/shared-config');
 const { TOPICS } = require('@nyife/shared-events');
 const emailService = require('./services/email.service');
-const coreTemplateSeeder = require('./seeders/20240101000001-seed-email-templates');
+const {
+  buildMissingCoreEmailTemplates,
+  getCoreEmailTemplateNames,
+} = require('./bootstrap/coreTemplates');
 
 const server = http.createServer(app);
 
@@ -117,14 +121,38 @@ async function startKafkaConsumer() {
 }
 
 async function ensureCoreTemplates() {
-  const totalTemplates = await EmailTemplate.count();
+  try {
+    const coreTemplateNames = getCoreEmailTemplateNames();
+    const existingTemplates = await EmailTemplate.findAll({
+      where: {
+        name: {
+          [Op.in]: coreTemplateNames,
+        },
+      },
+      attributes: ['name'],
+    });
+    const missingTemplates = buildMissingCoreEmailTemplates(
+      existingTemplates.map((template) => template.name)
+    );
 
-  if (totalTemplates > 0) {
-    return;
+    if (missingTemplates.length === 0) {
+      return;
+    }
+
+    console.warn(
+      `[email-service] Missing core email templates detected: ${missingTemplates
+        .map((template) => template.name)
+        .join(', ')}. Bootstrapping them now.`
+    );
+
+    await sequelize.getQueryInterface().bulkInsert('email_templates', missingTemplates);
+  } catch (error) {
+    if (error?.original?.code === 'ER_NO_SUCH_TABLE' || error?.parent?.code === 'ER_NO_SUCH_TABLE') {
+      console.error('[email-service] email_templates table is missing. Run email-service migrations before startup.');
+    }
+
+    throw error;
   }
-
-  console.warn('[email-service] email_templates is empty. Bootstrapping core templates.');
-  await coreTemplateSeeder.up(sequelize.getQueryInterface());
 }
 
 async function startServer() {

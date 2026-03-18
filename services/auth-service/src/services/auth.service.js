@@ -42,6 +42,119 @@ async function createDefaultOrganizationForUser(user, transaction) {
       transaction,
     }
   );
+
+  return organizationId;
+}
+
+function buildVerificationEmailPayload(user, verificationToken) {
+  return {
+    to_emails: [user.email],
+    type: 'transactional',
+    subject: 'Verify your email - Nyife',
+    template_name: 'email_verification',
+    variables: {
+      name: user.first_name,
+      verificationUrl: `${config.frontendUrl}/verify-email?token=${verificationToken}`,
+    },
+    meta: {
+      source: 'auth_service',
+      category: 'email_verification',
+      user_id: user.id,
+    },
+  };
+}
+
+async function sendTransactionalEmail(payload) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch(`${config.emailServiceUrl}/api/v1/emails/send`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const rawBody = await response.text();
+    const responseBody = rawBody ? JSON.parse(rawBody) : null;
+
+    if (!response.ok) {
+      throw new AppError(
+        responseBody?.message || 'Unable to send the verification email right now. Please try again.',
+        response.status || 503
+      );
+    }
+
+    const emails = responseBody?.data?.emails || responseBody?.emails || [];
+    if (!Array.isArray(emails) || emails.length === 0) {
+      throw new AppError(
+        'Unable to confirm that the verification email was sent. Please try again.',
+        503
+      );
+    }
+
+    const failedEmail = emails.find((emailRecord) => emailRecord.status !== 'sent');
+    if (failedEmail) {
+      throw new AppError(
+        failedEmail.error_message || 'Unable to send the verification email right now. Please try again.',
+        503
+      );
+    }
+
+    return emails;
+  } catch (error) {
+    if (error instanceof AppError || error?.isOperational) {
+      throw error;
+    }
+
+    if (error?.name === 'AbortError') {
+      throw new AppError(
+        'Email service timed out while sending the verification email. Please try again.',
+        503
+      );
+    }
+
+    throw new AppError(
+      'Unable to send the verification email right now. Please try again.',
+      503
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function sendVerificationEmail(user, verificationToken) {
+  return sendTransactionalEmail(buildVerificationEmailPayload(user, verificationToken));
+}
+
+async function rollbackPendingRegistration(userId, organizationId) {
+  await sequelize.transaction(async (transaction) => {
+    await sequelize.query(
+      'DELETE FROM wallet_wallets WHERE user_id = :organizationId',
+      {
+        replacements: { organizationId },
+        transaction,
+      }
+    );
+
+    await sequelize.query(
+      'DELETE FROM org_organizations WHERE id = :organizationId AND user_id = :userId',
+      {
+        replacements: { organizationId, userId },
+        transaction,
+      }
+    );
+
+    await User.destroy({
+      where: { id: userId },
+      force: true,
+      transaction,
+    });
+  });
 }
 
 /**
@@ -56,7 +169,7 @@ async function register({ email, password, first_name, last_name, phone }) {
   const emailVerificationToken = crypto.randomBytes(32).toString('hex');
   const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-  const user = await sequelize.transaction(async (transaction) => {
+  const { user, organizationId } = await sequelize.transaction(async (transaction) => {
     const createdUser = await User.create({
       email,
       password,
@@ -69,9 +182,24 @@ async function register({ email, password, first_name, last_name, phone }) {
       email_verification_expires: emailVerificationExpires,
     }, { transaction });
 
-    await createDefaultOrganizationForUser(createdUser, transaction);
-    return createdUser;
+    const defaultOrganizationId = await createDefaultOrganizationForUser(createdUser, transaction);
+    return {
+      user: createdUser,
+      organizationId: defaultOrganizationId,
+    };
   });
+
+  try {
+    await sendVerificationEmail(user, emailVerificationToken);
+  } catch (error) {
+    try {
+      await rollbackPendingRegistration(user.id, organizationId);
+    } catch (rollbackError) {
+      console.error('[auth-service] Failed to roll back registration after email failure:', rollbackError.message);
+    }
+
+    throw error;
+  }
 
   return {
     user: user.toSafeJSON(),
@@ -102,6 +230,39 @@ async function verifyEmail(token) {
   });
 
   return user.toSafeJSON();
+}
+
+async function resendVerificationEmail(userId) {
+  const user = await User.unscoped().findOne({
+    where: { id: userId },
+  });
+
+  if (!user) {
+    throw AppError.notFound('Pending verification account not found');
+  }
+
+  if (user.email_verified_at || user.status === 'active') {
+    throw AppError.badRequest('This email address has already been verified.');
+  }
+
+  if (user.status !== 'pending_verification') {
+    throw AppError.badRequest('Only pending verification accounts can request a new email.');
+  }
+
+  const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+  const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  await user.update({
+    email_verification_token: emailVerificationToken,
+    email_verification_expires: emailVerificationExpires,
+  });
+
+  await sendVerificationEmail(user, emailVerificationToken);
+
+  return {
+    user: user.toSafeJSON(),
+    emailVerificationToken,
+  };
 }
 
 /**
@@ -400,6 +561,7 @@ function parseExpiry(expiry) {
 module.exports = {
   register,
   verifyEmail,
+  resendVerificationEmail,
   login,
   refreshAccessToken,
   logout,

@@ -147,6 +147,7 @@ services:
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
+      EMAIL_SERVICE_URL: http://email-service:3013
     depends_on:
       mysql:
         condition: service_healthy

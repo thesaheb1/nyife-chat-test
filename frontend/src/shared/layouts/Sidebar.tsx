@@ -162,7 +162,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
   const settingsPath = activeOrganization
     ? buildOrganizationPath(activeOrganization.slug, '/settings')
     : '/settings';
-  const workspaceRole = activeOrganization
+  const activeOrganizationRoleLabel = activeOrganization
     ? activeOrganization.organization_role === 'owner'
       ? 'Owner workspace'
       : 'Team workspace'
@@ -217,7 +217,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
                         {activeOrganization?.name || 'Organization'}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {workspaceRole}
+                        {activeOrganizationRoleLabel}
                       </span>
                     </span>
                   ) : null}
@@ -364,7 +364,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
                 <p className="truncate text-sm font-medium text-foreground">
                   {user?.first_name} {user?.last_name}
                 </p>
-                <p className="truncate text-xs text-muted-foreground">{workspaceRole}</p>
+                <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
               </div>
             ) : null}
 
@@ -377,11 +377,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
             ) : null}
           </div>
 
-          {!isCompact ? (
-            <p className="mt-3 text-xs text-muted-foreground">
-              {organizations.length} accessible workspace{organizations.length === 1 ? '' : 's'}
-            </p>
-          ) : (
+          {isCompact ? (
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <Button asChild variant="ghost" size="icon-sm" className="rounded-lg text-muted-foreground">
@@ -392,7 +388,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
               </TooltipTrigger>
               <TooltipContent side="right">Settings</TooltipContent>
             </Tooltip>
-          )}
+          ) : null}
         </div>
       </div>
     </aside>

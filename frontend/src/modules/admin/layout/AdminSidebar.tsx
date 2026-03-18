@@ -203,7 +203,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: AdminSidebarProps) 
                 <p className="truncate text-sm font-medium text-foreground">
                   {user?.first_name} {user?.last_name}
                 </p>
-                <p className="truncate text-xs text-muted-foreground">Admin access</p>
+                <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
               </div>
             ) : null}
           </div>

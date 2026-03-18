@@ -35,8 +35,6 @@ import { useOrganizationContext } from '@/modules/organizations/useOrganizationC
 import { usePermissions } from '@/core/hooks/usePermissions';
 import { useSupportUnreadCount } from '@/modules/support/useSupportDesk';
 
-
-
 const ORG_SCOPED_QUERY_ROOTS = new Set([
   'dashboard',
   'unreadChatsCount',

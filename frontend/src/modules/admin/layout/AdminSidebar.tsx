@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
+  ArrowUpRight,
   Bell,
   CreditCard,
   LayoutDashboard,
@@ -12,6 +13,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -82,6 +84,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: AdminSidebarProps) 
   const isCompact = !mobile && collapsed;
   const { canAdmin } = usePermissions();
   const canReadSupport = canAdmin('support', 'read');
+  const settingsPath = '/admin/settings';
   const supportUnreadCount = useAdminSupportUnreadCount(canReadSupport);
   const supportUnread = supportUnreadCount.data || 0;
 
@@ -206,7 +209,28 @@ export function AdminSidebar({ mobile = false, onNavigate }: AdminSidebarProps) 
                 <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
               </div>
             ) : null}
+
+            {!isCompact ? (
+              <Button asChild variant="ghost" size="icon-sm" className="rounded-lg text-muted-foreground">
+                <Link to={settingsPath} onClick={onNavigate}>
+                  <ArrowUpRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            ) : null}
           </div>
+
+          {isCompact ? (
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button asChild variant="ghost" size="icon-sm" className="rounded-lg text-muted-foreground">
+                  <Link to={settingsPath} onClick={onNavigate}>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{t('admin.nav.settings')}</TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
       </div>
     </aside>

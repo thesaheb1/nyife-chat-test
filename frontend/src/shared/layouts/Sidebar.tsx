@@ -177,17 +177,14 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
       )}
     >
       <div className="border-b border-border/70 px-3 py-4">
-        <div className={cn('flex items-center gap-3', isCompact && 'justify-center')}>
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-sm">
-            N
-          </div>
-
-          {!isCompact ? (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold tracking-tight">Nyife</p>
-              <p className="text-xs text-muted-foreground">Workspace</p>
+        <div className='flex items-center gap-3 justify-center'>
+          {isCompact ? (
+            <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl">
+              <img src="/nyife.svg" alt="Nyife Admin" className="size-full object-contain" />
             </div>
-          ) : null}
+          ) : <div className="flex h-10 w-auto shrink-0 items-center justify-center overflow-hidden rounded-xl">
+            <img src="/nyife-logo.svg" alt="Nyife Admin" className="size-full object-contain" />
+          </div>}
         </div>
 
         <div className="mt-4">

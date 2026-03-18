@@ -2,7 +2,6 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft,
   LogOut,
   Menu,
   Monitor,
@@ -70,16 +69,6 @@ export function AdminTopbar({ onOpenSidebar }: AdminTopbarProps) {
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="hidden rounded-xl lg:inline-flex"
-            onClick={() => navigate('/dashboard')}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            {t('admin.backToApp')}
-          </Button>
-
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="rounded-xl text-muted-foreground shadow-none hover:bg-accent hover:text-foreground">
@@ -129,11 +118,6 @@ export function AdminTopbar({ onOpenSidebar }: AdminTopbarProps) {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="rounded-lg lg:hidden" onClick={() => navigate('/dashboard')}>
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                {t('admin.backToApp')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="lg:hidden" />
               <DropdownMenuItem
                 className="rounded-lg text-destructive focus:text-destructive"
                 onClick={handleLogout}

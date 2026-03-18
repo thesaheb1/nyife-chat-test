@@ -193,7 +193,6 @@
   },
   "admin": {
     "title": "Admin Panel",
-    "backToApp": "Back to App",
     "nav": {
       "dashboard": "Dashboard",
       "users": "Users",

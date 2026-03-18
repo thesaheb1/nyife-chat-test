@@ -2,7 +2,6 @@ import { Link, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft,
   Bell,
   CreditCard,
   LayoutDashboard,
@@ -13,7 +12,6 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -101,29 +99,17 @@ export function AdminSidebar({ mobile = false, onNavigate }: AdminSidebarProps) 
       )}
     >
       <div className="border-b border-border/70 px-3 py-4">
-        <div className={cn('flex items-center gap-3', isCompact && 'justify-center')}>
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-sm font-semibold text-white shadow-sm">
-            A
-          </div>
+        <div className='flex items-center gap-3 justify-center'>
 
-          {!isCompact ? (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold tracking-tight">Nyife Admin</p>
-              <p className="text-xs text-muted-foreground">Platform control</p>
+
+          {isCompact ? (
+            <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl">
+              <img src="/nyife.svg" alt="Nyife Admin" className="size-full object-contain" />
             </div>
-          ) : null}
+          ) : <div className="flex h-10 w-auto shrink-0 items-center justify-center overflow-hidden rounded-xl">
+            <img src="/nyife-logo.svg" alt="Nyife Admin" className="size-full object-contain" />
+          </div>}
         </div>
-
-        {!isCompact ? (
-          <div className="mt-4 rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-              Access Level
-            </p>
-            <p className="mt-2 text-sm font-medium text-foreground">
-              {user?.role === 'super_admin' ? 'Super admin' : 'Admin'}
-            </p>
-          </div>
-        ) : null}
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -217,32 +203,10 @@ export function AdminSidebar({ mobile = false, onNavigate }: AdminSidebarProps) 
                 <p className="truncate text-sm font-medium text-foreground">
                   {user?.first_name} {user?.last_name}
                 </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {user?.role === 'super_admin' ? 'Super admin access' : 'Admin access'}
-                </p>
+                <p className="truncate text-xs text-muted-foreground">Admin access</p>
               </div>
             ) : null}
           </div>
-
-          {!isCompact ? (
-            <Button asChild variant="outline" size="sm" className="mt-3 w-full rounded-lg shadow-none">
-              <Link to="/dashboard" onClick={onNavigate}>
-                <ArrowLeft className="h-4 w-4" />
-                {t('admin.backToApp')}
-              </Link>
-            </Button>
-          ) : (
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <Button asChild variant="ghost" size="icon-sm" className="rounded-lg text-muted-foreground">
-                  <Link to="/dashboard" onClick={onNavigate}>
-                    <ArrowLeft className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{t('admin.backToApp')}</TooltipContent>
-            </Tooltip>
-          )}
         </div>
       </div>
     </aside>

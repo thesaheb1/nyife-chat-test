@@ -60,7 +60,7 @@ const incrementUsageSchema = z.object({
     'organizations',
     'whatsapp_numbers',
   ]),
-  count: z.number().int().positive('Count must be greater than zero').default(1),
+  count: z.number().int().refine((value) => value !== 0, 'Count must not be zero').default(1),
 });
 
 const paginationSchema = z.object({

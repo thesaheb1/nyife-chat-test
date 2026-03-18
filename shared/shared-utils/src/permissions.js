@@ -18,8 +18,8 @@ const ORGANIZATION_RESOURCE_DEFINITIONS = Object.freeze([
   { key: 'settings', label: 'Settings', assignable: true },
   { key: 'billing', label: 'Billing', assignable: true },
   { key: 'subscription', label: 'Subscription', assignable: true },
-  { key: 'organizations', label: 'Organizations', assignable: true },
-  { key: 'team_members', label: 'Team Members', assignable: true },
+  { key: 'organizations', label: 'Organizations', assignable: false },
+  { key: 'team_members', label: 'Team Members', assignable: false },
   { key: 'whatsapp', label: 'WhatsApp', assignable: true },
   { key: 'developer', label: 'Developer', assignable: true },
 ]);
@@ -48,6 +48,14 @@ function getResourceKeys(definitions, { assignableOnly = false } = {}) {
 }
 
 const ORGANIZATION_RESOURCE_KEYS = Object.freeze(getResourceKeys(ORGANIZATION_RESOURCE_DEFINITIONS));
+const ORGANIZATION_ASSIGNABLE_RESOURCE_KEYS = Object.freeze(
+  getResourceKeys(ORGANIZATION_RESOURCE_DEFINITIONS, { assignableOnly: true })
+);
+const ORGANIZATION_RESERVED_RESOURCE_KEYS = Object.freeze(
+  ORGANIZATION_RESOURCE_DEFINITIONS.filter((definition) => definition.assignable === false).map(
+    (definition) => definition.key
+  )
+);
 const ADMIN_RESOURCE_KEYS = Object.freeze(getResourceKeys(ADMIN_RESOURCE_DEFINITIONS));
 const ADMIN_ASSIGNABLE_RESOURCE_KEYS = Object.freeze(
   getResourceKeys(ADMIN_RESOURCE_DEFINITIONS, { assignableOnly: true })
@@ -118,8 +126,13 @@ function normalizePermissions(permissions, definitions, options = {}) {
   return normalized;
 }
 
-function normalizeOrganizationPermissions(permissions) {
-  return normalizePermissions(permissions, ORGANIZATION_RESOURCE_DEFINITIONS);
+function normalizeOrganizationPermissions(permissions, options = {}) {
+  const { includeReserved = true } = options;
+
+  return normalizePermissions(permissions, ORGANIZATION_RESOURCE_DEFINITIONS, {
+    includeReserved,
+    stripResources: includeReserved ? [] : ORGANIZATION_RESERVED_RESOURCE_KEYS,
+  });
 }
 
 function normalizeAdminPermissions(permissions, options = {}) {
@@ -178,6 +191,8 @@ module.exports = {
   CRUD_ACTIONS,
   ORGANIZATION_RESOURCE_DEFINITIONS,
   ORGANIZATION_RESOURCE_KEYS,
+  ORGANIZATION_ASSIGNABLE_RESOURCE_KEYS,
+  ORGANIZATION_RESERVED_RESOURCE_KEYS,
   ADMIN_RESOURCE_DEFINITIONS,
   ADMIN_RESOURCE_KEYS,
   ADMIN_ASSIGNABLE_RESOURCE_KEYS,

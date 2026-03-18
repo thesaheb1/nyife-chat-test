@@ -24,6 +24,10 @@ const FRONTEND_URL = resolveFrontendAppUrl();
 let kafkaProducer = null;
 const subscriptionServiceUrl = process.env.SUBSCRIPTION_SERVICE_URL || 'http://subscription-service:3003';
 
+function sanitizeTeamMemberPermissions(permissions) {
+  return normalizeOrganizationPermissions(permissions, { includeReserved: false });
+}
+
 async function fetchActiveSubscription(scopeId) {
   if (!scopeId) {
     return null;
@@ -91,6 +95,60 @@ async function generateUniqueSlug(name) {
 
 function buildOwnerPermissions() {
   return buildFullOrganizationPermissions();
+}
+
+async function countLiveMembershipsForUser(memberUserId, transaction = null) {
+  return TeamMember.count({
+    where: {
+      member_user_id: memberUserId,
+    },
+    transaction,
+  });
+}
+
+async function countLiveOwnedOrganizationsForUser(userId, transaction = null) {
+  return Organization.count({
+    where: { user_id: userId },
+    transaction,
+  });
+}
+
+async function canSafelyPurgeStandaloneTeamUser(user, transaction = null) {
+  if (!user || String(user.role) !== 'team') {
+    return false;
+  }
+
+  const [liveMemberships, liveOwnedOrganizations] = await Promise.all([
+    countLiveMembershipsForUser(user.id, transaction),
+    countLiveOwnedOrganizationsForUser(user.id, transaction),
+  ]);
+
+  return liveMemberships === 0 && liveOwnedOrganizations === 0;
+}
+
+async function purgeStandaloneTeamUserIfReusable(email, transaction = null) {
+  const user = await User.findOne({
+    where: { email },
+    paranoid: false,
+    transaction,
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  const purgeable = await canSafelyPurgeStandaloneTeamUser(user, transaction);
+  if (!purgeable) {
+    return user;
+  }
+
+  await User.destroy({
+    where: { id: user.id },
+    force: true,
+    transaction,
+  });
+
+  return null;
 }
 
 function paginateArray(items, page, limit) {
@@ -324,7 +382,7 @@ async function getAccessibleOrganizations(userId) {
     organizations.push({
       organization: membership.organization,
       role: 'team',
-      permissions: normalizeOrganizationPermissions(membership.permissions),
+      permissions: sanitizeTeamMemberPermissions(membership.permissions),
       membership,
     });
   }
@@ -508,8 +566,9 @@ async function inviteTeamMember(userId, orgId, memberData, currentOrganizationId
   await assertTeamInviteAllowed(orgId, currentOrganizationId || orgId);
   const normalizedEmail = String(memberData.email).toLowerCase().trim();
 
-  const [existingMember, existingInvitation, existingUser] = await Promise.all([
-    User.findOne({ where: { email: normalizedEmail } }).then((memberUser) => {
+  const resolvedExistingUser = await purgeStandaloneTeamUserIfReusable(normalizedEmail);
+  const [existingMember, existingInvitation] = await Promise.all([
+    Promise.resolve(resolvedExistingUser).then((memberUser) => {
       if (!memberUser) {
         return null;
       }
@@ -530,14 +589,13 @@ async function inviteTeamMember(userId, orgId, memberData, currentOrganizationId
       },
       paranoid: false,
     }),
-    User.findOne({ where: { email: normalizedEmail } }),
   ]);
 
-  if (existingUser && String(existingUser.id) === String(userId)) {
+  if (resolvedExistingUser && String(resolvedExistingUser.id) === String(userId)) {
     throw AppError.badRequest('You cannot invite yourself as a team member.');
   }
 
-  if (existingUser && ['admin', 'super_admin'].includes(String(existingUser.role))) {
+  if (resolvedExistingUser && ['admin', 'super_admin'].includes(String(resolvedExistingUser.role))) {
     throw AppError.forbidden('Platform admin accounts cannot be invited as team members.');
   }
 
@@ -558,7 +616,7 @@ async function inviteTeamMember(userId, orgId, memberData, currentOrganizationId
     first_name: memberData.first_name,
     last_name: memberData.last_name,
     role_title: memberData.role_title,
-    permissions: normalizeOrganizationPermissions(memberData.permissions),
+    permissions: sanitizeTeamMemberPermissions(memberData.permissions),
     invite_token: inviteToken,
     status: 'pending',
     expires_at: new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
@@ -574,10 +632,7 @@ async function createTeamMemberAccount(userId, orgId, memberData) {
   await assertTeamInviteAllowed(orgId, orgId);
 
   const normalizedEmail = String(memberData.email).toLowerCase().trim();
-  const existingUser = await User.findOne({
-    where: { email: normalizedEmail },
-    paranoid: false,
-  });
+  const existingUser = await purgeStandaloneTeamUserIfReusable(normalizedEmail);
 
   if (existingUser) {
     if (['admin', 'super_admin'].includes(String(existingUser.role))) {
@@ -635,7 +690,7 @@ async function createTeamMemberAccount(userId, orgId, memberData) {
       user_id: userId,
       member_user_id: memberUserId,
       role_title: memberData.role_title,
-      permissions: normalizeOrganizationPermissions(memberData.permissions),
+      permissions: sanitizeTeamMemberPermissions(memberData.permissions),
       status: 'active',
       invited_at: now,
       joined_at: now,
@@ -789,6 +844,8 @@ async function acceptInvitation(authUserId, data) {
       throw AppError.badRequest('Set a password to finish accepting this invitation.');
     }
 
+    await purgeStandaloneTeamUserIfReusable(normalizedEmail);
+
     const [existingUser] = await sequelize.query(
       'SELECT id FROM auth_users WHERE email = :email AND deleted_at IS NULL LIMIT 1',
       { replacements: { email: normalizedEmail }, type: QueryTypes.SELECT }
@@ -840,7 +897,7 @@ async function acceptInvitation(authUserId, data) {
       await existingMembership.restore({ transaction });
       await existingMembership.update({
         role_title: invitation.role_title,
-        permissions: normalizeOrganizationPermissions(invitation.permissions),
+        permissions: sanitizeTeamMemberPermissions(invitation.permissions),
         status: 'active',
         joined_at: new Date(),
         invited_at: invitation.created_at,
@@ -852,7 +909,7 @@ async function acceptInvitation(authUserId, data) {
         user_id: invitation.invited_by_user_id,
         member_user_id: user.id,
         role_title: invitation.role_title,
-        permissions: normalizeOrganizationPermissions(invitation.permissions),
+        permissions: sanitizeTeamMemberPermissions(invitation.permissions),
         status: 'active',
         invited_at: invitation.created_at,
         joined_at: new Date(),
@@ -949,7 +1006,7 @@ async function updateTeamMember(userId, orgId, memberId, data) {
 
   const updateData = { ...data };
   if (data.permissions) {
-    updateData.permissions = normalizeOrganizationPermissions(data.permissions);
+    updateData.permissions = sanitizeTeamMemberPermissions(data.permissions);
   }
   if (data.status === 'active' && teamMember.status === 'invited') {
     updateData.joined_at = new Date();
@@ -988,13 +1045,26 @@ async function removeTeamMember(userId, orgId, memberId) {
   await sequelize.transaction(async (transaction) => {
     await clearAssignedConversationsForMember(orgId, teamMember.member_user_id, transaction);
     await teamMember.destroy({ transaction });
+
+    const memberUser = await User.findByPk(teamMember.member_user_id, {
+      paranoid: false,
+      transaction,
+    });
+
+    if (await canSafelyPurgeStandaloneTeamUser(memberUser, transaction)) {
+      await User.destroy({
+        where: { id: teamMember.member_user_id },
+        force: true,
+        transaction,
+      });
+    }
   });
 
   await syncTeamSeatUsage(orgId);
 }
 
 function memberHasResourcePermission(member, resource, permission) {
-  return hasPermission(normalizeOrganizationPermissions(member?.permissions), resource, permission);
+  return hasPermission(sanitizeTeamMemberPermissions(member?.permissions), resource, permission);
 }
 
 async function resolveOrganizationContext(userId, requestedOrganizationId = null) {
@@ -1062,7 +1132,7 @@ async function validateTeamMemberAccess(ownerUserId, memberUserId, organizationI
     member_user_id: membership.member_user_id,
     organization_id: membership.organization_id,
     role_title: membership.role_title,
-    permissions: membership.permissions,
+    permissions: sanitizeTeamMemberPermissions(membership.permissions),
     status: membership.status,
     member: membership.member
       ? {

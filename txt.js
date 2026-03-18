@@ -16,65 +16,46 @@
 // 4. In user sidbar in active organization section should show organization name and description instead "Owner workspace" text.
 
 
-// ISSUES
-// 1. when i click on edit button to edit organization it is redirecting to this page : https://localhost:5173/organizations/d25c54fd-8cca-44a7-a015-3e4af0302675
-// which says "page not found".
 
-// MODIFICATION
-// 1. you have added invite button in oragznization edit page in team member section its great but
-// i don't know how to invite user in this page so please just redirect to invite page. and remove all invite dialog code in order to make it clean and simple.
+// BUG:
+// 1. We register a new user account as user. and then admin recharge my wallet. i took monthly subscription.
+// the i chat with admin using support desk by raising a ticket. and i got a message from admin. then 
+// i created a new team member in my organization. and i invited him to my organization. and when team member logged in. he can see my support chat message with admin.
+// which is a biggest bug in my system. i can see my support chat message with admin. and other should not see it.
+// team member can see their own support chat message with admin. and i should not see it.
 
-// BUGS
-// 1. when i try to delete a team member from oragnization edit page it gives me error "Validation failed." but it deleted successfully.
-// 2. when i again invite same team member in same oragnization after deleting. it is invited successfully but when i open invite email url it show set password when i set password and submit. it says "user already exists" Whereas i have deleted that team member.
-// then i manually deleted team member account from database auth_user table and refresh url and again set password and submit. it works fine.
-// but when i again try to delete same team membar again it says "Organization not found"
-// below is the error : 
+// 2. When user try to delete his team member account. it gave below error but when i refresh the page team member is deleted and table is empty.
+
 // {
 //     "success": false,
-//     "message": "Organization not found",
-//     "stack": "AppError: Organization not found\n    at AppError.notFound (/app/shared/shared-utils/src/AppError.js:67:12)\n    at ensureOwnerOrganization (/app/services/organization-service/src/services/organization.service.js:116:20)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.removeTeamMember (/app/services/organization-service/src/services/organization.service.js:967:3)\n    at async removeTeamMember (/app/services/organization-service/src/controllers/organization.controller.js:205:3)"
+//     "message": "Validation failed",
+//     "stack": "AppError: Validation failed\n    at AppError.internal (/app/shared/shared-utils/src/AppError.js:87:12)\n    at syncTeamSeatUsage (/app/services/organization-service/src/services/organization.service.js:254:20)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.removeTeamMember (/app/services/organization-service/src/services/organization.service.js:993:3)\n    at async removeTeamMember (/app/services/organization-service/src/controllers/organization.controller.js:205:3)"
 // }
-// NOTE : i must be able to delete team member, re invite same team member and again delete same team member.
+
+// this was the API : 
+
+// Request URL : https://localhost:5173/api/v1/organizations/8e08090e-d176-4e39-9ef8-c6ceeb3c67cd/members/035bb699-7527-4143-83df-a7be3db20988
+// Request Method : DELETE
+// Status Code : 500 Internal Server Error
 
 
-// I delete docker images, containers, and volumes and then re run my docker with these commands
+// 3. after account is deleted by user when team member refresh the page on logged in account. it just loading and showing no content.
 
-// npm run stack:up:build
-
-// # Run all migrations
-// npm run migrate:all
-
-// # Optional: create Kafka topics explicitly
-// npm run kafka:setup
-
-// # Start the frontend separately
-// cd frontend && npm run dev
-
-// after all services are up and running, i try to register a new user and i got this response : 
+// 4. when user try to create again team member account. with same email id. it created but team member is not able to login. giving this error.
 
 // {
-//     "success": true,
-//     "message": "Registration successful. Please check your email to verify your account.",
-//     "data": {
-//         "user": {
-//             "id": "112d716f-bc3a-4059-9c28-10d953fbff99",
-//             "email": "sahebbca2020@gmail.com",
-//             "first_name": "Md",
-//             "last_name": "Saheb",
-//             "phone": null,
-//             "role": "user",
-//             "status": "pending_verification",
-//             "must_change_password": false,
-//             "created_at": "2026-03-18T07:24:49.956Z",
-//             "updated_at": "2026-03-18T07:24:49.956Z"
-//         }
-//     }
+//     "success": false,
+//     "message": "Invitation not found or already used.",
+//     "stack": "AppError: Invitation not found or already used.\n    at AppError.notFound (/app/shared/shared-utils/src/AppError.js:67:12)\n    at findInvitationByToken (/app/services/organization-service/src/services/organization.service.js:759:20)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.acceptInvitation (/app/services/organization-service/src/services/organization.service.js:771:22)\n    at async acceptInvitation (/app/services/organization-service/src/controllers/organization.controller.js:129:18)"
 // }
 
-// But when i check my email and i didn't receive any verification email. I checked my spam folder and i didn't find any email.
-// i always get this issue whenever i hard restart my project. please fix this email issue and implement a hardcore validation that untill email is not sent, it should not be able to register a new user.
-// and after getting registration successful resposne i should not redirect to login page. it should show send email again Ui. so i can send email again.
+// FIXES:
+// 1. user and team member should not able to see each other's support chat message.
+// 2. user can delete team member account without any single error. 
+// 4. After team member account deletion the team member should be logged out when he refresh the page.
+// 3. team member account must be deleted completely so new account can we created and logged in with same email id.
+// 4. team member account must not have access of team members module and organizations module. even user can't give access to these module while creating account.
 
-// Again i am facing the same issue. I didn't receive any email. I checked my spam folder and i didn't find any email. however i got "Registration successful. Please check your email to verify your account." response.
-// please do a deep review on this issue and fix it with production ready grade approach.
+// NOTE : FIX ALL BUGS AND CHECK THAT ALL FIXES ARE DONE
+
+

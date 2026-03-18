@@ -10,7 +10,6 @@ const {
   getPaginationMeta,
   generateUUID,
   hasPermission,
-  normalizeOrganizationPermissions,
   normalizeAdminPermissions,
 } = require('@nyife/shared-utils');
 const { TOPICS, publishEvent } = require('@nyife/shared-events');
@@ -459,53 +458,6 @@ async function resolveRealtimeActor(token) {
   };
 }
 
-async function getOrganizationSupportAudienceUserIds(organizationId) {
-  const rows = await sequelize.query(
-    `SELECT
-       owner.user_id AS member_user_id,
-       NULL AS permissions,
-       'owner' AS member_type
-     FROM org_organizations AS owner
-     INNER JOIN auth_users AS auth_user
-       ON auth_user.id = owner.user_id
-      AND auth_user.deleted_at IS NULL
-      AND auth_user.status = 'active'
-     WHERE owner.id = :organizationId
-       AND owner.deleted_at IS NULL
-       AND owner.status = 'active'
-     UNION ALL
-     SELECT
-       tm.member_user_id,
-       tm.permissions,
-       'team' AS member_type
-     FROM org_team_members AS tm
-     INNER JOIN auth_users AS auth_user
-       ON auth_user.id = tm.member_user_id
-      AND auth_user.deleted_at IS NULL
-      AND auth_user.status = 'active'
-     WHERE tm.organization_id = :organizationId
-       AND tm.deleted_at IS NULL
-       AND tm.status = 'active'`,
-    {
-      replacements: { organizationId },
-      type: QueryTypes.SELECT,
-    }
-  );
-
-  const audience = rows
-    .filter((row) => {
-      if (row.member_type === 'owner') {
-        return true;
-      }
-
-      const permissions = normalizeOrganizationPermissions(parseJsonField(row.permissions));
-      return hasPermission(permissions, 'support', 'read');
-    })
-    .map((row) => row.member_user_id);
-
-  return dedupeIds(audience);
-}
-
 async function getSuperAdminUserIds() {
   const rows = await sequelize.query(
     `SELECT id
@@ -520,17 +472,14 @@ async function getSuperAdminUserIds() {
 }
 
 async function getTicketAudience(ticket) {
-  const [userIds, superAdminIds] = await Promise.all([
-    getOrganizationSupportAudienceUserIds(ticket.organization_id),
-    getSuperAdminUserIds(),
-  ]);
+  const superAdminIds = await getSuperAdminUserIds();
 
   const adminIds = ticket.assigned_to
     ? dedupeIds([...superAdminIds, ticket.assigned_to])
     : dedupeIds(superAdminIds);
 
   return {
-    userIds,
+    userIds: dedupeIds([ticket.user_id]),
     adminIds,
   };
 }
@@ -641,6 +590,8 @@ async function getUnreadCountForViewer(viewer) {
   if (viewer.actor_type === USER_ACTOR_TYPE) {
     conditions.push('ticket.organization_id = :organizationId');
     replacements.organizationId = viewer.organization_id;
+    conditions.push('ticket.user_id = :viewerUserId');
+    replacements.viewerUserId = viewer.user_id;
   } else if (!viewer.is_super_admin) {
     conditions.push('ticket.assigned_to = :assignedTo');
     replacements.assignedTo = viewer.user_id;
@@ -671,8 +622,13 @@ async function getUnreadCountForViewer(viewer) {
 }
 
 function buildUserTicketListWhere(viewer, filters, replacements) {
-  const conditions = ['ticket.deleted_at IS NULL', 'ticket.organization_id = :organizationId'];
+  const conditions = [
+    'ticket.deleted_at IS NULL',
+    'ticket.organization_id = :organizationId',
+    'ticket.user_id = :viewerUserId',
+  ];
   replacements.organizationId = viewer.organization_id;
+  replacements.viewerUserId = viewer.user_id;
 
   if (filters.status) {
     conditions.push('ticket.status = :status');
@@ -800,7 +756,11 @@ function buildAdminTicketListWhere(viewer, filters, replacements) {
 
 async function assertUserTicketAccess(viewer, ticketId) {
   const ticket = await findTicketById(ticketId);
-  if (!ticket || ticket.organization_id !== viewer.organization_id) {
+  if (
+    !ticket
+    || ticket.organization_id !== viewer.organization_id
+    || ticket.user_id !== viewer.user_id
+  ) {
     throw AppError.notFound('Ticket not found');
   }
 

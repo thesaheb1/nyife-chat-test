@@ -21,7 +21,7 @@ import { organizationQueryKey } from '@/core/queryKeys';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { ApiResponse, OrganizationInvitation, PaginationMeta, Permissions, Subscription, TeamMember } from '@/core/types';
 import { usePermissions } from '@/core/hooks/usePermissions';
-import { ORGANIZATION_RESOURCE_DEFINITIONS } from '@/core/permissions/catalog';
+import { ORGANIZATION_ASSIGNABLE_RESOURCE_DEFINITIONS } from '@/core/permissions/catalog';
 import { createEmptyPermissions, normalizePermissions } from './permissions';
 
 type MemberFormState = {
@@ -608,7 +608,7 @@ export function TeamMembersPage() {
             <div className="space-y-2">
               <Label>Permissions</Label>
               <PermissionMatrix
-                definitions={ORGANIZATION_RESOURCE_DEFINITIONS}
+                definitions={ORGANIZATION_ASSIGNABLE_RESOURCE_DEFINITIONS}
                 value={memberForm.permissions}
                 onChange={(permissions) => setMemberForm((current) => ({ ...current, permissions }))}
               />
@@ -663,7 +663,7 @@ export function TeamMembersPage() {
             <div className="space-y-2">
               <Label>Permissions</Label>
               <PermissionMatrix
-                definitions={ORGANIZATION_RESOURCE_DEFINITIONS}
+                definitions={ORGANIZATION_ASSIGNABLE_RESOURCE_DEFINITIONS}
                 value={inviteForm.permissions}
                 onChange={(permissions) => setInviteForm((current) => ({ ...current, permissions }))}
               />
@@ -716,7 +716,7 @@ export function TeamMembersPage() {
             <div className="space-y-2">
               <Label>Permissions</Label>
               <PermissionMatrix
-                definitions={ORGANIZATION_RESOURCE_DEFINITIONS}
+                definitions={ORGANIZATION_ASSIGNABLE_RESOURCE_DEFINITIONS}
                 value={editPermissions}
                 onChange={setEditPermissions}
               />

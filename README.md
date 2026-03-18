@@ -1,266 +1,293 @@
-# Nyife — WhatsApp Marketing SaaS Platform
+# Nyife
 
-Multi-tenant WhatsApp Marketing SaaS platform built with Node.js microservices. Businesses can manage WhatsApp Business accounts, send campaigns, chat with customers, create automations, and manage teams — all through a subscription-based model.
+Nyife is a multi-tenant WhatsApp marketing SaaS platform built as a Node.js microservice system with a React frontend. It supports organizations, team access, campaigns, contacts, automations, support, billing, and a separate admin panel.
 
-## Tech Stack
+## Project Specification
 
-- **Runtime:** Node.js 20.x LTS
-- **Framework:** Express.js (17 microservices + API Gateway)
-- **Database:** MySQL 8.0 (Sequelize ORM with CLI migrations)
-- **Cache:** Redis 7.x (ioredis)
-- **Message Broker:** Apache Kafka
-- **Real-time:** Socket.IO with Redis adapter
-- **Auth:** JWT (access + refresh tokens) + CSRF protection
-- **Validation:** Zod on every route
-- **WhatsApp:** Meta Cloud API v20.0+ with Embedded Signup
-- **Payments:** Razorpay (subscriptions + wallet recharge)
-- **Frontend:** React 18, Vite, shadcn/ui, Tailwind CSS, Redux Toolkit, React Query
-- **Containers:** Docker + docker-compose + Nginx
+- Architecture: 17 backend microservices behind an API gateway, plus a Vite frontend
+- Runtime: Node.js 20+
+- Backend framework: Express.js
+- Frontend: React 18, Vite, Tailwind CSS, shadcn/ui
+- Database: MySQL 8 with Sequelize CLI migrations
+- Cache: Redis
+- Messaging: Kafka
+- Container runtime: Docker Compose
+- Auth model: JWT access/refresh tokens, email verification, CSRF protection
+- Tenancy model: organizations isolate user-panel data
+
+## Account Pattern
+
+Nyife uses `auth-service` as the identity source of truth. Every login account lives in `auth_users`.
+
+### User panel accounts
+
+- `user`: primary customer account
+- `team`: invited team member account inside an organization
+- `organization-service`: owns organizations, memberships, invitations, and active-organization state
+- `user-service`: owns user profile/settings and user-facing account data outside raw authentication
+
+### Admin panel accounts
+
+- `super_admin`: full admin access driven only by `auth_users.role = 'super_admin'`
+- `admin`: sub-admin login in `auth_users` plus an `admin_sub_admins` record in `admin-service`
+- `admin-service`: owns admin roles, admin settings, sub-admin assignments, and admin invitations
+
+### Service relation summary
+
+- `auth-service` decides who can log in
+- `organization-service` decides what a user or team member can access in the user panel
+- `admin-service` decides what a non-super-admin can access in the admin panel
+
+Because of that relationship, a seeded `super_admin` account is the safest way to guarantee admin login after a clean reset.
+
+## Services
+
+| Service | Port | Responsibility |
+| --- | --- | --- |
+| `api-gateway` | `3000` | API entrypoint, auth verification, routing, Swagger |
+| `auth-service` | `3001` | registration, login, refresh tokens, email verification, OAuth |
+| `user-service` | `3002` | user profile, settings, developer/account data |
+| `subscription-service` | `3003` | plans, subscriptions, limits, coupons |
+| `wallet-service` | `3004` | wallet, ledger, invoices, payments |
+| `contact-service` | `3005` | contacts, groups, tags, imports |
+| `template-service` | `3006` | WhatsApp templates |
+| `campaign-service` | `3007` | campaigns and delivery flow |
+| `chat-service` | `3008` | realtime chat |
+| `whatsapp-service` | `3009` | Meta/WhatsApp integration |
+| `automation-service` | `3010` | flows, webhooks, automations |
+| `organization-service` | `3011` | organizations, memberships, invitations |
+| `notification-service` | `3012` | notifications |
+| `email-service` | `3013` | transactional and system emails |
+| `support-service` | `3014` | support tickets |
+| `admin-service` | `3015` | admin RBAC, admin settings, sub-admin management |
+| `analytics-service` | `3016` | admin/user reporting |
+| `media-service` | `3017` | uploads and media storage |
+
+Local infrastructure services:
+
+- MySQL
+- Redis
+- Zookeeper
+- Kafka
 
 ## Prerequisites
 
-- Node.js 20.x or higher
+- Node.js 20 or newer
+- npm
 - Docker and Docker Compose
-- Git
 
-## Quick Start
+## Local Development Setup
 
-### 1. Clone and configure
+### 1. Install dependencies
 
 ```bash
-git clone <repo-url> nyife
-cd nyife
-cp .env.example .env
-# Edit .env with your values (DB credentials, JWT secrets, Razorpay keys, etc.)
 npm install
+cd frontend && npm install
+cd ..
 ```
 
-### 2. Start with Docker (production)
+### 2. Configure environment
 
 ```bash
-# Build and start all 18 services + infrastructure
-docker-compose up -d --build
-
-# Services are behind Nginx reverse proxy:
-# API:       http://localhost:3000/api/v1/...
-# Frontend:  http://localhost:3000/
-# WebSocket: http://localhost:3000/socket.io/
-# API Docs:  http://localhost:3000/api-docs
+cp .env.example .env
 ```
 
-### 3. Start for development
+Review `.env` before startup. Important values include:
+
+- `MYSQL_*`
+- `REDIS_*`
+- `KAFKA_BROKERS`
+- `JWT_SECRET`
+- `JWT_REFRESH_SECRET`
+- `EMAIL_SERVICE_URL`
+- `FRONTEND_URL`
+
+Optional admin seed overrides:
+
+- `ADMIN_SEED_EMAIL`
+- `ADMIN_SEED_PASSWORD`
+- `ADMIN_SEED_FIRST_NAME`
+- `ADMIN_SEED_LAST_NAME`
+- `ADMIN_SEED_PHONE`
+
+If these are not provided, the admin seed uses:
+
+- Email: `admin@nyife.com`
+- Password: `Admin123!@#`
+- Name: `Super Admin`
+
+### 3. Start the backend stack
 
 ```bash
-# Start the full backend dev stack with one command
-docker compose -f docker-compose.dev.yml up -d --build
-
-# Or use the root shortcut
 npm run stack:up:build
+```
 
-# Run all migrations
+This starts the development Docker stack from `docker-compose.dev.yml`.
+
+### 4. Run all migrations
+
+```bash
 npm run migrate:all
+```
 
-# Seed local test user and admin accounts
-# Requires AUTH_TEST_PASSWORD in .env
-(cd services/auth-service && npx sequelize-cli db:seed --seed src/seeders/20260309120000-seed-auth-manual-test-accounts.js)
-(cd services/admin-service && npx sequelize-cli db:seed --seed src/seeders/20240101000001-seed-admin-defaults.js)
+### 5. Seed admin defaults
 
+```bash
+npm run seed:admin:defaults
+```
 
-# Optional: create Kafka topics explicitly
+This seeds:
+
+- the system `Super Admin` role in `admin_roles`
+- default records in `admin_settings`
+
+The seed is safe to rerun and only inserts missing records.
+
+### 6. Seed the admin login account
+
+```bash
+npm run seed:admin
+```
+
+This creates or refreshes a `super_admin` login in `auth_users`.
+
+Behavior:
+
+- creates the account when it does not exist
+- updates the password/profile when the same seeded `super_admin` already exists
+- restores the account if it was soft-deleted
+- refuses to overwrite a normal `user`, `team`, or `admin` account with the same email
+
+### 7. Optional Kafka topic setup
+
+```bash
 npm run kafka:setup
+```
 
-# Start the frontend separately
+### 8. Start the frontend
+
+```bash
+cd frontend
+npm run dev
+```
+
+Default local URLs:
+
+- Frontend: `http://localhost:5173`
+- API Gateway: `http://localhost:3000`
+- Swagger UI: `http://localhost:3000/api-docs`
+
+## Fresh Reset Checklist
+
+If you deleted containers, images, or volumes and want a full local reset:
+
+
+```bash
+npm install
+npm run stack:up:build
+npm run migrate:all
+npm run seed:admin:defaults
+npm run seed:admin
+npm run kafka:setup
 cd frontend && npm run dev
 ```
 
+## Local Admin Login
 
+Default seeded admin credentials:
 
+- Email: `admin@nyife.com`
+- Password: `Admin123!@#`
 
-Stop any locally running services on ports `3000-3017`, `3307`, `6379`, `9092`, or `2181` before starting the Docker dev stack.
+If you set `ADMIN_SEED_*` values in `.env`, those values are used instead.
 
-Command reference: [docs/DEV_COMMANDS.md](/c:/Users/mdsah/OneDrive/Desktop/nyife/docs/DEV_COMMANDS.md)
+## Commands
 
-### Health Check
+### Stack control
+
+```bash
+npm run stack:up
+npm run stack:up:build
+npm run stack:stop
+npm run stack:down
+npm run stack:restart
+npm run stack:ps
+npm run stack:logs
+npm run stack:logs -- auth-service
+```
+
+### Migrations
+
+```bash
+npm run migrate:all
+npm run migrate -- auth-service
+npm run migrate:undo -- auth-service
+npm run migrate:status -- auth-service
+```
+
+### Seeds
+
+```bash
+npm run seed:admin:defaults
+npm run seed:admin
+```
+
+Service-local equivalents:
+
+```bash
+cd services/admin-service
+npx sequelize-cli db:seed:all
+
+cd ../auth-service
+npx sequelize-cli db:seed --seed src/seeders/20260318000000-seed-admin-account.js
+```
+
+## Health Checks
 
 ```bash
 curl http://localhost:3000/health
-# {"status":"ok","service":"api-gateway","timestamp":"...","uptime":...}
+curl http://localhost:3001/health
+curl http://localhost:3015/health
 ```
-
-## API Documentation
-
-Swagger UI is available at `/api-docs` on the API gateway:
-
-```
-http://localhost:3000/api-docs
-```
-
-Covers all major endpoints: auth, subscriptions, wallet, campaigns, automations, contacts, templates.
-
-### API Conventions
-
-- Base URL: `/api/v1/{service-prefix}/{resource}`
-- Auth: `Authorization: Bearer <accessToken>`
-- Standard response: `{ success, message, data, meta }`
-- Pagination: `?page=1&limit=20`
-- Soft deletes on all resources
 
 ## Project Structure
 
-```
+```text
 nyife/
-├── services/              # Backend microservices
-│   ├── api-gateway/       # Entry point — routing, rate limiting, auth, Swagger
-│   ├── auth-service/      # Authentication, JWT, OAuth, email verification
-│   ├── user-service/      # User profiles, settings, developer API tokens
-│   ├── subscription-service/  # Plans, subscriptions, usage limits, coupons
-│   ├── wallet-service/    # Wallet, transactions, invoices, Razorpay
-│   ├── contact-service/   # Contacts, groups, tags, CSV import
-│   ├── template-service/  # WhatsApp message templates (all types)
-│   ├── campaign-service/  # Campaign creation, execution, retry
-│   ├── chat-service/      # Real-time messaging, Socket.IO
-│   ├── whatsapp-service/  # Meta Cloud API, webhooks, embedded signup
-│   ├── automation-service/  # Auto-reply, advanced flows, webhook triggers
-│   ├── organization-service/  # Orgs, team members, user-level RBAC
-│   ├── notification-service/  # In-app, push, email notifications
-│   ├── email-service/     # Transactional + marketing emails via SMTP
-│   ├── support-service/   # Support tickets, query tracking
-│   ├── admin-service/     # Admin panel APIs, sub-admin RBAC
-│   ├── analytics-service/ # Aggregated metrics for user + admin dashboards
-│   └── media-service/     # File uploads, media management
-├── shared/                # Shared libraries
-│   ├── shared-config/     # DB, Redis, Kafka config + constants
-│   ├── shared-middleware/  # Auth, RBAC, error handler, tenant resolver
-│   ├── shared-utils/      # AppError, response formatter, pagination, encryption
-│   └── shared-events/     # Kafka topics, schemas, producer/consumer
-├── frontend/              # React SPA (Vite + shadcn/ui + Tailwind)
-├── docker/                # Nginx config
-│   └── nginx/nginx.conf   # Reverse proxy, rate limiting, security headers
-├── scripts/               # Migration runners, test scripts
-└── docs/                  # API docs, architecture decisions, WhatsApp reference
+├── frontend/
+├── services/
+│   ├── api-gateway/
+│   ├── admin-service/
+│   ├── analytics-service/
+│   ├── auth-service/
+│   ├── automation-service/
+│   ├── campaign-service/
+│   ├── chat-service/
+│   ├── contact-service/
+│   ├── email-service/
+│   ├── media-service/
+│   ├── notification-service/
+│   ├── organization-service/
+│   ├── subscription-service/
+│   ├── support-service/
+│   ├── template-service/
+│   ├── user-service/
+│   ├── wallet-service/
+│   └── whatsapp-service/
+├── shared/
+│   ├── shared-config/
+│   ├── shared-events/
+│   ├── shared-middleware/
+│   └── shared-utils/
+├── docker/
+├── scripts/
+├── docker-compose.dev.yml
+├── docker-compose.yml
+└── README.md
 ```
 
-## Service Port Map
+## Notes
 
-| Service | Port | Description |
-|---|---|---|
-| api-gateway | 3000 | Routing, rate limiting, auth verification, Swagger |
-| auth-service | 3001 | JWT auth, OAuth, email verification, password reset |
-| user-service | 3002 | User profiles, settings, developer API tokens |
-| subscription-service | 3003 | Plans, subscriptions, usage limits |
-| wallet-service | 3004 | Wallet, transactions, invoices, Razorpay |
-| contact-service | 3005 | Contacts, groups, tags, CSV import |
-| template-service | 3006 | WhatsApp message templates |
-| campaign-service | 3007 | Campaign creation, execution, retry |
-| chat-service | 3008 | Real-time messaging, Socket.IO |
-| whatsapp-service | 3009 | Meta Cloud API, webhooks |
-| automation-service | 3010 | Auto-reply, flows, webhook triggers |
-| organization-service | 3011 | Orgs, team members, RBAC |
-| notification-service | 3012 | In-app + push + email notifications |
-| email-service | 3013 | Transactional + marketing emails |
-| support-service | 3014 | Support tickets |
-| admin-service | 3015 | Admin panel APIs, sub-admin management |
-| analytics-service | 3016 | User + admin dashboard metrics |
-| media-service | 3017 | File uploads, media management |
-
-## Database
-
-All schema changes use Sequelize CLI migrations — **never `sequelize.sync()`**.
-
-```bash
-# Run all migrations
-npm run migrate:all
-
-# Run for a specific service
-npm run migrate -- {service-name}
-
-# Create a new migration
-cd services/{service-name} && npx sequelize-cli migration:generate --name {name}
-```
-
-Conventions:
-- Tables prefixed with service name: `auth_users`, `contact_contacts`, `tmpl_templates`
-- Every table has: `id` (UUID v4), `created_at`, `updated_at`, `deleted_at` (soft delete)
-- Multi-tenant: every user-facing table has `user_id`
-- Monetary values stored as integers (paise)
-
-### Seed test logins
-
-Add this to `.env` before running the auth seeder:
-
-```bash
-AUTH_TEST_PASSWORD=Test123!@#
-```
-
-Run the local testing seeds from the repo root:
-
-```bash
-(cd services/auth-service && npx sequelize-cli db:seed --seed src/seeders/20260309120000-seed-auth-manual-test-accounts.js)
-(cd services/admin-service && npx sequelize-cli db:seed --seed src/seeders/20240101000001-seed-admin-defaults.js)
-```
-
-Seeded logins:
-- `user.test@example.com` / `Test123!@#`
-- `admin.test@example.com` / `Test123!@#`
-
-## Testing
-
-```bash
-# Run all tests (5 priority services: auth, wallet, subscription, campaign, automation)
-bash scripts/test-all.sh
-
-# Run tests for a specific service
-cd services/{service-name} && npm test
-
-# Run with coverage
-cd services/{service-name} && npx jest --coverage
-```
-
-Test coverage includes:
-- **Unit tests:** Service layer business logic (45+ tests per service)
-- **Integration tests:** Full HTTP route testing with Supertest (12-17 tests per service)
-
-## Docker Production
-
-The production `docker-compose.yml` includes all 22 containers:
-- 18 microservices + frontend
-- MySQL, Redis, Zookeeper, Kafka
-- Nginx reverse proxy with gzip, rate limiting, security headers, WebSocket support
-
-```bash
-docker-compose up -d --build
-```
-
-Each service has a 256MB memory limit. Nginx handles SSL termination, static asset caching, and request routing.
-
-## Scripts
-
-```bash
-npm run stack:up            # Start backend stack
-npm run stack:up:build      # Build and start backend stack
-npm run stack:stop          # Stop all running stack containers
-npm run stack:down          # Remove stack containers
-npm run stack:restart       # Restart all stack containers
-npm run stack:ps            # List stack containers
-npm run service:start -- auth-service   # Start one service
-npm run service:restart -- auth-service # Restart one service
-npm run migrate:all         # Run all service migrations
-npm run kafka:setup         # Create Kafka topics
-bash scripts/test-all.sh    # Run all test suites
-```
-
-## Environment Variables
-
-See `.env.example` for the full list. Key variables:
-
-- `MYSQL_*` — Database connection
-- `REDIS_*` — Redis connection
-- `KAFKA_BROKERS` — Kafka broker addresses
-- `JWT_SECRET`, `JWT_REFRESH_SECRET` — Auth tokens
-- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` — Payment gateway
-- `META_*` — WhatsApp Cloud API credentials
-- `SMTP_*` — Email service configuration
-
-## License
-
-UNLICENSED
+- The seeded admin account is for development and recovery after a reset.
+- Do not use the default seed password in production.
+- For a fully usable admin panel after a fresh reset, run both `npm run seed:admin:defaults` and `npm run seed:admin`.

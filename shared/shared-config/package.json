@@ -3,9 +3,6 @@
   "version": "1.0.0",
   "description": "Shared configuration for Nyife microservices",
   "main": "src/index.js",
-  "scripts": {
-    "test": "jest"
-  },
   "dependencies": {
     "dotenv": "^16.3.1",
     "ioredis": "^5.3.2",

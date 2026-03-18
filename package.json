@@ -27,13 +27,14 @@
     "migrate:all": "node scripts/manage.js migrate all",
     "migrate:undo": "node scripts/manage.js migrate undo",
     "migrate:status": "node scripts/manage.js migrate status",
+    "seed:admin": "npm run seed:admin --workspace @nyife/auth-service",
+    "seed:admin:defaults": "npm run seed --workspace @nyife/admin-service",
     "kafka:setup": "node scripts/manage.js kafka setup",
     "docker:dev": "node scripts/manage.js stack up",
     "docker:dev:build": "node scripts/manage.js stack up --build",
     "docker:dev:down": "node scripts/manage.js stack down",
     "docker:prod": "docker compose up",
-    "docker:prod:build": "docker compose up --build",
-    "test": "bash scripts/test-all.sh"
+    "docker:prod:build": "docker compose up --build"
   },
   "engines": {
     "node": ">=20.0.0"

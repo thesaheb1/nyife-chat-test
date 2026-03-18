@@ -23,8 +23,8 @@ export const ORGANIZATION_RESOURCE_DEFINITIONS: ResourceDefinition[] = [
   { key: 'settings', label: 'Settings' },
   { key: 'billing', label: 'Billing' },
   { key: 'subscription', label: 'Subscription' },
-  { key: 'organizations', label: 'Organizations' },
-  { key: 'team_members', label: 'Team Members' },
+  { key: 'organizations', label: 'Organizations', assignable: false },
+  { key: 'team_members', label: 'Team Members', assignable: false },
   { key: 'whatsapp', label: 'WhatsApp' },
   { key: 'developer', label: 'Developer' },
 ];
@@ -43,6 +43,12 @@ export const ADMIN_RESOURCE_DEFINITIONS: ResourceDefinition[] = [
 ];
 
 export const ORGANIZATION_RESOURCE_KEYS = ORGANIZATION_RESOURCE_DEFINITIONS.map((resource) => resource.key);
+export const ORGANIZATION_ASSIGNABLE_RESOURCE_DEFINITIONS = ORGANIZATION_RESOURCE_DEFINITIONS.filter(
+  (resource) => resource.assignable !== false
+);
+export const ORGANIZATION_ASSIGNABLE_RESOURCE_KEYS = ORGANIZATION_ASSIGNABLE_RESOURCE_DEFINITIONS.map(
+  (resource) => resource.key
+);
 export const ADMIN_RESOURCE_KEYS = ADMIN_RESOURCE_DEFINITIONS.map((resource) => resource.key);
 export const ADMIN_ASSIGNABLE_RESOURCE_DEFINITIONS = ADMIN_RESOURCE_DEFINITIONS.filter(
   (resource) => resource.assignable !== false

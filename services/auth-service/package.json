@@ -10,7 +10,7 @@
     "migrate:undo": "npx sequelize-cli db:migrate:undo",
     "migrate:undo:all": "npx sequelize-cli db:migrate:undo:all",
     "seed": "npx sequelize-cli db:seed:all",
-    "test": "jest --passWithNoTests"
+    "seed:admin": "npx sequelize-cli db:seed --seed src/seeders/20260318000000-seed-admin-account.js"
   },
   "dependencies": {
     "@nyife/shared-config": "1.0.0",
@@ -37,10 +37,8 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
     "nodemon": "^3.0.2",
-    "sequelize-cli": "^6.6.5",
-    "supertest": "^6.3.3"
+    "sequelize-cli": "^6.6.5"
   },
   "license": "UNLICENSED"
 }

@@ -21,7 +21,7 @@ router.post('/invitations/accept', authenticateOptional, asyncHandler(controller
 router.use(authenticate);
 
 router.get('/me', asyncHandler(controller.getMyOrganizations));
-router.get('/', asyncHandler(controller.listOrganizations));
+router.get('/', organizationResolver, rbac('organizations', 'read'), asyncHandler(controller.listOrganizations));
 
 // ---------------------------------------------------------------------------
 // Organization CRUD

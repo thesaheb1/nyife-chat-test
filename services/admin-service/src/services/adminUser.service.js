@@ -12,7 +12,7 @@ const { AppError } = require('@nyife/shared-middleware');
 const {
   getPagination,
   getPaginationMeta,
-  slugify,
+  buildDefaultOrganizationSeed,
   generateInvitationToken,
   calculateInvitationExpiry,
   hasPermission,
@@ -89,20 +89,32 @@ async function findUserByEmail(email, attributes = 'id, email, role, status') {
   return user || null;
 }
 
-async function createDefaultOrganizationForUser(userId, transaction = null) {
+async function createDefaultOrganizationForUser(user, transaction = null) {
+  const userId = typeof user === 'string' ? user : user?.id;
+  const userFirstName = typeof user === 'string' ? null : user?.first_name;
+
+  if (!userId) {
+    throw new AppError('User not found', 404);
+  }
+
+  const organizationSeed = buildDefaultOrganizationSeed({
+    userId,
+    firstName: userFirstName || (await findUserById(userId, 'id, first_name'))?.first_name,
+  });
   const now = new Date();
   const organizationId = crypto.randomUUID();
   const walletId = crypto.randomUUID();
-  const slug = slugify(`default-${userId.slice(0, 8)}`);
 
   await sequelize.query(
     `INSERT INTO org_organizations (id, user_id, name, slug, description, status, logo_url, created_at, updated_at)
-     VALUES (:organizationId, :userId, 'default', :slug, 'default organization', 'active', NULL, :now, :now)`,
+     VALUES (:organizationId, :userId, :name, :slug, :description, 'active', NULL, :now, :now)`,
     {
       replacements: {
         organizationId,
         userId,
-        slug,
+        name: organizationSeed.name,
+        slug: organizationSeed.slug,
+        description: organizationSeed.description,
         now,
       },
       transaction,
@@ -719,7 +731,7 @@ async function createUser(data, appLocals = {}) {
       }
     );
 
-    await createDefaultOrganizationForUser(userId, transaction);
+    await createDefaultOrganizationForUser({ id: userId, first_name }, transaction);
   });
 
   await invalidateUserAuthState(userId, appLocals);
@@ -909,7 +921,7 @@ async function acceptUserInvitation(data) {
       }
     );
 
-    await createDefaultOrganizationForUser(userId, transaction);
+    await createDefaultOrganizationForUser({ id: userId, first_name: invitation.first_name }, transaction);
 
     await invitation.update(
       {

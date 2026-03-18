@@ -53,6 +53,29 @@ const calculateInvitationExpiry = (ttlDays = 7, now = new Date()) => {
 };
 
 /**
+ * Builds the default organization seed values for a newly-created user.
+ *
+ * @param {{ userId: string, firstName?: string | null }} params
+ * @returns {{ name: string, description: string, slug: string }}
+ */
+const buildDefaultOrganizationSeed = ({ userId, firstName }) => {
+  const normalizedFirstName = String(firstName || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)[0] || 'User';
+  const stableSuffix = String(userId || '').trim().slice(0, 8) || generateUUID().slice(0, 8);
+  const name = `${normalizedFirstName}'s Org`;
+  const description = `${normalizedFirstName}'s first organization`;
+  const slug = slugify(`${name}-${stableSuffix}`);
+
+  return {
+    name,
+    description,
+    slug,
+  };
+};
+
+/**
  * Converts a string into a URL-friendly slug.
  * - Converts to lowercase
  * - Trims whitespace
@@ -216,6 +239,7 @@ module.exports = {
   generateApiToken,
   generateInvitationToken,
   calculateInvitationExpiry,
+  buildDefaultOrganizationSeed,
   slugify,
   sanitizeHtml,
   formatCurrency,

@@ -3,7 +3,7 @@
 require('../setup');
 
 const authService = require('../../src/services/auth.service');
-const { User, RefreshToken } = require('../../src/models');
+const { User, RefreshToken, sequelize } = require('../../src/models');
 const mockUserInstance = User.__mockInstance;
 
 // ---------------------------------------------------------------------------
@@ -47,6 +47,7 @@ beforeEach(() => {
   RefreshToken.findOne.mockResolvedValue(null);
   RefreshToken.create.mockResolvedValue(true);
   RefreshToken.update.mockResolvedValue([1]);
+  sequelize.query.mockResolvedValue([[], null]);
 });
 
 // ===========================================================================
@@ -84,6 +85,23 @@ describe('authService.register', () => {
     expect(result.emailVerificationToken).toBeDefined();
     expect(typeof result.emailVerificationToken).toBe('string');
     expect(created.toSafeJSON).toHaveBeenCalled();
+  });
+
+  it('should seed the default organization from the user first name', async () => {
+    const created = freshUser({ id: 'user-uuid-1', email: 'new@example.com', first_name: 'New', last_name: 'User' });
+    User.create.mockResolvedValue(created);
+
+    await authService.register(registerData);
+
+    expect(sequelize.query).toHaveBeenCalled();
+    const [insertOrganizationSql, insertOrganizationOptions] = sequelize.query.mock.calls[0];
+    expect(insertOrganizationSql).toContain('INSERT INTO org_organizations');
+    expect(insertOrganizationOptions.replacements).toMatchObject({
+      userId: 'user-uuid-1',
+      name: "New's Org",
+      description: "New's first organization",
+      slug: 'seed-user-uui',
+    });
   });
 
   it('should throw AppError.conflict when email already exists', async () => {

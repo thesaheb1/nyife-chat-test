@@ -3,11 +3,14 @@
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { User, RefreshToken, sequelize } = require('../models');
-const { AppError, slugify } = require('@nyife/shared-utils');
+const { AppError, buildDefaultOrganizationSeed } = require('@nyife/shared-utils');
 const config = require('../config');
 
 async function createDefaultOrganizationForUser(user, transaction) {
-  const baseSlug = slugify(`default-${user.id.slice(0, 8)}`);
+  const organizationSeed = buildDefaultOrganizationSeed({
+    userId: user.id,
+    firstName: user.first_name,
+  });
   const now = new Date();
   const organizationId = crypto.randomUUID();
 
@@ -18,9 +21,9 @@ async function createDefaultOrganizationForUser(user, transaction) {
       replacements: {
         id: organizationId,
         userId: user.id,
-        name: 'default',
-        slug: baseSlug,
-        description: 'default organization',
+        name: organizationSeed.name,
+        slug: organizationSeed.slug,
+        description: organizationSeed.description,
         now,
       },
       transaction,

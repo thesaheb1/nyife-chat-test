@@ -11,8 +11,6 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -37,44 +35,23 @@ function useOrg(id: string | undefined, userId?: string | null) {
   return useQuery<Organization>({
     queryKey: sessionQueryKey(['organizations', id] as const, userId),
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<{ organization: Organization }>>(`${ENDPOINTS.ORGANIZATIONS.BASE}/${id}`);
-      return data.data.organization;
+      const { data } = await apiClient.get<ApiResponse<Organization>>(`${ENDPOINTS.ORGANIZATIONS.BASE}/${id}`);
+      return data.data;
     },
     enabled: Boolean(id && userId),
   });
 }
 
 function useMembers(orgId: string | undefined, page = 1, userId?: string | null) {
-  return useQuery<{ data: { members: TeamMember[] }; meta: PaginationMeta }>({
+  return useQuery<{ data: TeamMember[]; meta: PaginationMeta }>({
     queryKey: organizationQueryKey(['organizations', orgId, 'members', page] as const, userId, orgId),
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<{ members: TeamMember[] }>>(`${ENDPOINTS.ORGANIZATIONS.BASE}/${orgId}/members?page=${page}&limit=20`);
+      const { data } = await apiClient.get<ApiResponse<TeamMember[]>>(`${ENDPOINTS.ORGANIZATIONS.BASE}/${orgId}/members?page=${page}&limit=20`);
       return { data: data.data, meta: data.meta! };
     },
     enabled: Boolean(orgId && userId),
   });
 }
-
-const RESOURCES = [
-  'dashboard',
-  'contacts',
-  'templates',
-  'flows',
-  'campaigns',
-  'automations',
-  'chat',
-  'wallet',
-  'support',
-  'analytics',
-  'settings',
-  'billing',
-  'subscription',
-  'organizations',
-  'team_members',
-  'whatsapp',
-  'developer',
-] as const;
-const ACTIONS = ['create', 'read', 'update', 'delete'] as const;
 
 export function OrgDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -84,24 +61,10 @@ export function OrgDetailPage() {
   const { data: org, isLoading } = useOrg(id, userId);
   const [memberPage, setMemberPage] = useState(1);
   const { data: membersData, isLoading: membersLoading } = useMembers(id, memberPage, userId);
-  const [inviteOpen, setInviteOpen] = useState(false);
   const [removeId, setRemoveId] = useState<string | null>(null);
   const [orgName, setOrgName] = useState('');
   const [orgDescription, setOrgDescription] = useState('');
-  const [orgLogoUrl, setOrgLogoUrl] = useState('');
   const [savingOrg, setSavingOrg] = useState(false);
-
-  // Invite form state
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
-  const [roleTitle, setRoleTitle] = useState('');
-  const [perms, setPerms] = useState<Record<string, Record<string, boolean>>>(() => {
-    const p: Record<string, Record<string, boolean>> = {};
-    RESOURCES.forEach((r) => { p[r] = { create: false, read: true, update: false, delete: false }; });
-    return p;
-  });
-  const [inviting, setInviting] = useState(false);
 
   useEffect(() => {
     if (!org) {
@@ -110,33 +73,7 @@ export function OrgDetailPage() {
 
     setOrgName(org.name);
     setOrgDescription(org.description || '');
-    setOrgLogoUrl(org.logo_url || '');
   }, [org]);
-
-  const togglePerm = (resource: string, action: string) => {
-    setPerms((prev) => ({
-      ...prev,
-      [resource]: { ...prev[resource], [action]: !prev[resource][action] },
-    }));
-  };
-
-  const handleInvite = async () => {
-    if (!id) return;
-    setInviting(true);
-    try {
-      await apiClient.post(`${ENDPOINTS.ORGANIZATIONS.BASE}/${id}/members`, {
-        first_name: firstName, last_name: lastName, email, role_title: roleTitle,
-        permissions: { resources: perms },
-      });
-      toast.success('Team member invited');
-      setInviteOpen(false);
-      setFirstName(''); setLastName(''); setEmail(''); setRoleTitle('');
-      qc.invalidateQueries({ queryKey: ['organizations', id, 'members'] });
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to invite the team member.'));
-    }
-    setInviting(false);
-  };
 
   const handleOrganizationSave = async () => {
     if (!id) {
@@ -150,7 +87,6 @@ export function OrgDetailPage() {
         {
           name: orgName.trim(),
           description: orgDescription.trim() || undefined,
-          logo_url: orgLogoUrl.trim() || undefined,
         }
       );
 
@@ -198,8 +134,9 @@ export function OrgDetailPage() {
     setRemoveId(null);
   };
 
-  const members = membersData?.data?.members ?? [];
+  const members = membersData?.data ?? [];
   const memberMeta = membersData?.meta;
+  const canEditOrganization = org?.organization_role === 'owner';
 
   const memberColumns = useMemo<ColumnDef<TeamMember, unknown>[]>(() => [
     {
@@ -249,9 +186,9 @@ export function OrgDetailPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-[96px_1fr]">
             <div className="flex justify-center sm:justify-start">
-              {orgLogoUrl ? (
+              {org.logo_url ? (
                 <img
-                  src={orgLogoUrl}
+                  src={org.logo_url}
                   alt={orgName || org.name}
                   className="h-24 w-24 rounded-xl border object-cover"
                 />
@@ -264,7 +201,11 @@ export function OrgDetailPage() {
             <div className="grid gap-4">
               <div className="space-y-2">
                 <Label>Name</Label>
-                <Input value={orgName} onChange={(event) => setOrgName(event.target.value)} />
+                <Input
+                  value={orgName}
+                  onChange={(event) => setOrgName(event.target.value)}
+                  disabled={!canEditOrganization}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Description</Label>
@@ -273,27 +214,22 @@ export function OrgDetailPage() {
                   value={orgDescription}
                   onChange={(event) => setOrgDescription(event.target.value)}
                   placeholder="Describe this organization"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Logo URL</Label>
-                <Input
-                  value={orgLogoUrl}
-                  onChange={(event) => setOrgLogoUrl(event.target.value)}
-                  placeholder="https://example.com/logo.png"
+                  disabled={!canEditOrganization}
                 />
               </div>
             </div>
           </div>
-          <div className="flex justify-end">
-            <Button
-              onClick={handleOrganizationSave}
-              disabled={savingOrg || !orgName.trim()}
-            >
-              {savingOrg ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              Save Organization
-            </Button>
-          </div>
+          {canEditOrganization ? (
+            <div className="flex justify-end">
+              <Button
+                onClick={handleOrganizationSave}
+                disabled={savingOrg || !orgName.trim()}
+              >
+                {savingOrg ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                Save Organization
+              </Button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -305,7 +241,13 @@ export function OrgDetailPage() {
               <Button size="sm" variant="outline" onClick={() => navigate(`/org/${org.slug}/team`)}>
                 Manage Team
               </Button>
-              <Button size="sm" onClick={() => setInviteOpen(true)}><Plus className="mr-2 h-4 w-4" />Invite</Button>
+              <Button
+                size="sm"
+                onClick={() => navigate(`/org/${org.slug}/team?tab=invitations&invite=1`)}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Invite
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -313,47 +255,6 @@ export function OrgDetailPage() {
           <DataTable columns={memberColumns} data={members} isLoading={membersLoading} page={memberMeta?.page ?? 1} totalPages={memberMeta?.totalPages ?? 1} total={memberMeta?.total} onPageChange={setMemberPage} emptyMessage="No team members yet." />
         </CardContent>
       </Card>
-
-      {/* Invite Dialog */}
-      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Invite Team Member</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2"><Label>First Name *</Label><Input value={firstName} onChange={(e) => setFirstName(e.target.value)} /></div>
-              <div className="space-y-2"><Label>Last Name *</Label><Input value={lastName} onChange={(e) => setLastName(e.target.value)} /></div>
-            </div>
-            <div className="space-y-2"><Label>Email *</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-            <div className="space-y-2"><Label>Role Title *</Label><Input value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} placeholder="e.g., Chat Agent" /></div>
-            <div className="space-y-2">
-              <Label>Permissions</Label>
-              <div className="rounded border overflow-auto">
-                <table className="w-full text-xs">
-                  <thead><tr className="border-b bg-muted"><th className="p-2 text-left">Resource</th>{ACTIONS.map((a) => <th key={a} className="p-2 text-center capitalize">{a}</th>)}</tr></thead>
-                  <tbody>
-                    {RESOURCES.map((r) => (
-                      <tr key={r} className="border-b">
-                        <td className="p-2 capitalize">{r}</td>
-                        {ACTIONS.map((a) => (
-                          <td key={a} className="p-2 text-center">
-                            <Checkbox checked={perms[r]?.[a] ?? false} onCheckedChange={() => togglePerm(r, a)} />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
-            <Button onClick={handleInvite} disabled={inviting || !firstName || !lastName || !email || !roleTitle}>
-              {inviting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Invite
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Remove Confirm */}
       <AlertDialog open={!!removeId} onOpenChange={() => setRemoveId(null)}>

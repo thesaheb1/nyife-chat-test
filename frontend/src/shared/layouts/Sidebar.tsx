@@ -162,11 +162,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
   const settingsPath = activeOrganization
     ? buildOrganizationPath(activeOrganization.slug, '/settings')
     : '/settings';
-  const activeOrganizationRoleLabel = activeOrganization
-    ? activeOrganization.organization_role === 'owner'
-      ? 'Owner workspace'
-      : 'Team workspace'
-    : 'No organization selected';
+  const activeOrganizationDescription = activeOrganization?.description?.trim() || '';
 
   return (
     <aside
@@ -216,9 +212,11 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
                       <span className="block truncate text-sm font-medium">
                         {activeOrganization?.name || 'Organization'}
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {activeOrganizationRoleLabel}
-                      </span>
+                      {activeOrganizationDescription ? (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {activeOrganizationDescription}
+                        </span>
+                      ) : null}
                     </span>
                   ) : null}
                 </span>
@@ -250,8 +248,9 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
 
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium text-foreground">{organization.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {organization.organization_role === 'owner' ? 'Owner workspace' : 'Team workspace'}
+                    <p className="truncate text-xs text-muted-foreground line-clamp-1">
+                      {/* {organization.organization_role === 'owner' ? 'Owner workspace' : 'Team workspace'} */}
+                      {organization.description?.trim() || ''}
                     </p>
                   </div>
 

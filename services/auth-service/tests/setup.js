@@ -44,6 +44,10 @@ jest.mock('../src/models', () => {
       create: jest.fn().mockResolvedValue(true),
       update: jest.fn().mockResolvedValue([1]),
     },
+    sequelize: {
+      query: jest.fn().mockResolvedValue([[], null]),
+      transaction: jest.fn(async (callback) => callback({})),
+    },
   };
 });
 
@@ -67,6 +71,11 @@ jest.mock('@nyife/shared-utils', () => {
   return {
     AppError,
     generateUUID: jest.fn().mockReturnValue('generated-uuid'),
+    buildDefaultOrganizationSeed: jest.fn(({ userId, firstName }) => ({
+      name: `${firstName || 'User'}'s Org`,
+      description: `${firstName || 'User'}'s first organization`,
+      slug: `seed-${String(userId).slice(0, 8)}`,
+    })),
   };
 });
 

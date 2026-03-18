@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { Plus, Loader2 } from 'lucide-react';
@@ -8,7 +8,6 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { DataTable } from '@/shared/components/DataTable';
@@ -18,8 +17,12 @@ import { sessionQueryKey } from '@/core/queryKeys';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { RootState } from '@/core/store';
 import type { Organization, ApiResponse, PaginationMeta } from '@/core/types';
-import { syncStoredOrganizationRegistry } from './context';
-import { accessibleOrganizationsQueryKey } from './useOrganizationContext';
+import {
+  buildOrganizationNavigationTarget,
+  setStoredActiveOrganization,
+  syncStoredOrganizationRegistry,
+} from './context';
+import { accessibleOrganizationsQueryKey, useOrganizationContext } from './useOrganizationContext';
 
 function useOrganizations(page = 1, userId?: string | null) {
   return useQuery<{ data: Organization[]; meta: PaginationMeta }>({
@@ -35,7 +38,7 @@ function useOrganizations(page = 1, userId?: string | null) {
 function useCreateOrg(userId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { name: string; description?: string; logo_url?: string }) => {
+    mutationFn: async (body: { name: string; description?: string }) => {
       const { data } = await apiClient.post<ApiResponse<Organization>>(ENDPOINTS.ORGANIZATIONS.BASE, body);
       return data.data;
     },
@@ -47,15 +50,16 @@ function useCreateOrg(userId?: string | null) {
 }
 
 export function OrganizationsPage() {
+  const location = useLocation();
   const navigate = useNavigate();
   const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const { activeOrganization } = useOrganizationContext();
   const [page, setPage] = useState(1);
   const { data, isLoading } = useOrganizations(page, userId);
   const createOrg = useCreateOrg(userId);
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [logoUrl, setLogoUrl] = useState('');
 
   const orgs = data?.data ?? [];
   const meta = data?.meta;
@@ -72,23 +76,33 @@ export function OrganizationsPage() {
       const created = await createOrg.mutateAsync({
         name: name.trim(),
         description: description.trim() || undefined,
-        logo_url: logoUrl.trim() || undefined,
       });
       toast.success('Organization created');
       setCreateOpen(false);
       setName('');
       setDescription('');
-      setLogoUrl('');
       navigate(`/organizations/${created.id}`);
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to create organization.'));
     }
   };
 
+  const handleSwitchOrganization = (organization: Organization) => {
+    setStoredActiveOrganization(userId, organization);
+    navigate(
+      buildOrganizationNavigationTarget(
+        organization.slug,
+        location.pathname,
+        location.search,
+        location.hash
+      )
+    );
+  };
+
   const columns = useMemo<ColumnDef<Organization, unknown>[]>(() => [
     {
       accessorKey: 'name',
-      header: 'Organization',
+      header: 'Name',
       cell: ({ row }) => (
         <div className="flex items-center gap-3">
           {row.original.logo_url ? (
@@ -103,17 +117,64 @@ export function OrganizationsPage() {
             </div>
           )}
           <div className="min-w-0">
-            <button className="truncate font-medium hover:underline" onClick={() => navigate(`/organizations/${row.original.id}`)}>
+            <button
+              className="truncate font-medium hover:underline"
+              onClick={() => navigate(`/organizations/${row.original.id}`)}
+            >
               {row.original.name}
             </button>
-            <p className="truncate text-xs text-muted-foreground">{row.original.slug}</p>
           </div>
         </div>
       ),
     },
-    { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge variant="secondary" className="text-xs capitalize">{getValue() as string}</Badge> },
-    { accessorKey: 'created_at', header: 'Created', cell: ({ getValue }) => new Date(getValue() as string).toLocaleDateString() },
-  ], [navigate]);
+    {
+      accessorKey: 'description',
+      header: 'Description',
+      cell: ({ row }) => row.original.description?.trim() || '\u2014',
+    },
+    {
+      accessorKey: 'created_at',
+      header: 'Created At',
+      cell: ({ row }) => new Date(row.original.created_at).toLocaleDateString(),
+    },
+    {
+      accessorKey: 'updated_at',
+      header: 'Updated At',
+      cell: ({ row }) => new Date(row.original.updated_at).toLocaleDateString(),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => {
+        const organization = row.original;
+        const canEditOrganization = organization.organization_role === 'owner';
+        const isActiveOrganization = activeOrganization?.id === organization.id;
+
+        return (
+          <div className="flex items-center gap-2">
+            {canEditOrganization ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => navigate(`/organizations/${organization.id}`)}
+              >
+                Edit
+              </Button>
+            ) : null}
+            <Button
+              variant={isActiveOrganization ? 'secondary' : 'outline'}
+              size="sm"
+              className="h-8"
+              onClick={() => handleSwitchOrganization(organization)}
+            >
+              Switch
+            </Button>
+          </div>
+        );
+      },
+    },
+  ], [activeOrganization?.id, location.hash, location.pathname, location.search, navigate, userId]);
 
   return (
     <div className="space-y-4">
@@ -130,7 +191,6 @@ export function OrganizationsPage() {
           <div className="space-y-4">
             <div className="space-y-2"><Label>Name *</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Organization" /></div>
             <div className="space-y-2"><Label>Description</Label><Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" rows={2} /></div>
-            <div className="space-y-2"><Label>Logo URL</Label><Input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://example.com/logo.png" /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>

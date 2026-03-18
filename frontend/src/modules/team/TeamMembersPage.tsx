@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
@@ -98,6 +99,7 @@ function useCurrentSubscription(orgId: string | undefined, userId?: string | nul
 
 export function TeamMembersPage() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { activeOrganization, canOrganization, user } = usePermissions();
   const organizationId = activeOrganization?.id;
   const userId = user?.id;
@@ -116,6 +118,8 @@ export function TeamMembersPage() {
   const [editRoleTitle, setEditRoleTitle] = useState('');
   const [editStatus, setEditStatus] = useState<'active' | 'inactive' | 'invited'>('active');
   const [editPermissions, setEditPermissions] = useState<Permissions>(createEmptyPermissions());
+  const activeTab = searchParams.get('tab') === 'invitations' ? 'invitations' : 'members';
+  const inviteRequested = searchParams.get('invite') === '1';
 
   const membersQuery = useTeamMembers(organizationId, memberPage, userId, canRead);
   const invitationsQuery = useInvitations(organizationId, invitePage, userId, canRead);
@@ -131,6 +135,42 @@ export function TeamMembersPage() {
   const seatsUsed = subscription?.usage?.team_members_used ?? activeMemberCount + pendingInvitationCount;
   const maxSeats = subscription?.plan?.max_team_members ?? 0;
   const availableSeats = maxSeats === 0 ? null : Math.max(0, maxSeats - seatsUsed);
+
+  useEffect(() => {
+    if (inviteRequested && canCreate) {
+      setInviteOpen(true);
+    }
+  }, [canCreate, inviteRequested]);
+
+  const updateTeamView = (tab: 'members' | 'invitations', invite = false) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+
+      if (tab === 'members') {
+        next.delete('tab');
+      } else {
+        next.set('tab', tab);
+      }
+
+      if (invite) {
+        next.set('invite', '1');
+      } else {
+        next.delete('invite');
+      }
+
+      return next;
+    }, { replace: true });
+  };
+
+  const openInviteDialog = () => {
+    setInviteOpen(true);
+    updateTeamView('invitations', true);
+  };
+
+  const closeInviteDialog = () => {
+    setInviteOpen(false);
+    updateTeamView('invitations');
+  };
 
   const refreshQueries = async () => {
     await Promise.all([
@@ -225,7 +265,7 @@ export function TeamMembersPage() {
     try {
       await inviteMutation.mutateAsync(inviteForm);
       toast.success('Invitation sent successfully.');
-      setInviteOpen(false);
+      closeInviteDialog();
       setInviteForm(EMPTY_INVITE_FORM());
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Unable to send the invitation.'));
@@ -431,7 +471,7 @@ export function TeamMembersPage() {
         </div>
         {canCreate ? (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setInviteOpen(true)}>
+            <Button variant="outline" onClick={openInviteDialog}>
               <Mail className="mr-2 h-4 w-4" />
               Invite by Email
             </Button>
@@ -475,7 +515,11 @@ export function TeamMembersPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="members" className="space-y-4">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => updateTeamView(value === 'invitations' ? 'invitations' : 'members')}
+        className="space-y-4"
+      >
         <TabsList>
           <TabsTrigger value="members">
             <Users className="mr-2 h-4 w-4" />
@@ -590,7 +634,7 @@ export function TeamMembersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+      <Dialog open={inviteOpen} onOpenChange={(open) => (open ? openInviteDialog() : closeInviteDialog())}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Invite Team Member</DialogTitle>
@@ -626,7 +670,7 @@ export function TeamMembersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={closeInviteDialog}>Cancel</Button>
             <Button
               disabled={
                 inviteMutation.isPending ||

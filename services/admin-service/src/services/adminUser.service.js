@@ -859,7 +859,7 @@ async function deleteUserInvitation(invitationId) {
     throw new AppError('Invitation not found', 404);
   }
 
-  await invitation.destroy();
+  await invitation.destroy({ force: true });
 }
 
 async function validateUserInvitation(token) {

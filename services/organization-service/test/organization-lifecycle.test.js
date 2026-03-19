@@ -141,7 +141,8 @@ describe('organization-service lifecycle', () => {
     assert.ok(queries.some((sql) => sql.includes('UPDATE auth_refresh_tokens')));
   });
 
-  it('reopens revoked org invitations and soft-deletes them separately from revoke', async () => {
+  it('reopens revoked org invitations and hard-deletes them separately from revoke', async () => {
+    let deleteOptions = null;
     const invitation = {
       id: 'invite-1',
       organization_id: 'org-1',
@@ -150,7 +151,8 @@ describe('organization-service lifecycle', () => {
         Object.assign(this, payload);
         return this;
       },
-      async destroy() {
+      async destroy(options) {
+        deleteOptions = options;
         this.deleted = true;
       },
     };
@@ -186,6 +188,7 @@ describe('organization-service lifecycle', () => {
 
     await organizationService.deleteInvitation('owner-1', 'org-1', 'invite-1');
     assert.equal(invitation.deleted, true);
+    assert.deepEqual(deleteOptions, { force: true });
   });
 
   it('rejects revoking accepted org invitations', async () => {
@@ -200,5 +203,64 @@ describe('organization-service lifecycle', () => {
       organizationService.revokeInvitation('owner-1', 'org-1', 'invite-accepted'),
       /Accepted invitations cannot be revoked/
     );
+  });
+
+  it('hard-deletes team-member membership rows when a member is removed', async () => {
+    let deleteOptions = null;
+    const teamMember = {
+      id: 'member-1',
+      organization_id: 'org-1',
+      member_user_id: 'team-user-1',
+      async destroy(options) {
+        deleteOptions = options;
+      },
+    };
+
+    mock.method(Organization, 'findOne', async () => ({ id: 'org-1', user_id: 'owner-1' }));
+    mock.method(TeamMember, 'findOne', async () => teamMember);
+    mock.method(User, 'findByPk', async () => ({
+      id: 'team-user-1',
+      role: 'team',
+    }));
+    mock.method(TeamMember, 'count', async ({ where }) => {
+      if (where.member_user_id === 'team-user-1' && !Object.prototype.hasOwnProperty.call(where, 'status')) {
+        return 0;
+      }
+      if (where.organization_id === 'org-1' && where.status === 'active') {
+        return 0;
+      }
+      throw new Error(`Unexpected TeamMember.count call: ${JSON.stringify(where)}`);
+    });
+    mock.method(Organization, 'count', async () => 0);
+    mock.method(User, 'destroy', async () => 1);
+    mock.method(Invitation, 'count', async () => 0);
+    mock.method(sequelize, 'transaction', async (callback) => callback({ id: 'tx-1' }));
+    mock.method(sequelize, 'query', async (sql) => {
+      if (sql.includes('UPDATE chat_conversations')) {
+        return [];
+      }
+      throw new Error(`Unexpected sequelize.query SQL: ${sql}`);
+    });
+    mock.method(global, 'fetch', async (url) => ({
+      ok: true,
+      async json() {
+        if (String(url).includes('/subscriptions/internal/active/')) {
+          return {
+            data: {
+              subscription: {
+                plan: { max_team_members: 5 },
+                usage: { team_members_used: 0 },
+              },
+            },
+          };
+        }
+
+        return {};
+      },
+    }));
+
+    await organizationService.removeTeamMember('owner-1', 'org-1', 'member-1');
+
+    assert.equal(deleteOptions?.force, true);
   });
 });

@@ -869,7 +869,7 @@ async function deleteInvitation(userId, orgId, invitationId) {
     throw AppError.notFound('Invitation not found');
   }
 
-  await invitation.destroy();
+  await invitation.destroy({ force: true });
   await syncTeamSeatUsage(orgId);
 }
 
@@ -1129,7 +1129,7 @@ async function removeTeamMember(userId, orgId, memberId) {
 
   await sequelize.transaction(async (transaction) => {
     await clearAssignedConversationsForMember(orgId, teamMember.member_user_id, transaction);
-    await teamMember.destroy({ transaction });
+    await teamMember.destroy({ transaction, force: true });
 
     const memberUser = await User.findByPk(teamMember.member_user_id, {
       paranoid: false,

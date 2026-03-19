@@ -619,7 +619,9 @@ export function SubAdminListPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove Sub-Admin</AlertDialogTitle>
-            <AlertDialogDescription>This will revoke their admin access.</AlertDialogDescription>
+            <AlertDialogDescription>
+              This permanently deletes the sub-admin record and revokes their admin access.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -637,7 +639,7 @@ export function SubAdminListPage() {
             <AlertDialogDescription>
               {invitationAction?.mode === 'revoke'
                 ? 'This invitation will no longer be usable until it is resent again.'
-                : 'This removes the invitation row from the table while keeping a soft-deleted audit record.'}
+                : 'This permanently deletes the invitation from the database.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

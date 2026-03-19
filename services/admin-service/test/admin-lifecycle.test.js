@@ -208,7 +208,8 @@ describe('admin-service lifecycle', () => {
     assert.ok(queries.some((entry) => entry.sql.includes('UPDATE support_tickets')));
   });
 
-  it('reopens revoked sub-admin invitations and soft-deletes invitation rows separately', async () => {
+  it('reopens revoked sub-admin invitations and hard-deletes invitation rows separately', async () => {
+    let deleteOptions = null;
     const invitation = {
       id: 'invite-1',
       email: 'subadmin@example.com',
@@ -219,7 +220,8 @@ describe('admin-service lifecycle', () => {
         Object.assign(this, payload);
         return this;
       },
-      async destroy() {
+      async destroy(options) {
+        deleteOptions = options;
         this.deleted = true;
       },
     };
@@ -237,9 +239,11 @@ describe('admin-service lifecycle', () => {
 
     await adminService.deleteSubAdminInvitation('invite-1');
     assert.equal(invitation.deleted, true);
+    assert.deepEqual(deleteOptions, { force: true });
   });
 
   it('reopens revoked admin-user invitations and keeps revoke/delete distinct', async () => {
+    let deleteOptions = null;
     const invitation = {
       id: 'invite-user-1',
       email: 'user@example.com',
@@ -248,7 +252,8 @@ describe('admin-service lifecycle', () => {
         Object.assign(this, payload);
         return this;
       },
-      async destroy() {
+      async destroy(options) {
+        deleteOptions = options;
         this.deleted = true;
       },
       toJSON() {
@@ -273,5 +278,57 @@ describe('admin-service lifecycle', () => {
 
     await adminUserService.deleteUserInvitation('invite-user-1');
     assert.equal(invitation.deleted, true);
+    assert.deepEqual(deleteOptions, { force: true });
+  });
+
+  it('hard-deletes sub-admin rows when an account is removed', async () => {
+    let deleteOptions = null;
+    const inviteDestroyCalls = [];
+    const subAdmin = {
+      id: 'sub-admin-1',
+      user_id: 'auth-user-1',
+      async destroy(options) {
+        deleteOptions = options;
+      },
+    };
+
+    mock.method(SubAdmin, 'findByPk', async () => subAdmin);
+    mock.method(AdminInvitation, 'destroy', async (options) => {
+      inviteDestroyCalls.push(options);
+      return 1;
+    });
+    mock.method(sequelize, 'transaction', async () => ({
+      commit: async () => undefined,
+      rollback: async () => undefined,
+    }));
+    mock.method(sequelize, 'query', async (sql, options = {}) => {
+      if (sql.includes('SELECT id, email, role, status, first_name, last_name, phone')) {
+        return [{
+          id: 'auth-user-1',
+          email: 'subadmin@example.com',
+          role: 'admin',
+          status: 'active',
+          first_name: 'Sub',
+          last_name: 'Admin',
+          phone: null,
+        }];
+      }
+
+      if (sql.includes('UPDATE support_tickets')) {
+        return [];
+      }
+
+      if (sql.includes('DELETE FROM auth_users')) {
+        assert.equal(options.replacements.userId, 'auth-user-1');
+        return [];
+      }
+
+      throw new Error(`Unexpected sequelize.query SQL: ${sql}`);
+    });
+
+    await adminService.deleteSubAdmin('sub-admin-1');
+
+    assert.equal(deleteOptions?.force, true);
+    assert.ok(inviteDestroyCalls.every((call) => call.force === true));
   });
 });

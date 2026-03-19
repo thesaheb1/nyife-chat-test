@@ -583,7 +583,7 @@ export function UserListPage() {
             <AlertDialogDescription>
               {invitationAction?.mode === 'revoke'
                 ? 'The invite link will stop working immediately. You can resend it later to reopen the same invitation.'
-                : 'This removes the invitation row from the table while keeping a soft-deleted audit record in the database.'}
+                : 'This permanently deletes the invitation from the database.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

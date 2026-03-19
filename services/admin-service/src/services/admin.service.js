@@ -296,6 +296,7 @@ async function removeSubAdminInvitationNoiseByEmail(email, transaction = null) {
         [Op.ne]: 'accepted',
       },
     },
+    force: true,
     transaction,
   });
 }
@@ -817,7 +818,7 @@ async function deleteSubAdminInvitation(invitationId) {
     throw new AppError('Invitation not found', 404);
   }
 
-  await invitation.destroy();
+  await invitation.destroy({ force: true });
 }
 
 async function findPendingSubAdminInvitationByToken(token) {
@@ -1077,7 +1078,7 @@ async function updateSubAdmin(id, data) {
 }
 
 /**
- * Soft-deletes a sub-admin and deactivates the auth_users record.
+ * Permanently deletes a sub-admin and removes the auth_users record.
  *
  * @param {string} id - SubAdmin ID
  */
@@ -1096,8 +1097,7 @@ async function deleteSubAdmin(id) {
   const transaction = await sequelize.transaction();
 
   try {
-    // Soft-delete the sub-admin record
-    await subAdmin.destroy({ transaction });
+    await subAdmin.destroy({ transaction, force: true });
 
     await clearAssignedSupportTicketsForAdmin(subAdmin.user_id, transaction);
 

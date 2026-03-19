@@ -152,7 +152,7 @@ async function updateSubAdmin(req, res) {
 
 /**
  * DELETE /sub-admins/:id
- * Soft-deletes a sub-admin.
+ * Permanently deletes a sub-admin.
  */
 async function deleteSubAdmin(req, res) {
   const { id } = idParamSchema.parse(req.params);

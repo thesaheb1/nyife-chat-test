@@ -202,7 +202,7 @@ async function updateTeamMember(req, res) {
 
 /**
  * DELETE /api/v1/organizations/:id/members/:memberId
- * Removes a team member from an organization (soft-delete).
+ * Permanently removes a team member from an organization.
  */
 async function removeTeamMember(req, res) {
   const { id } = orgIdParamSchema.parse(req.params);

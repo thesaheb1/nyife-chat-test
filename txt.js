@@ -52,3 +52,10 @@
 // IMPROVEMENTS:
 // 1. in entire frontend codebases the password field must have password visibility toggle button so user can see password and hide password easily and implemented with production grade security.
 // 2. register page or any other page where we are setting password must have password strength meter so user can see password strength easily match with our frontend and backend password validation.
+
+
+// BUGS : 
+// 1. as a admin i invited a user for account creation and the user accepted the invitation and loggedIn. then admin deleted the user account. but the user is still loggedIn and can access the account. also db auth_users table still has that row and only deleted_at field is updated.
+
+// FIXES :
+// 1. when admin delete user account then user must be hard deleted not just updated deleted_at and should not be able to login with that account.

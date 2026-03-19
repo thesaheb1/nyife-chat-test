@@ -806,7 +806,7 @@ export function TeamMembersPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove team member?</AlertDialogTitle>
             <AlertDialogDescription>
-              This member will lose access to the organization and any assigned conversations will be unassigned.
+              This permanently removes the membership record, revokes organization access, and unassigns any conversations.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -827,7 +827,7 @@ export function TeamMembersPage() {
             <AlertDialogDescription>
               {invitationAction?.mode === 'revoke'
                 ? 'This invitation will stop working immediately and you can resend it later to reopen it.'
-                : 'This removes the invitation row from the table while keeping a soft-deleted audit record.'}
+                : 'This permanently deletes the invitation from the database.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -91,12 +91,20 @@ router.post(
   asyncHandler(controller.resendInvitation)
 );
 
-router.delete(
-  '/:id/invitations/:invitationId',
+router.post(
+  '/:id/invitations/:invitationId/revoke',
   organizationParamResolver('id'),
   rbac('team_members', 'delete'),
   requireActiveSubscription('revoke team invitations'),
   asyncHandler(controller.revokeInvitation)
+);
+
+router.delete(
+  '/:id/invitations/:invitationId',
+  organizationParamResolver('id'),
+  rbac('team_members', 'delete'),
+  requireActiveSubscription('delete team invitations'),
+  asyncHandler(controller.deleteInvitation)
 );
 
 // PUT /api/v1/organizations/:id/members/:memberId — Update a team member

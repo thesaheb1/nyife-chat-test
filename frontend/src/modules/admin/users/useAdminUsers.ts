@@ -203,6 +203,23 @@ export function useRevokeAdminUserInvitation() {
 
   return useMutation({
     mutationFn: async (invitationId: string) => {
+      const { data } = await apiClient.post<ApiResponse<AdminUserInvitation>>(
+        ADMIN_ENDPOINTS.USERS.INVITATIONS.REVOKE(invitationId)
+      );
+
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user-invitations'] });
+    },
+  });
+}
+
+export function useDeleteAdminUserInvitation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (invitationId: string) => {
       const { data } = await apiClient.delete<ApiResponse<AdminUserInvitation>>(
         ADMIN_ENDPOINTS.USERS.INVITATIONS.DETAIL(invitationId)
       );

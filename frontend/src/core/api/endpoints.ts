@@ -72,6 +72,8 @@ export const ENDPOINTS = {
     RESEND_INVITATION: (id: string, invitationId: string) =>
       `/api/v1/organizations/${id}/invitations/${invitationId}/resend`,
     REVOKE_INVITATION: (id: string, invitationId: string) =>
+      `/api/v1/organizations/${id}/invitations/${invitationId}/revoke`,
+    DELETE_INVITATION: (id: string, invitationId: string) =>
       `/api/v1/organizations/${id}/invitations/${invitationId}`,
   },
   SUBSCRIPTIONS: {

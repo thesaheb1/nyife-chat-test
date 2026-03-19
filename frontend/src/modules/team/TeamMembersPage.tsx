@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -107,19 +107,21 @@ export function TeamMembersPage() {
   const canCreate = canOrganization('team_members', 'create');
   const canUpdate = canOrganization('team_members', 'update');
   const canDelete = canOrganization('team_members', 'delete');
+  const activeTab = searchParams.get('tab') === 'invitations' ? 'invitations' : 'members';
+  const inviteRequested = searchParams.get('invite') === '1';
   const [memberPage, setMemberPage] = useState(1);
   const [invitePage, setInvitePage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(() => inviteRequested && canCreate);
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
-  const [removeTarget, setRemoveTarget] = useState<{ id: string; type: 'member' | 'invitation' } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<{ id: string; type: 'member' } | null>(null);
+  const [invitationAction, setInvitationAction] = useState<{ id: string; mode: 'revoke' | 'delete' } | null>(null);
   const [memberForm, setMemberForm] = useState<MemberFormState>(EMPTY_MEMBER_FORM);
   const [inviteForm, setInviteForm] = useState<InviteFormState>(EMPTY_INVITE_FORM);
   const [editRoleTitle, setEditRoleTitle] = useState('');
-  const [editStatus, setEditStatus] = useState<'active' | 'inactive' | 'invited'>('active');
+  const [editStatus, setEditStatus] = useState<'active' | 'inactive'>('active');
   const [editPermissions, setEditPermissions] = useState<Permissions>(createEmptyPermissions());
-  const activeTab = searchParams.get('tab') === 'invitations' ? 'invitations' : 'members';
-  const inviteRequested = searchParams.get('invite') === '1';
+  const inviteOpen = inviteDialogOpen || (inviteRequested && canCreate);
 
   const membersQuery = useTeamMembers(organizationId, memberPage, userId, canRead);
   const invitationsQuery = useInvitations(organizationId, invitePage, userId, canRead);
@@ -135,12 +137,6 @@ export function TeamMembersPage() {
   const seatsUsed = subscription?.usage?.team_members_used ?? activeMemberCount + pendingInvitationCount;
   const maxSeats = subscription?.plan?.max_team_members ?? 0;
   const availableSeats = maxSeats === 0 ? null : Math.max(0, maxSeats - seatsUsed);
-
-  useEffect(() => {
-    if (inviteRequested && canCreate) {
-      setInviteOpen(true);
-    }
-  }, [canCreate, inviteRequested]);
 
   const updateTeamView = (tab: 'members' | 'invitations', invite = false) => {
     setSearchParams((current) => {
@@ -163,12 +159,12 @@ export function TeamMembersPage() {
   };
 
   const openInviteDialog = () => {
-    setInviteOpen(true);
+    setInviteDialogOpen(true);
     updateTeamView('invitations', true);
   };
 
   const closeInviteDialog = () => {
-    setInviteOpen(false);
+    setInviteDialogOpen(false);
     updateTeamView('invitations');
   };
 
@@ -231,10 +227,20 @@ export function TeamMembersPage() {
       await refreshQueries();
     },
   });
+  const isResendingInvitation = resendMutation.isPending;
 
   const revokeMutation = useMutation({
     mutationFn: async (invitationId: string) => {
-      await apiClient.delete(ENDPOINTS.ORGANIZATIONS.REVOKE_INVITATION(organizationId!, invitationId));
+      await apiClient.post(ENDPOINTS.ORGANIZATIONS.REVOKE_INVITATION(organizationId!, invitationId));
+    },
+    onSuccess: async () => {
+      await refreshQueries();
+    },
+  });
+
+  const deleteInvitationMutation = useMutation({
+    mutationFn: async (invitationId: string) => {
+      await apiClient.delete(ENDPOINTS.ORGANIZATIONS.DELETE_INVITATION(organizationId!, invitationId));
     },
     onSuccess: async () => {
       await refreshQueries();
@@ -297,18 +303,62 @@ export function TeamMembersPage() {
     }
 
     try {
-      if (removeTarget.type === 'member') {
-        await removeMemberMutation.mutateAsync(removeTarget.id);
-        toast.success('Team member removed successfully.');
-      } else {
-        await revokeMutation.mutateAsync(removeTarget.id);
-        toast.success('Invitation revoked successfully.');
-      }
+      await removeMemberMutation.mutateAsync(removeTarget.id);
+      toast.success('Team member removed successfully.');
       setRemoveTarget(null);
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Unable to complete this action.'));
     }
   };
+
+  const handleInvitationAction = async () => {
+    if (!invitationAction) {
+      return;
+    }
+
+    try {
+      if (invitationAction.mode === 'revoke') {
+        await revokeMutation.mutateAsync(invitationAction.id);
+        toast.success('Invitation revoked successfully.');
+      } else {
+        await deleteInvitationMutation.mutateAsync(invitationAction.id);
+        toast.success('Invitation deleted successfully.');
+      }
+      setInvitationAction(null);
+    } catch (error) {
+      toast.error(
+        getApiErrorMessage(
+          error,
+          invitationAction.mode === 'revoke'
+            ? 'Unable to revoke the invitation.'
+            : 'Unable to delete the invitation.'
+        )
+      );
+    }
+  };
+
+  const handleQuickStatusChange = useCallback(async (member: TeamMember, status: 'active' | 'inactive') => {
+    try {
+      await updateMemberMutation.mutateAsync({
+        memberId: member.id,
+        role_title: member.role_title,
+        status,
+        permissions: normalizePermissions(member.permissions),
+      });
+      toast.success(`Team member ${status === 'active' ? 'activated' : 'deactivated'} successfully.`);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to update this team member.'));
+    }
+  }, [updateMemberMutation]);
+
+  const handleResendInvitation = useCallback(async (invitationId: string) => {
+    try {
+      await resendMutation.mutateAsync(invitationId);
+      toast.success('Invitation resent successfully.');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to resend the invitation.'));
+    }
+  }, [resendMutation]);
 
   const memberColumns = useMemo<ColumnDef<TeamMember, unknown>[]>(() => [
     {
@@ -356,11 +406,23 @@ export function TeamMembersPage() {
                   onClick={() => {
                     setEditMember(row.original);
                     setEditRoleTitle(row.original.role_title);
-                    setEditStatus(row.original.status);
+                    setEditStatus(row.original.status === 'inactive' ? 'inactive' : 'active');
                     setEditPermissions(normalizePermissions(row.original.permissions));
                   }}
                 >
                   Edit
+                </Button>
+              ) : null}
+              {canUpdate ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void handleQuickStatusChange(
+                    row.original,
+                    row.original.status === 'active' ? 'inactive' : 'active'
+                  )}
+                >
+                  {row.original.status === 'active' ? 'Deactivate' : 'Activate'}
                 </Button>
               ) : null}
               {canDelete ? (
@@ -379,7 +441,7 @@ export function TeamMembersPage() {
         </div>
       ),
     },
-  ], [canDelete, canUpdate]);
+  ], [canDelete, canUpdate, handleQuickStatusChange]);
 
   const invitationColumns = useMemo<ColumnDef<OrganizationInvitation, unknown>[]>(() => [
     {
@@ -416,36 +478,41 @@ export function TeamMembersPage() {
     {
       id: 'actions',
       header: 'Actions',
-      cell: ({ row }) => (
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!canCreate || resendMutation.isPending || row.original.status !== 'pending'}
-            onClick={async () => {
-              try {
-                await resendMutation.mutateAsync(row.original.id);
-                toast.success('Invitation resent successfully.');
-              } catch (error) {
-                toast.error(getApiErrorMessage(error, 'Unable to resend the invitation.'));
-              }
-            }}
-          >
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Resend
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!canDelete || row.original.status !== 'pending'}
-            onClick={() => setRemoveTarget({ id: row.original.id, type: 'invitation' })}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      ),
-    },
-  ], [canCreate, canDelete, resendMutation]);
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end gap-2">
+            {['pending', 'revoked', 'expired'].includes(row.original.status) ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canCreate || isResendingInvitation}
+                onClick={() => void handleResendInvitation(row.original.id)}
+              >
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                Resend
+              </Button>
+            ) : null}
+            {row.original.status === 'pending' ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!canDelete}
+                onClick={() => setInvitationAction({ id: row.original.id, mode: 'revoke' })}
+              >
+                Revoke
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!canDelete}
+              onClick={() => setInvitationAction({ id: row.original.id, mode: 'delete' })}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ),
+      },
+  ], [canCreate, canDelete, handleResendInvitation, isResendingInvitation]);
 
   if (!canRead) {
     return (
@@ -701,14 +768,13 @@ export function TeamMembersPage() {
               </div>
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select value={editStatus} onValueChange={(value) => setEditStatus(value as 'active' | 'inactive' | 'invited')}>
+                <Select value={editStatus} onValueChange={(value) => setEditStatus(value as 'active' | 'inactive')}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="invited">Invited</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -738,19 +804,36 @@ export function TeamMembersPage() {
       <AlertDialog open={Boolean(removeTarget)} onOpenChange={(open) => (!open ? setRemoveTarget(null) : null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {removeTarget?.type === 'member' ? 'Remove team member?' : 'Revoke invitation?'}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Remove team member?</AlertDialogTitle>
             <AlertDialogDescription>
-              {removeTarget?.type === 'member'
-                ? 'This member will lose access to the organization and any assigned conversations will be unassigned.'
-                : 'This invitation will stop working immediately and its reserved seat will be released.'}
+              This member will lose access to the organization and any assigned conversations will be unassigned.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleRemove}>
               Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(invitationAction)} onOpenChange={(open) => (!open ? setInvitationAction(null) : null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {invitationAction?.mode === 'revoke' ? 'Revoke invitation?' : 'Delete invitation?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {invitationAction?.mode === 'revoke'
+                ? 'This invitation will stop working immediately and you can resend it later to reopen it.'
+                : 'This removes the invitation row from the table while keeping a soft-deleted audit record.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleInvitationAction}>
+              {invitationAction?.mode === 'revoke' ? 'Revoke' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -32,7 +32,10 @@ export function useCreateSubAdmin() {
       const { data } = await apiClient.post(ADMIN_ENDPOINTS.SUB_ADMINS.BASE, body);
       return data.data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sub-admins'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'sub-admins'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'sub-admin-invitations'] });
+    },
   });
 }
 
@@ -79,6 +82,17 @@ export function useRevokeSubAdminInvitation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      const { data } = await apiClient.post(ADMIN_ENDPOINTS.INVITATIONS.REVOKE(id));
+      return data.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sub-admin-invitations'] }),
+  });
+}
+
+export function useDeleteSubAdminInvitation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
       await apiClient.delete(ADMIN_ENDPOINTS.INVITATIONS.DETAIL(id));
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sub-admin-invitations'] }),
@@ -92,7 +106,10 @@ export function useUpdateSubAdmin() {
       const { data } = await apiClient.put(ADMIN_ENDPOINTS.SUB_ADMINS.DETAIL(id), body);
       return data.data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sub-admins'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'sub-admins'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'sub-admin-invitations'] });
+    },
   });
 }
 
@@ -102,7 +119,10 @@ export function useDeleteSubAdmin() {
     mutationFn: async (id: string) => {
       await apiClient.delete(ADMIN_ENDPOINTS.SUB_ADMINS.DETAIL(id));
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sub-admins'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'sub-admins'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'sub-admin-invitations'] });
+    },
   });
 }
 

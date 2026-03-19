@@ -180,6 +180,160 @@ async function findUserByEmail(email, attributes = 'id, email, role, status') {
   return user || null;
 }
 
+async function findAnyUserByEmail(
+  email,
+  attributes = 'id, email, role, status, deleted_at'
+) {
+  const [user] = await sequelize.query(
+    `SELECT ${attributes}
+     FROM auth_users
+     WHERE email = :email
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    { replacements: { email }, type: QueryTypes.SELECT }
+  );
+
+  return user || null;
+}
+
+function isMissingTableError(error) {
+  const code = error?.original?.code || error?.parent?.code || error?.code || '';
+  const message = error?.original?.sqlMessage || error?.message || '';
+  return code === 'ER_NO_SUCH_TABLE' || code === '42S02' || /doesn't exist/i.test(message);
+}
+
+async function revokeRefreshTokens(userId, transaction = null) {
+  await sequelize.query(
+    `UPDATE auth_refresh_tokens
+     SET is_revoked = true,
+         updated_at = NOW()
+     WHERE user_id = :userId
+       AND is_revoked = false`,
+    {
+      replacements: { userId },
+      type: QueryTypes.UPDATE,
+      transaction,
+    }
+  );
+}
+
+async function clearAssignedSupportTicketsForAdmin(userId, transaction = null) {
+  if (!userId) {
+    return;
+  }
+
+  try {
+    await sequelize.query(
+      `UPDATE support_tickets
+       SET assigned_to = NULL,
+           assigned_at = NULL,
+           status = CASE
+             WHEN status = 'in_progress' THEN 'open'
+             ELSE status
+           END,
+           updated_at = :now
+       WHERE assigned_to = :userId
+         AND deleted_at IS NULL`,
+      {
+        replacements: {
+          userId,
+          now: new Date(),
+        },
+        type: QueryTypes.UPDATE,
+        transaction,
+      }
+    );
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      console.warn('[admin-service] support_tickets table not available while clearing assignments');
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function syncSubAdminAuthStatus(userId, status, transaction = null) {
+  const now = new Date();
+  await sequelize.query(
+    `UPDATE auth_users
+     SET status = :status,
+         updated_at = :now
+     WHERE id = :userId
+       AND deleted_at IS NULL`,
+    {
+      replacements: {
+        userId,
+        status,
+        now,
+      },
+      type: QueryTypes.UPDATE,
+      transaction,
+    }
+  );
+}
+
+async function deleteAuthUserRecord(userId, transaction = null) {
+  await sequelize.query(
+    'DELETE FROM auth_users WHERE id = :userId',
+    {
+      replacements: { userId },
+      type: QueryTypes.DELETE,
+      transaction,
+    }
+  );
+}
+
+async function removeSubAdminInvitationNoiseByEmail(email, transaction = null) {
+  if (!email) {
+    return;
+  }
+
+  await AdminInvitation.destroy({
+    where: {
+      email,
+      status: {
+        [Op.ne]: 'accepted',
+      },
+    },
+    transaction,
+  });
+}
+
+async function purgeReusableLegacySubAdminAuthUserByEmail(email, transaction = null) {
+  const user = await findAnyUserByEmail(email, 'id, email, role, status, deleted_at');
+  if (!user) {
+    return { user: null, purged: false };
+  }
+
+  if (String(user.role) !== 'admin') {
+    return { user, purged: false };
+  }
+
+  const hasLiveSubAdmin = await SubAdmin.count({
+    where: { user_id: user.id },
+    transaction,
+  });
+
+  if (hasLiveSubAdmin > 0) {
+    return { user, purged: false };
+  }
+
+  const isReusable =
+    user.deleted_at !== null
+    || String(user.status) === 'inactive';
+
+  if (!isReusable) {
+    return { user, purged: false };
+  }
+
+  await clearAssignedSupportTicketsForAdmin(user.id, transaction);
+  await removeSubAdminInvitationNoiseByEmail(user.email, transaction);
+  await deleteAuthUserRecord(user.id, transaction);
+
+  return { user, purged: true };
+}
+
 function buildSubAdminInviteLink(inviteToken) {
   return `${config.frontendUrl.replace(/\/$/, '')}/admin/invitations/accept?token=${encodeURIComponent(inviteToken)}`;
 }
@@ -448,6 +602,8 @@ async function createSubAdmin(data, createdBy) {
     throw new AppError('System roles cannot be assigned to sub-admin accounts', 400);
   }
 
+  await purgeReusableLegacySubAdminAuthUserByEmail(normalizedEmail);
+
   // Check if email already exists in auth_users
   const existingUser = await findUserByEmail(normalizedEmail);
   if (existingUser) {
@@ -493,6 +649,8 @@ async function createSubAdmin(data, createdBy) {
       { transaction }
     );
 
+    await removeSubAdminInvitationNoiseByEmail(normalizedEmail, transaction);
+
     await transaction.commit();
 
     // Fetch the created sub-admin with role info
@@ -530,6 +688,7 @@ async function inviteSubAdmin(data, invitedBy, kafkaProducer = null) {
   }
 
   await expirePendingAdminInvitations();
+  await purgeReusableLegacySubAdminAuthUserByEmail(normalizedEmail);
 
   const [existingUser, existingInvitation] = await Promise.all([
     findUserByEmail(normalizedEmail),
@@ -607,8 +766,8 @@ async function resendSubAdminInvitation(invitationId, invitedBy, kafkaProducer =
     throw new AppError('Invitation not found', 404);
   }
 
-  if (invitation.status !== 'pending') {
-    throw new AppError('Only pending invitations can be resent', 400);
+  if (!['pending', 'revoked', 'expired'].includes(invitation.status)) {
+    throw new AppError('Only pending, revoked, or expired invitations can be resent', 400);
   }
 
   if (invitation.role?.is_system) {
@@ -620,6 +779,7 @@ async function resendSubAdminInvitation(invitationId, invitedBy, kafkaProducer =
     role_title: invitation.role?.title || invitation.role_title,
     invite_token: crypto.randomBytes(32).toString('hex'),
     expires_at: new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
+    status: 'pending',
   });
 
   try {
@@ -638,12 +798,26 @@ async function revokeSubAdminInvitation(invitationId) {
     throw new AppError('Invitation not found', 404);
   }
 
-  if (invitation.status !== 'pending') {
-    throw new AppError('Only pending invitations can be revoked', 400);
+  if (invitation.status === 'accepted') {
+    throw new AppError('Accepted invitations cannot be revoked', 400);
+  }
+
+  if (invitation.status === 'revoked') {
+    return invitation;
   }
 
   await invitation.update({ status: 'revoked' });
   return invitation;
+}
+
+async function deleteSubAdminInvitation(invitationId) {
+  const invitation = await AdminInvitation.findByPk(invitationId);
+
+  if (!invitation) {
+    throw new AppError('Invitation not found', 404);
+  }
+
+  await invitation.destroy();
 }
 
 async function findPendingSubAdminInvitationByToken(token) {
@@ -711,6 +885,8 @@ async function acceptSubAdminInvitation(authUserId, data) {
     if (!data.password) {
       throw new AppError('Set a password to finish accepting this invitation.', 400);
     }
+
+    await purgeReusableLegacySubAdminAuthUserByEmail(normalizedEmail);
 
     const existingUser = await findUserByEmail(normalizedEmail);
     if (existingUser) {
@@ -869,7 +1045,18 @@ async function updateSubAdmin(id, data) {
     }
   }
 
-  await subAdmin.update(data);
+  await sequelize.transaction(async (transaction) => {
+    await subAdmin.update(data, { transaction });
+
+    if (data.status) {
+      await syncSubAdminAuthStatus(subAdmin.user_id, data.status, transaction);
+
+      if (data.status === 'inactive') {
+        await clearAssignedSupportTicketsForAdmin(subAdmin.user_id, transaction);
+        await revokeRefreshTokens(subAdmin.user_id, transaction);
+      }
+    }
+  });
 
   // Re-fetch with role
   const updated = await SubAdmin.findByPk(id, {
@@ -901,25 +1088,24 @@ async function deleteSubAdmin(id) {
     throw new AppError('Sub-admin not found', 404);
   }
 
+  const authUser = await findUserById(
+    subAdmin.user_id,
+    'id, email, role, status, first_name, last_name, phone'
+  );
+
   const transaction = await sequelize.transaction();
 
   try {
     // Soft-delete the sub-admin record
     await subAdmin.destroy({ transaction });
 
-    // Deactivate the auth_users record
-    await sequelize.query(
-      'UPDATE auth_users SET status = :status, updated_at = :now WHERE id = :userId',
-      {
-        replacements: {
-          status: 'inactive',
-          now: new Date(),
-          userId: subAdmin.user_id,
-        },
-        type: QueryTypes.UPDATE,
-        transaction,
-      }
-    );
+    await clearAssignedSupportTicketsForAdmin(subAdmin.user_id, transaction);
+
+    if (authUser?.email) {
+      await removeSubAdminInvitationNoiseByEmail(authUser.email, transaction);
+    }
+
+    await deleteAuthUserRecord(subAdmin.user_id, transaction);
 
     await transaction.commit();
   } catch (err) {
@@ -2381,6 +2567,7 @@ module.exports = {
   listSubAdminInvitations,
   resendSubAdminInvitation,
   revokeSubAdminInvitation,
+  deleteSubAdminInvitation,
   validateSubAdminInvitation,
   acceptSubAdminInvitation,
   updateSubAdmin,

@@ -813,14 +813,15 @@ async function resendUserInvitation(invitationId, invitedBy, appLocals = {}) {
     throw new AppError('Invitation not found', 404);
   }
 
-  if (invitation.status !== 'pending') {
-    throw new AppError('Only pending invitations can be resent', 400);
+  if (!['pending', 'revoked', 'expired'].includes(invitation.status)) {
+    throw new AppError('Only pending, revoked, or expired invitations can be resent', 400);
   }
 
   await invitation.update({
     invited_by_user_id: invitedBy,
     invite_token: generateInvitationToken(),
     expires_at: calculateInvitationExpiry(INVITATION_TTL_DAYS),
+    status: 'pending',
   });
 
   try {
@@ -839,12 +840,26 @@ async function revokeUserInvitation(invitationId) {
     throw new AppError('Invitation not found', 404);
   }
 
-  if (invitation.status !== 'pending') {
-    throw new AppError('Only pending invitations can be revoked', 400);
+  if (invitation.status === 'accepted') {
+    throw new AppError('Accepted invitations cannot be revoked', 400);
+  }
+
+  if (invitation.status === 'revoked') {
+    return invitation.toJSON();
   }
 
   await invitation.update({ status: 'revoked' });
   return invitation.toJSON();
+}
+
+async function deleteUserInvitation(invitationId) {
+  const invitation = await AdminUserInvitation.findByPk(invitationId);
+
+  if (!invitation) {
+    throw new AppError('Invitation not found', 404);
+  }
+
+  await invitation.destroy();
 }
 
 async function validateUserInvitation(token) {
@@ -1488,6 +1503,7 @@ module.exports = {
   listUserInvitations,
   resendUserInvitation,
   revokeUserInvitation,
+  deleteUserInvitation,
   validateUserInvitation,
   acceptUserInvitation,
   updateUser,

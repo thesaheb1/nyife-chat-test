@@ -30,7 +30,8 @@ router.get('/sub-admins', superAdminOnly, asyncHandler(ctrl.listSubAdmins));
 router.post('/sub-admins/invitations', superAdminOnly, asyncHandler(ctrl.inviteSubAdmin));
 router.get('/sub-admins/invitations', superAdminOnly, asyncHandler(ctrl.listSubAdminInvitations));
 router.post('/sub-admins/invitations/:id/resend', superAdminOnly, asyncHandler(ctrl.resendSubAdminInvitation));
-router.delete('/sub-admins/invitations/:id', superAdminOnly, asyncHandler(ctrl.revokeSubAdminInvitation));
+router.post('/sub-admins/invitations/:id/revoke', superAdminOnly, asyncHandler(ctrl.revokeSubAdminInvitation));
+router.delete('/sub-admins/invitations/:id', superAdminOnly, asyncHandler(ctrl.deleteSubAdminInvitation));
 router.put('/sub-admins/:id', superAdminOnly, asyncHandler(ctrl.updateSubAdmin));
 router.delete('/sub-admins/:id', superAdminOnly, asyncHandler(ctrl.deleteSubAdmin));
 
@@ -50,7 +51,8 @@ router.post('/users', adminRbac('users', 'create'), asyncHandler(ctrl.createUser
 router.get('/users/invitations', adminRbac('users', 'read'), asyncHandler(ctrl.listUserInvitations));
 router.post('/users/invitations', adminRbac('users', 'create'), asyncHandler(ctrl.inviteUser));
 router.post('/users/invitations/:id/resend', adminRbac('users', 'create'), asyncHandler(ctrl.resendUserInvitation));
-router.delete('/users/invitations/:id', adminRbac('users', 'delete'), asyncHandler(ctrl.revokeUserInvitation));
+router.post('/users/invitations/:id/revoke', adminRbac('users', 'delete'), asyncHandler(ctrl.revokeUserInvitation));
+router.delete('/users/invitations/:id', adminRbac('users', 'delete'), asyncHandler(ctrl.deleteUserInvitation));
 router.get('/users/:id/dashboard', adminRbac('users', 'read'), asyncHandler(ctrl.getUserDashboard));
 router.get('/users/:id/team-members', adminRbac('users', 'read'), asyncHandler(ctrl.getUserTeamMembers));
 router.get('/users/:id', adminRbac('users', 'read'), asyncHandler(ctrl.getUser));

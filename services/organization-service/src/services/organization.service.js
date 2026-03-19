@@ -151,6 +151,60 @@ async function purgeStandaloneTeamUserIfReusable(email, transaction = null) {
   return null;
 }
 
+async function revokeRefreshTokens(userId, transaction = null) {
+  await sequelize.query(
+    `UPDATE auth_refresh_tokens
+     SET is_revoked = true,
+         updated_at = NOW()
+     WHERE user_id = :userId
+       AND is_revoked = false`,
+    {
+      replacements: { userId },
+      type: QueryTypes.UPDATE,
+      transaction,
+    }
+  );
+}
+
+async function countActiveMembershipsForUser(memberUserId, transaction = null) {
+  return TeamMember.count({
+    where: {
+      member_user_id: memberUserId,
+      status: 'active',
+    },
+    transaction,
+  });
+}
+
+async function syncTeamAuthUserStatus(memberUserId, transaction = null) {
+  if (!memberUserId) {
+    return { changed: false, status: null };
+  }
+
+  const user = await User.findByPk(memberUserId, {
+    paranoid: false,
+    transaction,
+  });
+
+  if (!user || user.deleted_at || String(user.role) !== 'team') {
+    return { changed: false, status: user?.status || null };
+  }
+
+  if (['suspended', 'pending_verification'].includes(String(user.status))) {
+    return { changed: false, status: user.status };
+  }
+
+  const activeMemberships = await countActiveMembershipsForUser(memberUserId, transaction);
+  const nextStatus = activeMemberships > 0 ? 'active' : 'inactive';
+
+  if (String(user.status) === nextStatus) {
+    return { changed: false, status: nextStatus };
+  }
+
+  await user.update({ status: nextStatus }, { transaction });
+  return { changed: true, status: nextStatus };
+}
+
 function paginateArray(items, page, limit) {
   const safePage = Math.max(1, Number(page || 1));
   const safeLimit = Math.max(1, Number(limit || 20));
@@ -757,17 +811,19 @@ async function resendInvitation(userId, orgId, invitationId) {
     throw AppError.notFound('Invitation not found');
   }
 
-  if (invitation.status !== 'pending') {
-    throw AppError.badRequest('Only pending invitations can be resent.');
+  if (!['pending', 'revoked', 'expired'].includes(invitation.status)) {
+    throw AppError.badRequest('Only pending, revoked, or expired invitations can be resent.');
   }
 
   const now = new Date();
   await invitation.update({
     invite_token: crypto.randomBytes(32).toString('hex'),
     expires_at: new Date(now.getTime() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
+    status: 'pending',
   });
 
   await sendInviteEmail(organization, invitation);
+  await syncTeamSeatUsage(orgId);
   return invitation;
 }
 
@@ -785,14 +841,36 @@ async function revokeInvitation(userId, orgId, invitationId) {
     throw AppError.notFound('Invitation not found');
   }
 
-  if (invitation.status !== 'pending') {
-    throw AppError.badRequest('Only pending invitations can be revoked.');
+  if (invitation.status === 'accepted') {
+    throw AppError.badRequest('Accepted invitations cannot be revoked.');
+  }
+
+  if (invitation.status === 'revoked') {
+    return invitation;
   }
 
   await invitation.update({ status: 'revoked' });
   await syncTeamSeatUsage(orgId);
 
   return invitation;
+}
+
+async function deleteInvitation(userId, orgId, invitationId) {
+  await ensureOwnerOrganization(userId, orgId);
+
+  const invitation = await Invitation.findOne({
+    where: {
+      id: invitationId,
+      organization_id: orgId,
+    },
+  });
+
+  if (!invitation) {
+    throw AppError.notFound('Invitation not found');
+  }
+
+  await invitation.destroy();
+  await syncTeamSeatUsage(orgId);
 }
 
 async function findInvitationByToken(token) {
@@ -924,6 +1002,7 @@ async function acceptInvitation(authUserId, data) {
   });
 
   await syncTeamSeatUsage(invitation.organization_id);
+  await syncTeamAuthUserStatus(user.id);
 
   return {
     invitation: invitation.toJSON(),
@@ -1012,10 +1091,24 @@ async function updateTeamMember(userId, orgId, memberId, data) {
     updateData.joined_at = new Date();
   }
 
-  await teamMember.update(updateData);
-  if (data.status === 'inactive' && teamMember.member_user_id) {
-    await clearAssignedConversationsForMember(orgId, teamMember.member_user_id);
+  let authStatusResult = { status: null };
+
+  await sequelize.transaction(async (transaction) => {
+    await teamMember.update(updateData, { transaction });
+
+    if (data.status && data.status !== 'active' && teamMember.member_user_id) {
+      await clearAssignedConversationsForMember(orgId, teamMember.member_user_id, transaction);
+    }
+
+    if (data.status && teamMember.member_user_id) {
+      authStatusResult = await syncTeamAuthUserStatus(teamMember.member_user_id, transaction);
+    }
+  });
+
+  if (authStatusResult.status === 'inactive' && teamMember.member_user_id) {
+    await revokeRefreshTokens(teamMember.member_user_id);
   }
+
   await syncTeamSeatUsage(orgId);
   return teamMember;
 }
@@ -1023,24 +1116,16 @@ async function updateTeamMember(userId, orgId, memberId, data) {
 async function removeTeamMember(userId, orgId, memberId) {
   await ensureOwnerOrganization(userId, orgId);
 
-  const [teamMember, pendingInvitation] = await Promise.all([
-    TeamMember.findOne({
-      where: { id: memberId, organization_id: orgId },
-    }),
-    Invitation.findOne({
-      where: { id: memberId, organization_id: orgId, status: 'pending' },
-    }),
-  ]);
-
-  if (pendingInvitation) {
-    await pendingInvitation.update({ status: 'revoked' });
-    await syncTeamSeatUsage(orgId);
-    return;
-  }
+  const teamMember = await TeamMember.findOne({
+    where: { id: memberId, organization_id: orgId },
+  });
 
   if (!teamMember) {
     throw AppError.notFound('Team member not found');
   }
+
+  let authStatusResult = { status: null };
+  let userPurged = false;
 
   await sequelize.transaction(async (transaction) => {
     await clearAssignedConversationsForMember(orgId, teamMember.member_user_id, transaction);
@@ -1057,8 +1142,16 @@ async function removeTeamMember(userId, orgId, memberId) {
         force: true,
         transaction,
       });
+      userPurged = true;
+      return;
     }
+
+    authStatusResult = await syncTeamAuthUserStatus(teamMember.member_user_id, transaction);
   });
+
+  if (!userPurged && authStatusResult.status === 'inactive') {
+    await revokeRefreshTokens(teamMember.member_user_id);
+  }
 
   await syncTeamSeatUsage(orgId);
 }
@@ -1171,9 +1264,11 @@ module.exports = {
   listInvitations,
   resendInvitation,
   revokeInvitation,
+  deleteInvitation,
   updateTeamMember,
   removeTeamMember,
   resolveOrganizationContext,
   validateTeamMemberAccess,
+  syncTeamAuthUserStatus,
   disconnectKafka,
 };

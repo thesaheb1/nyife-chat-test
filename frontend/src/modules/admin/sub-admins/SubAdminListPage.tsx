@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Mail, Plus, RefreshCcw, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
@@ -38,11 +38,13 @@ import {
   useSubAdmins,
   useCreateSubAdmin,
   useDeleteSubAdmin,
+  useDeleteSubAdminInvitation,
   useRoles,
   useInviteSubAdmin,
   useSubAdminInvitations,
   useResendSubAdminInvitation,
   useRevokeSubAdminInvitation,
+  useUpdateSubAdmin,
 } from './useSubAdmins';
 import type { SubAdmin, SubAdminInvitation } from '../types';
 import { getApiErrorMessage } from '@/core/errors/apiError';
@@ -60,6 +62,12 @@ type InviteFormState = {
   last_name: string;
   email: string;
   role_id: string;
+};
+
+type EditFormState = {
+  id: string;
+  role_id: string;
+  status: 'active' | 'inactive';
 };
 
 const EMPTY_CREATE_FORM: CreateFormState = {
@@ -86,14 +94,18 @@ export function SubAdminListPage() {
   const createSubAdmin = useCreateSubAdmin();
   const inviteSubAdmin = useInviteSubAdmin();
   const deleteSubAdmin = useDeleteSubAdmin();
+  const updateSubAdmin = useUpdateSubAdmin();
   const resendInvitation = useResendSubAdminInvitation();
   const revokeInvitation = useRevokeSubAdminInvitation();
+  const deleteInvitation = useDeleteSubAdminInvitation();
   const [showCreate, setShowCreate] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [revokeInvitationId, setRevokeInvitationId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<EditFormState | null>(null);
+  const [invitationAction, setInvitationAction] = useState<{ id: string; mode: 'revoke' | 'delete' } | null>(null);
   const [createForm, setCreateForm] = useState<CreateFormState>(EMPTY_CREATE_FORM);
   const [inviteForm, setInviteForm] = useState<InviteFormState>(EMPTY_INVITE_FORM);
+  const isResendingInvitation = resendInvitation.isPending;
 
   const handleCreate = async () => {
     try {
@@ -131,17 +143,66 @@ export function SubAdminListPage() {
     }
   };
 
-  const handleRevokeInvitation = async () => {
-    if (!revokeInvitationId) {
+  const handleSaveEdit = async () => {
+    if (!editForm) {
       return;
     }
 
     try {
-      await revokeInvitation.mutateAsync(revokeInvitationId);
-      toast.success('Invitation revoked.');
-      setRevokeInvitationId(null);
+      await updateSubAdmin.mutateAsync(editForm);
+      toast.success('Sub-admin updated.');
+      setEditForm(null);
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to revoke the invitation.'));
+      toast.error(getApiErrorMessage(error, 'Failed to update the sub-admin.'));
+    }
+  };
+
+  const handleToggleStatus = useCallback(async (subAdmin: SubAdmin) => {
+    const nextStatus = subAdmin.status === 'active' ? 'inactive' : 'active';
+
+    try {
+      await updateSubAdmin.mutateAsync({
+        id: subAdmin.id,
+        status: nextStatus,
+      });
+      toast.success(`Sub-admin ${nextStatus === 'active' ? 'activated' : 'deactivated'}.`);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to update sub-admin status.'));
+    }
+  }, [updateSubAdmin]);
+
+  const handleResendInvitation = useCallback(async (invitationId: string) => {
+    try {
+      await resendInvitation.mutateAsync(invitationId);
+      toast.success('Invitation resent.');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to resend the invitation.'));
+    }
+  }, [resendInvitation]);
+
+  const handleInvitationAction = async () => {
+    if (!invitationAction) {
+      return;
+    }
+
+    try {
+      if (invitationAction.mode === 'revoke') {
+        await revokeInvitation.mutateAsync(invitationAction.id);
+        toast.success('Invitation revoked.');
+      } else {
+        await deleteInvitation.mutateAsync(invitationAction.id);
+        toast.success('Invitation deleted.');
+      }
+      setInvitationAction(null);
+    } catch (error) {
+      toast.error(
+        getApiErrorMessage(
+          error,
+          invitationAction.mode === 'revoke'
+            ? 'Failed to revoke the invitation.'
+            : 'Failed to delete the invitation.'
+        )
+      );
     }
   };
 
@@ -188,20 +249,46 @@ export function SubAdminListPage() {
         id: 'actions',
         header: '',
         cell: ({ row }) => (
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={(event) => {
-              event.stopPropagation();
-              setDeleteId(row.original.id);
-            }}
-          >
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={(event) => {
+                event.stopPropagation();
+                setEditForm({
+                  id: row.original.id,
+                  role_id: row.original.role_id,
+                  status: row.original.status,
+                });
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleToggleStatus(row.original);
+              }}
+            >
+              {row.original.status === 'active' ? 'Deactivate' : 'Activate'}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={(event) => {
+                event.stopPropagation();
+                setDeleteId(row.original.id);
+              }}
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
         ),
       },
     ],
-    []
+    [handleToggleStatus]
   );
 
   const invitationColumns = useMemo<ColumnDef<SubAdminInvitation>[]>(
@@ -242,43 +329,46 @@ export function SubAdminListPage() {
         header: '',
         cell: ({ row }) => (
           <div className="flex items-center justify-end gap-1">
+            {['pending', 'revoked', 'expired'].includes(row.original.status) ? (
+              <Button
+                size="icon"
+                variant="ghost"
+                disabled={isResendingInvitation}
+                onClick={async (event) => {
+                  event.stopPropagation();
+                  await handleResendInvitation(row.original.id);
+                }}
+              >
+                <RefreshCcw className="h-4 w-4" />
+              </Button>
+            ) : null}
             {row.original.status === 'pending' ? (
-              <>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  disabled={resendInvitation.isPending}
-                  onClick={async (event) => {
-                    event.stopPropagation();
-                    try {
-                      await resendInvitation.mutateAsync(row.original.id);
-                      toast.success('Invitation resent.');
-                    } catch (error) {
-                      toast.error(getApiErrorMessage(error, 'Failed to resend the invitation.'));
-                    }
-                  }}
-                >
-                  <RefreshCcw className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setRevokeInvitationId(row.original.id);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </>
-            ) : (
-              <span className="text-xs text-muted-foreground">No actions</span>
-            )}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setInvitationAction({ id: row.original.id, mode: 'revoke' });
+                }}
+              >
+                Revoke
+              </Button>
+            ) : null}
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={(event) => {
+                event.stopPropagation();
+                setInvitationAction({ id: row.original.id, mode: 'delete' });
+              }}
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
           </div>
         ),
       },
     ],
-    [resendInvitation]
+    [handleResendInvitation, isResendingInvitation]
   );
 
   return (
@@ -462,6 +552,69 @@ export function SubAdminListPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={Boolean(editForm)} onOpenChange={(open) => (!open ? setEditForm(null) : null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Sub-Admin</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="space-y-2">
+              <Label>{t('admin.subAdmins.role')}</Label>
+              <Select
+                value={editForm?.role_id ?? ''}
+                onValueChange={(value) => setEditForm((current) => (
+                  current
+                    ? { ...current, role_id: value }
+                    : current
+                ))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={editForm?.status ?? 'active'}
+                onValueChange={(value) => setEditForm((current) => (
+                  current
+                    ? { ...current, status: value as 'active' | 'inactive' }
+                    : current
+                ))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditForm(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={updateSubAdmin.isPending || !editForm?.role_id}
+            >
+              {updateSubAdmin.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={Boolean(deleteId)} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -475,15 +628,23 @@ export function SubAdminListPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={Boolean(revokeInvitationId)} onOpenChange={() => setRevokeInvitationId(null)}>
+      <AlertDialog open={Boolean(invitationAction)} onOpenChange={() => setInvitationAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Revoke Invitation</AlertDialogTitle>
-            <AlertDialogDescription>This invitation will no longer be usable.</AlertDialogDescription>
+            <AlertDialogTitle>
+              {invitationAction?.mode === 'revoke' ? 'Revoke Invitation' : 'Delete Invitation'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {invitationAction?.mode === 'revoke'
+                ? 'This invitation will no longer be usable until it is resent again.'
+                : 'This removes the invitation row from the table while keeping a soft-deleted audit record.'}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleRevokeInvitation}>Revoke</AlertDialogAction>
+            <AlertDialogAction onClick={handleInvitationAction}>
+              {invitationAction?.mode === 'revoke' ? 'Revoke' : 'Delete'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { type ColumnDef } from '@tanstack/react-table';
 import {
@@ -56,6 +56,7 @@ import type { AdminUserInvitation, AdminUserListItem } from '../types';
 import {
   useAdminUserInvitations,
   useAdminUsers,
+  useDeleteAdminUserInvitation,
   useDeleteUser,
   useResendAdminUserInvitation,
   useRevokeAdminUserInvitation,
@@ -83,7 +84,7 @@ export function UserListPage() {
   const [planFilter, setPlanFilter] = useState('all');
   const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({});
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [revokeInvitationId, setRevokeInvitationId] = useState<string | null>(null);
+  const [invitationAction, setInvitationAction] = useState<{ id: string; mode: 'revoke' | 'delete' } | null>(null);
   const debouncedSearch = useDebounce(search, 300);
 
   const canCreate = useCan('admin', 'users', 'create');
@@ -109,6 +110,7 @@ export function UserListPage() {
   const deleteUser = useDeleteUser();
   const resendInvitation = useResendAdminUserInvitation();
   const revokeInvitation = useRevokeAdminUserInvitation();
+  const deleteInvitation = useDeleteAdminUserInvitation();
 
   const users = usersQuery.data?.data?.users ?? [];
   const userMeta = usersQuery.data?.meta;
@@ -116,7 +118,9 @@ export function UserListPage() {
   const invitationMeta = invitationsQuery.data?.meta;
   const plans = plansQuery.data?.plans ?? [];
 
-  const navigateToDashboard = (userId: string, tab?: string, extraParams?: Record<string, string>) => {
+  const isResendingInvitation = resendInvitation.isPending;
+
+  const navigateToDashboard = useCallback((userId: string, tab?: string, extraParams?: Record<string, string>) => {
     const params = new URLSearchParams();
     if (tab) {
       params.set('tab', tab);
@@ -124,16 +128,25 @@ export function UserListPage() {
     Object.entries(extraParams || {}).forEach(([key, value]) => params.set(key, value));
     const query = params.toString();
     navigate(`/admin/users/${userId}${query ? `?${query}` : ''}`);
-  };
+  }, [navigate]);
 
-  const handleStatusChange = async (id: string, status: string) => {
+  const handleStatusChange = useCallback(async (id: string, status: string) => {
     try {
       await updateStatus.mutateAsync({ id, status });
       toast.success('User status updated.');
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to update user status.'));
     }
-  };
+  }, [updateStatus]);
+
+  const handleResendInvitation = useCallback(async (id: string) => {
+    try {
+      await resendInvitation.mutateAsync(id);
+      toast.success('Invitation resent.');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to resend the invitation.'));
+    }
+  }, [resendInvitation]);
 
   const handleDelete = async () => {
     if (!deleteId) {
@@ -149,17 +162,29 @@ export function UserListPage() {
     }
   };
 
-  const handleRevokeInvitation = async () => {
-    if (!revokeInvitationId) {
+  const handleInvitationAction = async () => {
+    if (!invitationAction) {
       return;
     }
 
     try {
-      await revokeInvitation.mutateAsync(revokeInvitationId);
-      toast.success('Invitation revoked.');
-      setRevokeInvitationId(null);
+      if (invitationAction.mode === 'revoke') {
+        await revokeInvitation.mutateAsync(invitationAction.id);
+        toast.success('Invitation revoked.');
+      } else {
+        await deleteInvitation.mutateAsync(invitationAction.id);
+        toast.success('Invitation deleted.');
+      }
+      setInvitationAction(null);
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to revoke the invitation.'));
+      toast.error(
+        getApiErrorMessage(
+          error,
+          invitationAction.mode === 'revoke'
+            ? 'Failed to revoke the invitation.'
+            : 'Failed to delete the invitation.'
+        )
+      );
     }
   };
 
@@ -306,7 +331,7 @@ export function UserListPage() {
         ),
       },
     ],
-    [canDelete, canUpdate]
+    [canDelete, canUpdate, handleStatusChange, navigateToDashboard]
   );
 
   const invitationColumns = useMemo<ColumnDef<AdminUserInvitation>[]>(
@@ -350,19 +375,14 @@ export function UserListPage() {
         header: 'Actions',
         cell: ({ row }) => (
           <div className="flex items-center justify-end gap-1">
-            {row.original.status === 'pending' ? (
+            {['pending', 'revoked', 'expired'].includes(row.original.status) ? (
               <Button
                 size="icon"
                 variant="ghost"
-                disabled={resendInvitation.isPending}
+                disabled={isResendingInvitation}
                 onClick={async (event) => {
                   event.stopPropagation();
-                  try {
-                    await resendInvitation.mutateAsync(row.original.id);
-                    toast.success('Invitation resent.');
-                  } catch (error) {
-                    toast.error(getApiErrorMessage(error, 'Failed to resend the invitation.'));
-                  }
+                  await handleResendInvitation(row.original.id);
                 }}
               >
                 <RefreshCcw className="h-4 w-4" />
@@ -370,12 +390,24 @@ export function UserListPage() {
             ) : null}
             {canDelete && row.original.status === 'pending' ? (
               <Button
+                size="sm"
+                variant="ghost"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setInvitationAction({ id: row.original.id, mode: 'revoke' });
+                }}
+              >
+                Revoke
+              </Button>
+            ) : null}
+            {canDelete ? (
+              <Button
                 size="icon"
                 variant="ghost"
                 className="text-destructive"
                 onClick={(event) => {
                   event.stopPropagation();
-                  setRevokeInvitationId(row.original.id);
+                  setInvitationAction({ id: row.original.id, mode: 'delete' });
                 }}
               >
                 <Trash2 className="h-4 w-4" />
@@ -385,7 +417,7 @@ export function UserListPage() {
         ),
       },
     ],
-    [canDelete, resendInvitation.isPending]
+    [canDelete, handleResendInvitation, isResendingInvitation]
   );
 
   return (
@@ -542,17 +574,23 @@ export function UserListPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={Boolean(revokeInvitationId)} onOpenChange={() => setRevokeInvitationId(null)}>
+      <AlertDialog open={Boolean(invitationAction)} onOpenChange={() => setInvitationAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Revoke Invitation</AlertDialogTitle>
+            <AlertDialogTitle>
+              {invitationAction?.mode === 'revoke' ? 'Revoke Invitation' : 'Delete Invitation'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              The invite link will stop working immediately. The admin can still create a fresh invitation later.
+              {invitationAction?.mode === 'revoke'
+                ? 'The invite link will stop working immediately. You can resend it later to reopen the same invitation.'
+                : 'This removes the invitation row from the table while keeping a soft-deleted audit record in the database.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleRevokeInvitation}>Revoke</AlertDialogAction>
+            <AlertDialogAction onClick={handleInvitationAction}>
+              {invitationAction?.mode === 'revoke' ? 'Revoke' : 'Delete'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

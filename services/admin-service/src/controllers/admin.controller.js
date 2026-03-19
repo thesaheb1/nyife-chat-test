@@ -133,6 +133,12 @@ async function revokeSubAdminInvitation(req, res) {
   return successResponse(res, null, 'Sub-admin invitation revoked successfully');
 }
 
+async function deleteSubAdminInvitation(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  await adminService.deleteSubAdminInvitation(id);
+  return successResponse(res, null, 'Sub-admin invitation deleted successfully');
+}
+
 /**
  * PUT /sub-admins/:id
  * Updates a sub-admin's role or status.
@@ -263,6 +269,12 @@ async function revokeUserInvitation(req, res) {
   const { id } = idParamSchema.parse(req.params);
   await adminUserService.revokeUserInvitation(id);
   return successResponse(res, null, 'User invitation revoked successfully');
+}
+
+async function deleteUserInvitation(req, res) {
+  const { id } = idParamSchema.parse(req.params);
+  await adminUserService.deleteUserInvitation(id);
+  return successResponse(res, null, 'User invitation deleted successfully');
 }
 
 /**
@@ -653,6 +665,7 @@ module.exports = {
   listSubAdminInvitations,
   resendSubAdminInvitation,
   revokeSubAdminInvitation,
+  deleteSubAdminInvitation,
   updateSubAdmin,
   deleteSubAdmin,
   validateAdminInvitation,
@@ -671,6 +684,7 @@ module.exports = {
   inviteUser,
   resendUserInvitation,
   revokeUserInvitation,
+  deleteUserInvitation,
   createUser,
   updateUser,
   updateUserStatus,

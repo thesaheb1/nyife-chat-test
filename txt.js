@@ -17,45 +17,38 @@
 
 
 
-// BUG:
-// 1. We register a new user account as user. and then admin recharge my wallet. i took monthly subscription.
-// the i chat with admin using support desk by raising a ticket. and i got a message from admin. then 
-// i created a new team member in my organization. and i invited him to my organization. and when team member logged in. he can see my support chat message with admin.
-// which is a biggest bug in my system. i can see my support chat message with admin. and other should not see it.
-// team member can see their own support chat message with admin. and i should not see it.
-
-// 2. When user try to delete his team member account. it gave below error but when i refresh the page team member is deleted and table is empty.
+// BUGS:
+// 1. super admin created sub admin account then super admin delete that sub admin account.
+// but when super admin try to create again that sub admin account with same email then it says "email already exists".
+// error : 
 
 // {
 //     "success": false,
-//     "message": "Validation failed",
-//     "stack": "AppError: Validation failed\n    at AppError.internal (/app/shared/shared-utils/src/AppError.js:87:12)\n    at syncTeamSeatUsage (/app/services/organization-service/src/services/organization.service.js:254:20)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.removeTeamMember (/app/services/organization-service/src/services/organization.service.js:993:3)\n    at async removeTeamMember (/app/services/organization-service/src/controllers/organization.controller.js:205:3)"
-// }
-
-// this was the API : 
-
-// Request URL : https://localhost:5173/api/v1/organizations/8e08090e-d176-4e39-9ef8-c6ceeb3c67cd/members/035bb699-7527-4143-83df-a7be3db20988
-// Request Method : DELETE
-// Status Code : 500 Internal Server Error
-
-
-// 3. after account is deleted by user when team member refresh the page on logged in account. it just loading and showing no content.
-
-// 4. when user try to create again team member account. with same email id. it created but team member is not able to login. giving this error.
-
-// {
-//     "success": false,
-//     "message": "Invitation not found or already used.",
-//     "stack": "AppError: Invitation not found or already used.\n    at AppError.notFound (/app/shared/shared-utils/src/AppError.js:67:12)\n    at findInvitationByToken (/app/services/organization-service/src/services/organization.service.js:759:20)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.acceptInvitation (/app/services/organization-service/src/services/organization.service.js:771:22)\n    at async acceptInvitation (/app/services/organization-service/src/controllers/organization.controller.js:129:18)"
+//     "message": "A user with this email already exists",
+//     "stack": "AppError: A user with this email already exists\n    at Object.createSubAdmin (/app/services/admin-service/src/services/admin.service.js:454:11)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async createSubAdmin (/app/services/admin-service/src/controllers/admin.controller.js:90:18)"
 // }
 
 // FIXES:
-// 1. user and team member should not able to see each other's support chat message.
-// 2. user can delete team member account without any single error. 
-// 4. After team member account deletion the team member should be logged out when he refresh the page.
-// 3. team member account must be deleted completely so new account can we created and logged in with same email id.
-// 4. team member account must not have access of team members module and organizations module. even user can't give access to these module while creating account.
+// 1. super admin can create sub admin account then super admin can delete that sub admin account and then super admin can recreate that sub admin account with same email.
+// 2. super admin can take these actions in sub admin table like : edit, delete, active, inactive.
+// 3. if super admin delete sub admin account then sub admin account should be deleted from database table "auth_users" also so we can re-create account again.
+// 4. if super admin make sub admin account inactive then sub admin account should not be able to login untill sub admin account is active.
+// 5. in invite tab of sub admin table super admin can take these actions : resend invite email, revoke invite or vise versa, delete invite same actions can be taken on user invite on user page by admin.
+// 6. also in user panel user can take these actions on team member table like : edit, delete, active, inactive.
+// 7. in user panel in team member in invite tab user can take these actions : resend invite email, revoke invite or vise versa, delete invite.
 
-// NOTE : FIX ALL BUGS AND CHECK THAT ALL FIXES ARE DONE
+// NOTE : create comprehensive production grade plan and fix all bugs then check that all fixes is completed. make sure that implementation is complete production garde.
 
+// BUGS:
+// 1. when i deleted sub admin account, admin and sub admin invitation on frontend then it is deleted and data gone from table but in db it is there and only deleted_at field is updated.
+// why we are not deleting data from db? same happened with user invitation by admin and team member invitation by user.
 
+// BUGS :
+// 1. A user try to register account with "saheb@gmail.com" email. a verification email is sent to "saheb@gmail.com" but user realizes that "saheb@gmail.com" is not a their email address.
+// they have entered wrong email address and then change it to "saheb786@gmail.com" and try to register account again. now a verification email is sent to "saheb786@gmail.com". user verifies the email and then try to login with "saheb786@gmail.com" email.
+// and user got sussessfull login but there is a bug that if the user who has "saheb@gmail.com" email can't able to register now because someone already try register with "saheb@gmail.com" email even though email "saheb786@gmail.com" is not verified yet.
+// so we need to fix this bug. untill email is not verified then the account can be register again with same name, phone or different.
+
+// IMPROVEMENTS:
+// 1. in entire frontend codebases the password field must have password visibility toggle button so user can see password and hide password easily and implemented with production grade security.
+// 2. register page or any other page where we are setting password must have password strength meter so user can see password strength easily match with our frontend and backend password validation.

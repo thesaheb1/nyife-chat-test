@@ -178,6 +178,13 @@ async function revokeInvitation(req, res) {
   return successResponse(res, null, 'Invitation revoked successfully');
 }
 
+async function deleteInvitation(req, res) {
+  const { id } = orgIdParamSchema.parse(req.params);
+  const { invitationId } = invitationIdParamSchema.parse(req.params);
+  await organizationService.deleteInvitation(req.user.id, id, invitationId);
+  return successResponse(res, null, 'Invitation deleted successfully');
+}
+
 /**
  * PUT /api/v1/organizations/:id/members/:memberId
  * Updates a team member's role, permissions, or status.
@@ -242,6 +249,7 @@ module.exports = {
   listInvitations,
   resendInvitation,
   revokeInvitation,
+  deleteInvitation,
   updateTeamMember,
   removeTeamMember,
   resolveOrganizationContext,

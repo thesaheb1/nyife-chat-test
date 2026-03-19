@@ -64,7 +64,7 @@ export function TagManagerDialog(props: {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Name</Label>
+                <Label required>Name</Label>
                 <Input value={tagFormName} onChange={(event) => onTagFormNameChange(event.target.value)} placeholder="VIP" />
               </div>
               <div className="space-y-2">
@@ -75,7 +75,7 @@ export function TagManagerDialog(props: {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button onClick={onSubmit} disabled={isSaving}>
+                <Button onClick={onSubmit} disabled={isSaving || !tagFormName.trim()}>
                   {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   {editingTagId ? 'Update Tag' : 'Create Tag'}
                 </Button>
@@ -167,7 +167,7 @@ export function BulkTagDialog(props: {
         </ScrollArea>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={onSubmit} disabled={loading}>
+          <Button onClick={onSubmit} disabled={loading || selectedTagIds.length === 0}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {mode === 'assign' ? 'Apply Tags' : 'Remove Tags'}
           </Button>
@@ -219,7 +219,7 @@ export function BulkGroupDialog(props: {
         </ScrollArea>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={onSubmit} disabled={loading}>
+          <Button onClick={onSubmit} disabled={loading || selectedGroupIds.length === 0}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {mode === 'assign' ? 'Assign Groups' : 'Remove Groups'}
           </Button>
@@ -287,7 +287,7 @@ export function GroupEditorDialog(props: {
           <Card className="border-border/60 shadow-sm">
             <CardContent className="space-y-4 p-5">
               <div className="space-y-2">
-                <Label>Name</Label>
+                <Label required>Name</Label>
                 <Input value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Newsletter Subscribers" />
               </div>
               <div className="space-y-2">
@@ -384,7 +384,7 @@ export function GroupEditorDialog(props: {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={onSubmit} disabled={saving}>
+          <Button onClick={onSubmit} disabled={saving || !name.trim()}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {mode === 'create' ? 'Create Group' : 'Save Changes'}
           </Button>
@@ -512,7 +512,7 @@ export function GroupContactsDialog(props: {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={onSubmit} disabled={saving}>
+          <Button onClick={onSubmit} disabled={saving || selectedContactIds.length === 0}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {mode === 'assign' ? 'Update Memberships' : 'Remove Memberships'}
           </Button>

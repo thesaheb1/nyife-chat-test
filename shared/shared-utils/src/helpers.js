@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const sanitize = require('sanitize-html');
+const AppError = require('./AppError');
 
 const LOCAL_FRONTEND_FALLBACK_URL = 'https://localhost:5173';
 const MONEY_SCALE = 100;
@@ -179,6 +180,64 @@ function paiseToRupees(amountInPaise) {
   return numericAmount / MONEY_SCALE;
 }
 
+function normalizeOptionalPhone(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return normalized || null;
+}
+
+async function findActiveAuthUserByPhone(sequelize, phone, options = {}) {
+  const normalizedPhone = normalizeOptionalPhone(phone);
+  if (!normalizedPhone) {
+    return null;
+  }
+
+  const replacements = {
+    phone: normalizedPhone,
+  };
+  const exclusionClause = options.excludeUserId
+    ? ' AND id <> :excludeUserId'
+    : '';
+
+  if (options.excludeUserId) {
+    replacements.excludeUserId = options.excludeUserId;
+  }
+
+  const [rows] = await sequelize.query(
+    `SELECT id, email, role, status, phone, deleted_at
+     FROM auth_users
+     WHERE phone = :phone
+       AND deleted_at IS NULL${exclusionClause}
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    {
+      replacements,
+    }
+  );
+
+  return rows?.[0] || null;
+}
+
+async function assertAuthUserPhoneAvailable(sequelize, phone, options = {}) {
+  const normalizedPhone = normalizeOptionalPhone(phone);
+  if (!normalizedPhone) {
+    return null;
+  }
+
+  const existingUser = await findActiveAuthUserByPhone(sequelize, normalizedPhone, options);
+  if (existingUser) {
+    throw AppError.conflict(
+      options.message || 'A user with this phone number already exists',
+      options.code || 'PHONE_ALREADY_EXISTS'
+    );
+  }
+
+  return normalizedPhone;
+}
+
 function isLoopbackHost(hostname) {
   return LOOPBACK_HOSTS.has(String(hostname || '').toLowerCase());
 }
@@ -246,5 +305,8 @@ module.exports = {
   isValidRupeeAmount,
   rupeesToPaise,
   paiseToRupees,
+  normalizeOptionalPhone,
+  findActiveAuthUserByPhone,
+  assertAuthUserPhoneAvailable,
   resolveFrontendAppUrl,
 };

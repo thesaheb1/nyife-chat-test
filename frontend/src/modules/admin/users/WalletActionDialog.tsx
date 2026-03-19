@@ -16,6 +16,7 @@ import { useCreditWallet, useDebitWallet } from './useAdminUsers';
 import { walletActionSchema, type WalletActionFormData } from './validations';
 import { toast } from 'sonner';
 import { getApiErrorMessage } from '@/core/errors/apiError';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 interface Props {
   userId: string;
@@ -41,10 +42,15 @@ export function WalletActionDialog({
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<WalletActionFormData>({
     resolver: zodResolver(walletActionSchema),
+    mode: 'onChange',
   });
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, ['amount', 'remarks']);
+  const isSubmitDisabled =
+    isSubmitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   const onSubmit = async (data: WalletActionFormData) => {
     try {
@@ -77,7 +83,7 @@ export function WalletActionDialog({
             </div>
           ) : null}
           <div className="space-y-2">
-            <Label htmlFor="amount">{t('admin.users.amount')} (₹)</Label>
+            <Label htmlFor="amount" required>{t('admin.users.amount')} (₹)</Label>
             <Input
               id="amount"
               type="number"
@@ -90,7 +96,7 @@ export function WalletActionDialog({
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="remarks">{t('admin.users.remarks')}</Label>
+            <Label htmlFor="remarks" required>{t('admin.users.remarks')}</Label>
             <Textarea id="remarks" rows={3} {...register('remarks')} />
             {errors.remarks && (
               <p className="text-xs text-destructive">{errors.remarks.message}</p>
@@ -100,7 +106,7 @@ export function WalletActionDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitDisabled}>
               {isSubmitting ? 'Processing...' : t('common.confirm')}
             </Button>
           </DialogFooter>

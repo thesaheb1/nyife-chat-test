@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AuthLayout } from '@/shared/layouts/AuthLayout';
 import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { resetPasswordSchema } from './validations';
@@ -28,8 +29,15 @@ export function ResetPasswordPage() {
     formState: { errors },
   } = useForm<ResetPasswordFormData>({
     resolver: zodResolver(resetPasswordSchema),
+    mode: 'onChange',
   });
   const newPasswordValue = useWatch({ control, name: 'new_password' }) || '';
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, [
+    'new_password',
+    'confirm_password',
+  ]);
+  const isSubmitDisabled =
+    isSubmitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   const onSubmit = async (data: ResetPasswordFormData) => {
     if (!token) {
@@ -84,7 +92,7 @@ export function ResetPasswordPage() {
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="new_password">New Password</Label>
+              <Label htmlFor="new_password" required>New Password</Label>
               <Input
                 id="new_password"
                 type="password"
@@ -98,7 +106,7 @@ export function ResetPasswordPage() {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm_password">Confirm Password</Label>
+              <Label htmlFor="confirm_password" required>Confirm Password</Label>
               <Input
                 id="confirm_password"
                 type="password"
@@ -110,7 +118,7 @@ export function ResetPasswordPage() {
                 <p className="text-sm text-destructive">{errors.confirm_password.message}</p>
               )}
             </div>
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full" disabled={isSubmitDisabled}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Reset Password
             </Button>

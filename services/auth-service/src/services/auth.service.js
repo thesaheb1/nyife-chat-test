@@ -3,7 +3,11 @@
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { User, RefreshToken, sequelize } = require('../models');
-const { AppError, buildDefaultOrganizationSeed } = require('@nyife/shared-utils');
+const {
+  AppError,
+  assertAuthUserPhoneAvailable,
+  buildDefaultOrganizationSeed,
+} = require('@nyife/shared-utils');
 const config = require('../config');
 
 async function createDefaultOrganizationForUser(user, transaction) {
@@ -249,6 +253,11 @@ async function register({ email, password, first_name, last_name, phone }) {
     throw AppError.conflict('A user with this email already exists');
   }
 
+  const reusablePendingUserId = isReusablePendingRegistration(existing) ? existing.id : null;
+  const normalizedPhone = await assertAuthUserPhoneAvailable(sequelize, phone, {
+    excludeUserId: reusablePendingUserId,
+  });
+
   const emailVerificationToken = crypto.randomBytes(32).toString('hex');
   const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
@@ -258,7 +267,7 @@ async function register({ email, password, first_name, last_name, phone }) {
         password,
         first_name,
         last_name,
-        phone: phone || null,
+        phone: normalizedPhone,
         role: 'user',
         status: 'pending_verification',
         email_verified_at: null,
@@ -286,7 +295,7 @@ async function register({ email, password, first_name, last_name, phone }) {
       password,
       first_name,
       last_name,
-      phone: phone || null,
+      phone: normalizedPhone,
       role: 'user',
       status: 'pending_verification',
       email_verification_token: emailVerificationToken,

@@ -61,6 +61,12 @@ describe('auth-service registration', () => {
     mock.method(sequelize, 'query', async (sql, options = {}) => {
       queryCalls.push({ sql, options });
 
+      if (sql.includes('FROM auth_users') && sql.includes('WHERE phone = :phone')) {
+        assert.equal(options.replacements.phone, '+918888888888');
+        assert.equal(options.replacements.excludeUserId, 'user-1');
+        return [[], null];
+      }
+
       if (sql.includes('FROM org_organizations')) {
         return [[{ id: 'org-1' }], null];
       }
@@ -112,5 +118,38 @@ describe('auth-service registration', () => {
     assert.equal(emailPayload.to_emails[0], 'owner@example.com');
     assert.match(emailPayload.variables.verificationUrl, /replacement-token/);
     assert.ok(queryCalls.some((entry) => entry.sql.includes('UPDATE org_organizations')));
+  });
+
+  it('rejects registration when another active user already owns the submitted phone number', async () => {
+    mock.method(User, 'unscoped', () => ({
+      findOne: async ({ where }) => {
+        assert.equal(where.email, 'fresh@example.com');
+        return null;
+      },
+    }));
+    mock.method(sequelize, 'query', async (sql, options = {}) => {
+      if (sql.includes('FROM auth_users') && sql.includes('WHERE phone = :phone')) {
+        assert.equal(options.replacements.phone, '+919999999999');
+        return [[{ id: 'existing-user-1', email: 'taken@example.com' }], null];
+      }
+
+      throw new Error(`Unexpected sequelize.query SQL: ${sql}`);
+    });
+
+    await assert.rejects(
+      authService.register({
+        email: 'fresh@example.com',
+        password: 'StrongPass1!',
+        first_name: 'Fresh',
+        last_name: 'User',
+        phone: '+919999999999',
+      }),
+      (error) => {
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, 'PHONE_ALREADY_EXISTS');
+        assert.equal(error.message, 'A user with this phone number already exists');
+        return true;
+      }
+    );
   });
 });

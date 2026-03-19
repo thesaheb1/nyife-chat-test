@@ -4,8 +4,8 @@ const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a
 
 export const createCampaignSchema = z
   .object({
-    name: z.string().min(1, 'Campaign name is required').max(255),
-    description: z.string().max(5000).optional(),
+    name: z.string().trim().min(1, 'Campaign name is required').max(255),
+    description: z.string().trim().max(5000).optional().or(z.literal('')),
     wa_account_id: z.string().regex(uuidRegex, 'Invalid WhatsApp account'),
     template_id: z.string().regex(uuidRegex, 'Invalid template'),
     type: z.enum(['immediate', 'scheduled']),
@@ -17,7 +17,7 @@ export const createCampaignSchema = z
       exclude_tag_ids: z.array(z.string()).optional(),
     }),
     variables_mapping: z.record(z.string(), z.string()).optional(),
-    scheduled_at: z.string().optional(),
+    scheduled_at: z.string().trim().optional(),
   })
   .refine(
     (d) => d.type !== 'scheduled' || (d.scheduled_at && d.scheduled_at.length > 0),
@@ -27,8 +27,8 @@ export const createCampaignSchema = z
 export type CreateCampaignFormData = z.infer<typeof createCampaignSchema>;
 
 export const updateCampaignSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  description: z.string().max(5000).optional(),
+  name: z.string().trim().min(1).max(255).optional(),
+  description: z.string().trim().max(5000).optional().or(z.literal('')),
   wa_account_id: z.string().regex(uuidRegex).optional(),
   template_id: z.string().regex(uuidRegex).optional(),
   type: z.enum(['immediate', 'scheduled']).optional(),
@@ -42,6 +42,6 @@ export const updateCampaignSchema = z.object({
     })
     .optional(),
   variables_mapping: z.record(z.string(), z.string()).optional(),
-  scheduled_at: z.string().optional(),
+  scheduled_at: z.string().trim().optional(),
 });
 export type UpdateCampaignFormData = z.infer<typeof updateCampaignSchema>;

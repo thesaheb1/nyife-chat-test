@@ -62,6 +62,7 @@ import {
   useUpdateCouponStatus,
 } from './useAdminPlans';
 import { createCouponSchema, type CreateCouponFormData } from './validations';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 const STATUS_VARIANTS: Record<
   Coupon['status'],
@@ -155,11 +156,21 @@ function CouponFormDialog({
     reset,
     setValue,
     watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<CreateCouponFormData>({
     resolver: zodResolver(createCouponSchema),
     defaultValues: toFormValues(coupon),
+    mode: 'onChange',
   });
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, [
+    'code',
+    'discount_type',
+    'discount_value',
+    'valid_from',
+  ]);
+  const isSubmitDisabled =
+    isSubmitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   useEffect(() => {
     reset(toFormValues(coupon));
@@ -195,7 +206,7 @@ function CouponFormDialog({
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="coupon-code">Coupon Code</Label>
+              <Label htmlFor="coupon-code" required>Coupon Code</Label>
               <Input
                 id="coupon-code"
                 {...register('code')}
@@ -220,7 +231,7 @@ function CouponFormDialog({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Discount Type</Label>
+              <Label required>Discount Type</Label>
               <Select
                 value={watch('discount_type')}
                 onValueChange={(value) =>
@@ -238,7 +249,7 @@ function CouponFormDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="coupon-discount-value">
+              <Label htmlFor="coupon-discount-value" required>
                 {watch('discount_type') === 'percentage' ? 'Discount Percentage' : 'Discount Amount (₹)'}
               </Label>
               <Input
@@ -291,7 +302,7 @@ function CouponFormDialog({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="coupon-valid-from">Valid From</Label>
+              <Label htmlFor="coupon-valid-from" required>Valid From</Label>
               <Input id="coupon-valid-from" type="date" {...register('valid_from')} />
               {errors.valid_from ? (
                 <p className="text-xs text-destructive">{errors.valid_from.message}</p>
@@ -329,7 +340,7 @@ function CouponFormDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitDisabled}>
               {isSubmitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Coupon'}
             </Button>
           </DialogFooter>
@@ -494,7 +505,7 @@ export function CouponsPage() {
         ),
       },
     ],
-    [canDelete, canUpdate, updateStatus.isPending]
+    [canDelete, canUpdate, handleToggleStatus, updateStatus.isPending]
   );
 
   const filtersActive =

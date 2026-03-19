@@ -22,12 +22,17 @@ function positiveRupeeAmountSchema(label: string) {
 }
 
 export const createPlanSchema = z.object({
-  name: z.string().min(1, 'Plan name is required').max(100),
-  slug: z.string().min(1, 'Slug is required').max(100),
-  description: z.string().max(500).optional(),
+  name: z.string().trim().min(1, 'Plan name is required').max(100),
+  slug: z
+    .string()
+    .trim()
+    .min(1, 'Slug is required')
+    .max(100)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug must contain only lowercase letters, numbers, and hyphens'),
+  description: z.string().trim().max(500).optional().or(z.literal('')),
   type: z.enum(['monthly', 'yearly', 'lifetime']),
   price: nonNegativeRupeeAmountSchema('Price'),
-  currency: z.string().optional(),
+  currency: z.string().trim().optional().or(z.literal('')),
   max_contacts: z.number().int().min(1),
   max_templates: z.number().int().min(1),
   max_campaigns_per_month: z.number().int().min(1),
@@ -48,7 +53,7 @@ export type CreatePlanFormData = z.infer<typeof createPlanSchema>;
 export const createCouponSchema = z
   .object({
     code: z.string().trim().min(1, 'Coupon code is required').max(50),
-    description: z.string().trim().max(500).optional(),
+    description: z.string().trim().max(500).optional().or(z.literal('')),
     discount_type: z.enum(['percentage', 'fixed']),
     discount_value: z.number().finite('Discount value must be a valid number'),
     max_uses: z.number().int().min(1).nullable().optional(),

@@ -9,9 +9,11 @@ const { QueryTypes, Op } = require('sequelize');
 const { sequelize, AdminRole, SubAdmin, AdminInvitation, AdminSetting } = require('../models');
 const { AppError } = require('@nyife/shared-middleware');
 const {
+  assertAuthUserPhoneAvailable,
   buildDefaultOrganizationSeed,
   getPagination,
   getPaginationMeta,
+  normalizeOptionalPhone,
   slugify,
   normalizeAdminPermissions,
   buildFullAdminPermissions,
@@ -139,6 +141,14 @@ function normalizeRolePermissions(permissions, options = {}) {
   return normalizeAdminPermissions(permissions, {
     includeReserved: Boolean(options.includeReserved),
   });
+}
+
+function normalizeText(value) {
+  return String(value || '').trim();
+}
+
+function normalizeEmail(email) {
+  return normalizeText(email).toLowerCase();
 }
 
 function buildStoredRole(role) {
@@ -591,8 +601,11 @@ async function resolveAdminAuthorization(userId) {
  * @returns {Promise<object>} The created sub-admin with user info
  */
 async function createSubAdmin(data, createdBy) {
-  const { first_name, last_name, email, phone, password, role_id } = data;
-  const normalizedEmail = String(email).trim().toLowerCase();
+  const { password, role_id } = data;
+  const first_name = normalizeText(data.first_name);
+  const last_name = normalizeText(data.last_name);
+  const normalizedEmail = normalizeEmail(data.email);
+  const phone = await assertAuthUserPhoneAvailable(sequelize, normalizeOptionalPhone(data.phone));
 
   // Verify role exists
   const role = await AdminRole.findByPk(role_id);
@@ -631,7 +644,7 @@ async function createSubAdmin(data, createdBy) {
           password: hashedPassword,
           first_name,
           last_name,
-          phone: phone || null,
+          phone,
           now,
         },
         type: QueryTypes.INSERT,
@@ -666,7 +679,7 @@ async function createSubAdmin(data, createdBy) {
         email: normalizedEmail,
         first_name,
         last_name,
-        phone: phone || null,
+        phone,
       },
       role: buildStoredRole(result.role),
     };
@@ -678,7 +691,7 @@ async function createSubAdmin(data, createdBy) {
 
 async function inviteSubAdmin(data, invitedBy, kafkaProducer = null) {
   const { first_name, last_name, email, role_id } = data;
-  const normalizedEmail = String(email).trim().toLowerCase();
+  const normalizedEmail = normalizeEmail(email);
 
   const role = await AdminRole.findByPk(role_id);
   if (!role) {
@@ -1248,7 +1261,11 @@ async function getUser(userId) {
  * @returns {Promise<object>} Created user
  */
 async function createUser(data) {
-  const { first_name, last_name, email, phone, password, role, status } = data;
+  const first_name = normalizeText(data.first_name);
+  const last_name = normalizeText(data.last_name);
+  const email = normalizeEmail(data.email);
+  const phone = await assertAuthUserPhoneAvailable(sequelize, normalizeOptionalPhone(data.phone));
+  const { password, role, status } = data;
 
   // Check for existing email
   const [existing] = await sequelize.query(
@@ -1277,7 +1294,7 @@ async function createUser(data) {
           password: hashedPassword,
           first_name,
           last_name,
-          phone: phone || null,
+          phone,
           role: nextRole,
           status: nextStatus,
           now,
@@ -1297,7 +1314,7 @@ async function createUser(data) {
     email,
     first_name,
     last_name,
-    phone: phone || null,
+    phone,
     role: nextRole,
     status: nextStatus,
     email_verified_at: now,

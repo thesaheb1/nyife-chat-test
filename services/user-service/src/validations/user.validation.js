@@ -1,7 +1,11 @@
 'use strict';
 
 const { z } = require('zod');
-const { strongPasswordRegex, strongPasswordMessage } = require('@nyife/shared-utils');
+const {
+  optionalPhoneSchema,
+  strongPasswordRegex,
+  strongPasswordMessage,
+} = require('@nyife/shared-utils');
 
 // ---------------------------------------------------------------------------
 // Profile validation schemas
@@ -22,12 +26,7 @@ const updateProfileSchema = z.object({
     .trim()
     .min(2, 'Last name must be at least 2 characters')
     .max(50, 'Last name must be at most 50 characters'),
-  phone: z
-    .string()
-    .trim()
-    .regex(/^\+[1-9]\d{6,14}$/, 'Phone must be in E.164 format (e.g., +919876543210)')
-    .optional()
-    .nullable(),
+  phone: optionalPhoneSchema,
 });
 
 /**

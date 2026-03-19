@@ -4,6 +4,7 @@ const { z } = require('zod');
 const {
   ADMIN_ASSIGNABLE_RESOURCE_KEYS,
   isValidRupeeAmount,
+  optionalPhoneSchema,
   strongPasswordRegex,
   strongPasswordMessage,
 } = require('@nyife/shared-utils');
@@ -49,18 +50,18 @@ function nonNegativeRupeeAmountSchema(label) {
 // ---------------------------------------------------------------------------
 
 const createSubAdminSchema = z.object({
-  first_name: z.string().min(1, 'First name is required').max(100),
-  last_name: z.string().min(1, 'Last name is required').max(100),
-  email: z.string().email('Invalid email format'),
-  phone: z.string().min(10).max(20).optional(),
+  first_name: z.string().trim().min(1, 'First name is required').max(100),
+  last_name: z.string().trim().min(1, 'Last name is required').max(100),
+  email: z.string().trim().email('Invalid email format'),
+  phone: optionalPhoneSchema,
   password: z.string().regex(strongPasswordRegex, strongPasswordMessage).max(128),
   role_id: z.string().uuid('Invalid role ID'),
 });
 
 const inviteSubAdminSchema = z.object({
-  first_name: z.string().min(1, 'First name is required').max(100),
-  last_name: z.string().min(1, 'Last name is required').max(100),
-  email: z.string().email('Invalid email format'),
+  first_name: z.string().trim().min(1, 'First name is required').max(100),
+  last_name: z.string().trim().min(1, 'Last name is required').max(100),
+  email: z.string().trim().email('Invalid email format'),
   role_id: z.string().uuid('Invalid role ID'),
 });
 
@@ -88,27 +89,27 @@ const listUsersSchema = z.object({
 });
 
 const createUserSchema = z.object({
-  first_name: z.string().min(1, 'First name is required').max(100),
-  last_name: z.string().min(1, 'Last name is required').max(100),
-  email: z.string().email('Invalid email format'),
-  phone: z.string().min(10).max(20).optional(),
+  first_name: z.string().trim().min(1, 'First name is required').max(100),
+  last_name: z.string().trim().min(1, 'Last name is required').max(100),
+  email: z.string().trim().email('Invalid email format'),
+  phone: optionalPhoneSchema,
   password: z.string().regex(strongPasswordRegex, strongPasswordMessage).max(128),
   status: z.enum(['active', 'inactive', 'suspended']).default('active'),
 });
 
 const inviteUserSchema = z.object({
-  first_name: z.string().min(1, 'First name is required').max(100),
-  last_name: z.string().min(1, 'Last name is required').max(100),
-  email: z.string().email('Invalid email format'),
-  phone: z.string().min(10).max(20).optional(),
+  first_name: z.string().trim().min(1, 'First name is required').max(100),
+  last_name: z.string().trim().min(1, 'Last name is required').max(100),
+  email: z.string().trim().email('Invalid email format'),
+  phone: optionalPhoneSchema,
 });
 
 const updateUserSchema = z
   .object({
-    first_name: z.string().min(1, 'First name is required').max(100).optional(),
-    last_name: z.string().min(1, 'Last name is required').max(100).optional(),
-    email: z.string().email('Invalid email format').optional(),
-    phone: z.string().min(10).max(20).nullable().optional(),
+    first_name: z.string().trim().min(1, 'First name is required').max(100).optional(),
+    last_name: z.string().trim().min(1, 'Last name is required').max(100).optional(),
+    email: z.string().trim().email('Invalid email format').optional(),
+    phone: optionalPhoneSchema,
     avatar_url: z.string().url('Invalid avatar URL').nullable().optional(),
     remove_avatar: z.boolean().optional(),
   })
@@ -126,7 +127,7 @@ const userDashboardQuerySchema = z.object({
 
 const walletActionSchema = z.object({
   amount: positiveRupeeAmountSchema('Amount'),
-  remarks: z.string().min(1, 'Remarks are required').max(500),
+  remarks: z.string().trim().min(1, 'Remarks are required').max(500),
   organization_id: z.string().uuid('Invalid organization ID').optional(),
 });
 

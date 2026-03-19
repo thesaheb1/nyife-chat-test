@@ -28,6 +28,7 @@ import {
   getWhatsAppAccountLabel,
 } from '@/modules/whatsapp/accountOptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
+import { hasFilledValue, useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 export function CreateCampaignPage() {
   const navigate = useNavigate();
@@ -39,6 +40,7 @@ export function CreateCampaignPage() {
     handleSubmit,
     setValue,
     watch,
+    control,
     formState: { errors },
   } = useForm<CreateCampaignFormData>({
     resolver: zodResolver(createCampaignSchema),
@@ -47,6 +49,7 @@ export function CreateCampaignPage() {
       target_type: 'all',
       target_config: {},
     },
+    mode: 'onChange',
   });
 
   const campaignType = watch('type');
@@ -58,6 +61,15 @@ export function CreateCampaignPage() {
     [selectedWaAccountId, waAccounts]
   );
   const activeAccountOptions = useMemo(() => buildActiveWhatsAppAccountOptions(waAccounts), [waAccounts]);
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, [
+    'name',
+    'wa_account_id',
+    'template_id',
+    {
+      name: 'scheduled_at',
+      isFilled: (value, values) => values.type !== 'scheduled' || hasFilledValue(value),
+    },
+  ]);
 
   const { data: templatesData } = useTemplates({
     status: 'approved',
@@ -88,6 +100,19 @@ export function CreateCampaignPage() {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+  const audienceSelectionFilled =
+    targetType === 'contacts'
+      ? parseIds(contactIdsInput).length > 0
+      : targetType === 'group'
+        ? parseIds(groupIdsInput).length > 0
+        : targetType === 'tags'
+          ? parseIds(tagIdsInput).length > 0
+          : true;
+  const isSubmitDisabled =
+    createCampaign.isPending
+    || !requiredFieldsFilled
+    || !audienceSelectionFilled
+    || Object.keys(errors).length > 0;
 
   const onSubmit = async (data: CreateCampaignFormData) => {
     // Build target_config from inputs
@@ -123,7 +148,7 @@ export function CreateCampaignPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Campaign Name *</Label>
+              <Label required>Campaign Name</Label>
               <Input {...register('name')} placeholder="e.g., Black Friday Sale 2026" />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>
@@ -133,7 +158,7 @@ export function CreateCampaignPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>WhatsApp Account *</Label>
+                <Label required>WhatsApp Account</Label>
                 <Select
                   value={selectedWaAccountId || ''}
                   onValueChange={(value) => {
@@ -169,7 +194,7 @@ export function CreateCampaignPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Template *</Label>
+                <Label required>Template</Label>
                 <Select
                   value={selectedTemplateId || ''}
                   onValueChange={(value) => setValue('template_id', value, { shouldValidate: true })}
@@ -209,10 +234,15 @@ export function CreateCampaignPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Campaign Type</Label>
+              <Label required>Campaign Type</Label>
               <Select
                 value={campaignType}
-                onValueChange={(v) => setValue('type', v as 'immediate' | 'scheduled')}
+                onValueChange={(v) =>
+                  setValue('type', v as 'immediate' | 'scheduled', {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -225,7 +255,7 @@ export function CreateCampaignPage() {
             </div>
             {campaignType === 'scheduled' && (
               <div className="space-y-2">
-                <Label>Scheduled Date & Time *</Label>
+                <Label required>Scheduled Date & Time</Label>
                 <Input
                   type="datetime-local"
                   {...register('scheduled_at')}
@@ -244,10 +274,15 @@ export function CreateCampaignPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Target Type</Label>
+              <Label required>Target Type</Label>
               <Select
                 value={targetType}
-                onValueChange={(v) => setValue('target_type', v as CreateCampaignFormData['target_type'])}
+                onValueChange={(v) =>
+                  setValue('target_type', v as CreateCampaignFormData['target_type'], {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -263,7 +298,7 @@ export function CreateCampaignPage() {
 
             {targetType === 'contacts' && (
               <div className="space-y-2">
-                <Label>Contact IDs</Label>
+                <Label required>Contact IDs</Label>
                 <Textarea
                   value={contactIdsInput}
                   onChange={(e) => setContactIdsInput(e.target.value)}
@@ -292,28 +327,37 @@ export function CreateCampaignPage() {
                     ))}
                   </div>
                 )}
+                {!audienceSelectionFilled ? (
+                  <p className="text-sm text-destructive">At least one contact ID is required.</p>
+                ) : null}
               </div>
             )}
 
             {targetType === 'group' && (
               <div className="space-y-2">
-                <Label>Group IDs</Label>
+                <Label required>Group IDs</Label>
                 <Input
                   value={groupIdsInput}
                   onChange={(e) => setGroupIdsInput(e.target.value)}
                   placeholder="Group IDs separated by commas"
                 />
+                {!audienceSelectionFilled ? (
+                  <p className="text-sm text-destructive">At least one group ID is required.</p>
+                ) : null}
               </div>
             )}
 
             {targetType === 'tags' && (
               <div className="space-y-2">
-                <Label>Tag IDs</Label>
+                <Label required>Tag IDs</Label>
                 <Input
                   value={tagIdsInput}
                   onChange={(e) => setTagIdsInput(e.target.value)}
                   placeholder="Tag IDs separated by commas"
                 />
+                {!audienceSelectionFilled ? (
+                  <p className="text-sm text-destructive">At least one tag ID is required.</p>
+                ) : null}
               </div>
             )}
 
@@ -352,7 +396,7 @@ export function CreateCampaignPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/campaigns')}>
             Cancel
           </Button>
-          <Button type="submit" disabled={createCampaign.isPending}>
+          <Button type="submit" disabled={isSubmitDisabled}>
             {createCampaign.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create Campaign
           </Button>

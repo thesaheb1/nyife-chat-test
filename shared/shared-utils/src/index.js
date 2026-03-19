@@ -11,6 +11,7 @@ const {
 } = require('./metaCredentials');
 const {
   phoneSchema,
+  optionalPhoneSchema,
   emailSchema,
   uuidSchema,
   paginationSchema,
@@ -31,6 +32,9 @@ const {
   isValidRupeeAmount,
   rupeesToPaise,
   paiseToRupees,
+  normalizeOptionalPhone,
+  findActiveAuthUserByPhone,
+  assertAuthUserPhoneAvailable,
   resolveFrontendAppUrl,
 } = require('./helpers');
 const {
@@ -77,6 +81,7 @@ module.exports = {
 
   // Validators (Zod schemas)
   phoneSchema,
+  optionalPhoneSchema,
   emailSchema,
   uuidSchema,
   paginationSchema,
@@ -97,6 +102,9 @@ module.exports = {
   isValidRupeeAmount,
   rupeesToPaise,
   paiseToRupees,
+  normalizeOptionalPhone,
+  findActiveAuthUserByPhone,
+  assertAuthUserPhoneAvailable,
   resolveFrontendAppUrl,
 
   // Permissions

@@ -45,6 +45,7 @@ import { useTemplates } from '@/modules/templates/useTemplates';
 import { useTags } from '@/modules/contacts/useContacts';
 import { useFlows } from '@/modules/flows/useFlows';
 import { flowCategories } from '@/modules/flows/flowUtils';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 export function CreateAutomationPage() {
   const navigate = useNavigate();
@@ -75,6 +76,7 @@ export function CreateAutomationPage() {
   const { control, register, handleSubmit, setValue, formState: { errors } } = useForm<CreateAutomationFormData>({
     resolver: zodResolver(createAutomationSchema),
     defaultValues: { name: '', description: '', type: 'basic_reply', wa_account_id: '', priority: 0 },
+    mode: 'onChange',
   });
 
   const automationType = useWatch({ control, name: 'type' });
@@ -93,6 +95,21 @@ export function CreateAutomationPage() {
   const flows = flowsData?.flows || [];
   const selectedTriggerFlow = flows.find((flow) => flow.id === triggerBuilder.flow_id);
   const isPending = createAuto.isPending || updateAuto.isPending;
+  const actionFieldsFilled =
+    automationType === 'basic_reply'
+      ? basicReplyAction.body.trim().length > 0
+      : automationType === 'webhook_trigger'
+        ? webhookAction.webhook_url.trim().length > 0
+        : automationType === 'api_trigger'
+          ? apiAction.api_url.trim().length > 0
+          : true;
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, [
+    'name',
+    'type',
+    'wa_account_id',
+  ]);
+  const isSubmitDisabled =
+    isPending || !requiredFieldsFilled || !actionFieldsFilled || Object.keys(errors).length > 0;
 
   useEffect(() => {
     if (jsonDirty) {
@@ -179,14 +196,22 @@ export function CreateAutomationPage() {
           <CardHeader><CardTitle className="text-lg">Basics</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2"><Label>Name *</Label><Input {...register('name')} placeholder="Fallback welcome" />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
+              <div className="space-y-2"><Label required>Name</Label><Input {...register('name')} placeholder="Fallback welcome" />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
               <div className="space-y-2"><Label>Priority</Label><Input type="number" min="0" {...register('priority', { valueAsNumber: true })} /></div>
             </div>
             <div className="space-y-2"><Label>Description</Label><Textarea {...register('description')} rows={3} placeholder="Internal notes for your team" /></div>
             <div className="grid gap-4 lg:grid-cols-3">
               <div className="space-y-2">
-                <Label>Type *</Label>
-                <Select value={automationType} onValueChange={(value) => setValue('type', value as CreateAutomationFormData['type'])}>
+                <Label required>Type</Label>
+                <Select
+                  value={automationType}
+                  onValueChange={(value) =>
+                    setValue('type', value as CreateAutomationFormData['type'], {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
+                  }
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="basic_reply">Basic Reply</SelectItem>
@@ -197,8 +222,16 @@ export function CreateAutomationPage() {
                 </Select>
               </div>
               <div className="space-y-2 lg:col-span-2">
-                <Label>WhatsApp Account *</Label>
-                <Select value={selectedAccountId} onValueChange={(value) => setValue('wa_account_id', value)}>
+                <Label required>WhatsApp Account</Label>
+                <Select
+                  value={selectedAccountId}
+                  onValueChange={(value) =>
+                    setValue('wa_account_id', value, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
+                  }
+                >
                   <SelectTrigger><SelectValue placeholder="Select connected account" /></SelectTrigger>
                   <SelectContent>
                     {(waAccounts || []).map((account) => (
@@ -317,11 +350,11 @@ export function CreateAutomationPage() {
               </CardContent>
             </Card>
 
-            {automationType === 'basic_reply' && <Card><CardHeader><CardTitle className="text-lg">Reply</CardTitle></CardHeader><CardContent><Textarea value={basicReplyAction.body} onChange={(event) => setBasicReplyAction({ body: event.target.value })} rows={5} placeholder="Hi! How can I help?" /></CardContent></Card>}
+            {automationType === 'basic_reply' && <Card><CardHeader><CardTitle className="text-lg">Reply</CardTitle></CardHeader><CardContent><div className="space-y-2"><Label required>Reply Message</Label><Textarea value={basicReplyAction.body} onChange={(event) => setBasicReplyAction({ body: event.target.value })} rows={5} placeholder="Hi! How can I help?" />{!actionFieldsFilled ? <p className="text-xs text-destructive">Reply message is required.</p> : null}</div></CardContent></Card>}
 
-            {automationType === 'webhook_trigger' && <Card><CardHeader><CardTitle className="text-lg">Webhook Delivery</CardTitle></CardHeader><CardContent className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>Webhook URL</Label><Input value={webhookAction.webhook_url} onChange={(event) => setWebhookAction((current) => ({ ...current, webhook_url: event.target.value }))} placeholder="https://example.com/whatsapp-hook" /></div><div className="space-y-2"><Label>Signing Secret</Label><Input value={webhookAction.secret} onChange={(event) => setWebhookAction((current) => ({ ...current, secret: event.target.value }))} placeholder="Optional HMAC secret" /></div></div><div className="space-y-2"><Label>Headers (JSON)</Label><Textarea value={webhookAction.headersText} onChange={(event) => setWebhookAction((current) => ({ ...current, headersText: event.target.value }))} rows={6} className="font-mono text-xs" /></div></CardContent></Card>}
+            {automationType === 'webhook_trigger' && <Card><CardHeader><CardTitle className="text-lg">Webhook Delivery</CardTitle></CardHeader><CardContent className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label required>Webhook URL</Label><Input value={webhookAction.webhook_url} onChange={(event) => setWebhookAction((current) => ({ ...current, webhook_url: event.target.value }))} placeholder="https://example.com/whatsapp-hook" />{!actionFieldsFilled ? <p className="text-xs text-destructive">Webhook URL is required.</p> : null}</div><div className="space-y-2"><Label>Signing Secret</Label><Input value={webhookAction.secret} onChange={(event) => setWebhookAction((current) => ({ ...current, secret: event.target.value }))} placeholder="Optional HMAC secret" /></div></div><div className="space-y-2"><Label>Headers (JSON)</Label><Textarea value={webhookAction.headersText} onChange={(event) => setWebhookAction((current) => ({ ...current, headersText: event.target.value }))} rows={6} className="font-mono text-xs" /></div></CardContent></Card>}
 
-            {automationType === 'api_trigger' && <Card><CardHeader><CardTitle className="text-lg">API Trigger</CardTitle></CardHeader><CardContent className="space-y-4"><div className="grid gap-4 sm:grid-cols-[1fr_180px]"><div className="space-y-2"><Label>API URL</Label><Input value={apiAction.api_url} onChange={(event) => setApiAction((current) => ({ ...current, api_url: event.target.value }))} placeholder="https://example.com/api/lead" /></div><div className="space-y-2"><Label>Method</Label><Select value={apiAction.api_method} onValueChange={(value) => setApiAction((current) => ({ ...current, api_method: value as ApiActionState['api_method'] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="POST">POST</SelectItem><SelectItem value="GET">GET</SelectItem><SelectItem value="PUT">PUT</SelectItem><SelectItem value="PATCH">PATCH</SelectItem></SelectContent></Select></div></div><div className="grid gap-4 lg:grid-cols-2"><div className="space-y-2"><Label>Headers (JSON)</Label><Textarea value={apiAction.api_headers_text} onChange={(event) => setApiAction((current) => ({ ...current, api_headers_text: event.target.value }))} rows={7} className="font-mono text-xs" /></div><div className="space-y-2"><Label>Payload (JSON)</Label><Textarea value={apiAction.api_payload_text} onChange={(event) => setApiAction((current) => ({ ...current, api_payload_text: event.target.value }))} rows={7} className="font-mono text-xs" /></div></div><div className="space-y-2"><Label>Optional WhatsApp Reply</Label><Textarea value={apiAction.reply_body} onChange={(event) => setApiAction((current) => ({ ...current, reply_body: event.target.value }))} rows={4} placeholder="We'll get back to you shortly." /></div></CardContent></Card>}
+            {automationType === 'api_trigger' && <Card><CardHeader><CardTitle className="text-lg">API Trigger</CardTitle></CardHeader><CardContent className="space-y-4"><div className="grid gap-4 sm:grid-cols-[1fr_180px]"><div className="space-y-2"><Label required>API URL</Label><Input value={apiAction.api_url} onChange={(event) => setApiAction((current) => ({ ...current, api_url: event.target.value }))} placeholder="https://example.com/api/lead" />{!actionFieldsFilled ? <p className="text-xs text-destructive">API URL is required.</p> : null}</div><div className="space-y-2"><Label>Method</Label><Select value={apiAction.api_method} onValueChange={(value) => setApiAction((current) => ({ ...current, api_method: value as ApiActionState['api_method'] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="POST">POST</SelectItem><SelectItem value="GET">GET</SelectItem><SelectItem value="PUT">PUT</SelectItem><SelectItem value="PATCH">PATCH</SelectItem></SelectContent></Select></div></div><div className="grid gap-4 lg:grid-cols-2"><div className="space-y-2"><Label>Headers (JSON)</Label><Textarea value={apiAction.api_headers_text} onChange={(event) => setApiAction((current) => ({ ...current, api_headers_text: event.target.value }))} rows={7} className="font-mono text-xs" /></div><div className="space-y-2"><Label>Payload (JSON)</Label><Textarea value={apiAction.api_payload_text} onChange={(event) => setApiAction((current) => ({ ...current, api_payload_text: event.target.value }))} rows={7} className="font-mono text-xs" /></div></div><div className="space-y-2"><Label>Optional WhatsApp Reply</Label><Textarea value={apiAction.reply_body} onChange={(event) => setApiAction((current) => ({ ...current, reply_body: event.target.value }))} rows={4} placeholder="We'll get back to you shortly." /></div></CardContent></Card>}
 
             {automationType === 'advanced_flow' && (
               <Card>
@@ -359,7 +392,7 @@ export function CreateAutomationPage() {
 
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline" onClick={() => navigate('/automations')}>Cancel</Button>
-          <Button type="submit" disabled={isPending}>{isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isEdit ? 'Update Automation' : 'Create Automation'}</Button>
+          <Button type="submit" disabled={isSubmitDisabled}>{isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{isEdit ? 'Update Automation' : 'Create Automation'}</Button>
         </div>
       </form>
     </div>

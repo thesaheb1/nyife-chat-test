@@ -68,7 +68,10 @@ export function ContactDetailPage() {
           opted_in: contact.opted_in,
         }
       : undefined,
+    mode: 'onChange',
   });
+  const isSaveDisabled =
+    updateContact.isPending || Object.keys(errors).length > 0;
 
   const onSubmit = async (data: UpdateContactFormData) => {
     try {
@@ -151,7 +154,7 @@ export function ContactDetailPage() {
               <Button variant="outline" onClick={() => { setIsEditing(false); reset(); }}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmit(onSubmit)} disabled={updateContact.isPending}>
+              <Button onClick={handleSubmit(onSubmit)} disabled={isSaveDisabled}>
                 {updateContact.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Save
               </Button>

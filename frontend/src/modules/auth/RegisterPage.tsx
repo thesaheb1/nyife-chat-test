@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AuthLayout } from '@/shared/layouts/AuthLayout';
 import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import type { ApiResponse, User } from '@/core/types';
@@ -39,10 +40,24 @@ export function RegisterPage() {
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
     defaultValues: { terms: false as unknown as true },
+    mode: 'onChange',
   });
 
   const termsValue = useWatch({ control, name: 'terms' });
   const passwordValue = useWatch({ control, name: 'password' }) || '';
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, [
+    'first_name',
+    'last_name',
+    'email',
+    'password',
+    'confirm_password',
+    {
+      name: 'terms',
+      isFilled: (value) => value === true,
+    },
+  ]);
+  const isSubmitDisabled =
+    isSubmitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   const onSubmit = async (data: RegisterFormData) => {
     setIsSubmitting(true);
@@ -136,14 +151,14 @@ export function RegisterPage() {
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="first_name">First Name</Label>
+                  <Label htmlFor="first_name" required>First Name</Label>
                   <Input id="first_name" placeholder="John" {...register('first_name')} />
                   {errors.first_name && (
                     <p className="text-sm text-destructive">{errors.first_name.message}</p>
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="last_name">Last Name</Label>
+                  <Label htmlFor="last_name" required>Last Name</Label>
                   <Input id="last_name" placeholder="Doe" {...register('last_name')} />
                   {errors.last_name && (
                     <p className="text-sm text-destructive">{errors.last_name.message}</p>
@@ -151,7 +166,7 @@ export function RegisterPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email" required>Email</Label>
                 <Input
                   id="email"
                   type="email"
@@ -181,7 +196,7 @@ export function RegisterPage() {
                 {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" required>Password</Label>
                 <Input
                   id="password"
                   type="password"
@@ -195,7 +210,7 @@ export function RegisterPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirm_password">Confirm Password</Label>
+                <Label htmlFor="confirm_password" required>Confirm Password</Label>
                 <Input
                   id="confirm_password"
                   type="password"
@@ -211,14 +226,20 @@ export function RegisterPage() {
                 <Checkbox
                   id="terms"
                   checked={termsValue}
-                  onCheckedChange={(checked) => setValue('terms', checked === true ? true : false as unknown as true)}
+                  onCheckedChange={(checked) =>
+                    setValue('terms', checked === true ? true : false as unknown as true, {
+                      shouldDirty: true,
+                      shouldTouch: true,
+                      shouldValidate: true,
+                    })
+                  }
                 />
-                <Label htmlFor="terms" className="text-sm font-normal">
+                <Label htmlFor="terms" className="text-sm font-normal" required>
                   I agree to the Terms of Service and Privacy Policy
                 </Label>
               </div>
               {errors.terms && <p className="text-sm text-destructive">{errors.terms.message}</p>}
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
+              <Button type="submit" className="w-full" disabled={isSubmitDisabled}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Create Account
               </Button>

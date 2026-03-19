@@ -25,6 +25,7 @@ import {
 } from './useAdminUsers';
 import { type UpdateUserFormData, updateUserSchema } from './validations';
 import { getApiErrorMessage } from '@/core/errors/apiError';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 interface EditUserDialogProps {
   open: boolean;
@@ -59,7 +60,41 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
       email: user.email,
       phone: user.phone || '',
     },
+    mode: 'onChange',
   });
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, [
+    'first_name',
+    'last_name',
+    'email',
+  ]);
+
+  const resetDialogState = () => {
+    if (selectedFilePreview) {
+      URL.revokeObjectURL(selectedFilePreview);
+    }
+
+    setSelectedFile(null);
+    setClearAvatar(false);
+    setSelectedFilePreview(undefined);
+  };
+
+  const handleFileSelection = (file: File | null) => {
+    if (selectedFilePreview) {
+      URL.revokeObjectURL(selectedFilePreview);
+    }
+
+    setSelectedFile(file);
+    setClearAvatar(false);
+    setSelectedFilePreview(file ? URL.createObjectURL(file) : undefined);
+  };
+
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      resetDialogState();
+    }
+
+    onOpenChange(nextOpen);
+  };
 
   useEffect(() => {
     if (!open) {
@@ -72,24 +107,15 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
       email: user.email,
       phone: user.phone || '',
     });
-    setSelectedFile(null);
-    setClearAvatar(false);
-    setSelectedFilePreview(undefined);
   }, [open, reset, user.email, user.first_name, user.last_name, user.phone]);
 
   useEffect(() => {
-    if (!selectedFile) {
-      setSelectedFilePreview(undefined);
-      return undefined;
-    }
-
-    const previewUrl = URL.createObjectURL(selectedFile);
-    setSelectedFilePreview(previewUrl);
-
     return () => {
-      URL.revokeObjectURL(previewUrl);
+      if (selectedFilePreview) {
+        URL.revokeObjectURL(selectedFilePreview);
+      }
     };
-  }, [selectedFile]);
+  }, [selectedFilePreview]);
 
   const handleSave = async (values: UpdateUserFormData) => {
     try {
@@ -108,7 +134,7 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
       }
 
       toast.success('User profile updated.');
-      onOpenChange(false);
+      handleDialogOpenChange(false);
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to update the user profile.'));
     }
@@ -119,10 +145,12 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
     || updateUser.isPending
     || uploadAvatar.isPending
     || removeAvatar.isPending;
+  const isSubmitDisabled =
+    isBusy || !requiredFieldsFilled || Object.keys(errors).length > 0;
   const avatarPreviewSrc = clearAvatar ? undefined : selectedFilePreview || persistedAvatarSrc;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit User</DialogTitle>
@@ -164,7 +192,7 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
                   variant="ghost"
                   className="text-destructive"
                   onClick={() => {
-                    setSelectedFile(null);
+                    handleFileSelection(null);
                     setClearAvatar(true);
                   }}
                   disabled={isBusy}
@@ -180,8 +208,7 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0] || null;
-                  setSelectedFile(file);
-                  setClearAvatar(false);
+                  handleFileSelection(file);
                 }}
               />
             </div>
@@ -189,14 +216,14 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="edit-first-name">First name</Label>
+              <Label htmlFor="edit-first-name" required>First name</Label>
               <Input id="edit-first-name" {...register('first_name')} />
               {errors.first_name ? (
                 <p className="text-xs text-destructive">{errors.first_name.message}</p>
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-last-name">Last name</Label>
+              <Label htmlFor="edit-last-name" required>Last name</Label>
               <Input id="edit-last-name" {...register('last_name')} />
               {errors.last_name ? (
                 <p className="text-xs text-destructive">{errors.last_name.message}</p>
@@ -205,7 +232,7 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-email">Email</Label>
+            <Label htmlFor="edit-email" required>Email</Label>
             <Input id="edit-email" type="email" {...register('email')} />
             {errors.email ? <p className="text-xs text-destructive">{errors.email.message}</p> : null}
           </div>
@@ -230,10 +257,15 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isBusy}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleDialogOpenChange(false)}
+              disabled={isBusy}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={isBusy}>
+            <Button type="submit" disabled={isSubmitDisabled}>
               {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save Changes
             </Button>

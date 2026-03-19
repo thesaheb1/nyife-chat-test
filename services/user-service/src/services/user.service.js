@@ -3,7 +3,15 @@
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { QueryTypes } = require('sequelize');
-const { AppError, generateUUID, generateApiToken, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
+const {
+  AppError,
+  assertAuthUserPhoneAvailable,
+  generateUUID,
+  generateApiToken,
+  getPagination,
+  getPaginationMeta,
+  normalizeOptionalPhone,
+} = require('@nyife/shared-utils');
 const { sequelize, UserSettings, UserApiToken } = require('../models');
 
 // ---------------------------------------------------------------------------
@@ -56,10 +64,22 @@ const updateProfile = async (userId, data) => {
   const setClauses = [];
   const replacements = { userId };
 
+  if (data.phone !== undefined) {
+    replacements.phone = await assertAuthUserPhoneAvailable(
+      sequelize,
+      normalizeOptionalPhone(data.phone),
+      {
+        excludeUserId: userId,
+      }
+    );
+  }
+
   for (const field of allowedFields) {
     if (data[field] !== undefined) {
       setClauses.push(`${field} = :${field}`);
-      replacements[field] = data[field];
+      if (field !== 'phone') {
+        replacements[field] = data[field];
+      }
     }
   }
 

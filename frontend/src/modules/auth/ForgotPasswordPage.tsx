@@ -12,6 +12,7 @@ import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { forgotPasswordSchema } from './validations';
 import type { ForgotPasswordFormData } from './validations';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 export function ForgotPasswordPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -20,10 +21,15 @@ export function ForgotPasswordPage() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<ForgotPasswordFormData>({
     resolver: zodResolver(forgotPasswordSchema),
+    mode: 'onChange',
   });
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, ['email']);
+  const isSubmitDisabled =
+    isSubmitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   const onSubmit = async (data: ForgotPasswordFormData) => {
     setIsSubmitting(true);
@@ -72,7 +78,7 @@ export function ForgotPasswordPage() {
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" required>Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -82,7 +88,7 @@ export function ForgotPasswordPage() {
               />
               {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
             </div>
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full" disabled={isSubmitDisabled}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Send Reset Link
             </Button>

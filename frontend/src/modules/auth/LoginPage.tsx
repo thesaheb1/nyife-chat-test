@@ -14,6 +14,7 @@ import { useAuth } from '@/core/hooks/useAuth';
 import { loginSchema } from './validations';
 import type { LoginFormData } from './validations';
 import { usePublicSettings } from './usePublicSettings';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -29,6 +30,7 @@ export function LoginPage() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -36,7 +38,11 @@ export function LoginPage() {
       email: prefilledEmail,
       password: '',
     },
+    mode: 'onChange',
   });
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, ['email', 'password']);
+  const isSubmitDisabled =
+    isSubmitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   const onSubmit = async (data: LoginFormData) => {
     setIsSubmitting(true);
@@ -82,7 +88,7 @@ export function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" required>Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -94,7 +100,7 @@ export function LoginPage() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" required>Password</Label>
                 <Link to="/forgot-password" className="text-sm text-primary hover:underline">
                   Forgot password?
                 </Link>
@@ -108,7 +114,7 @@ export function LoginPage() {
               />
               {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
             </div>
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full" disabled={isSubmitDisabled}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Login
             </Button>

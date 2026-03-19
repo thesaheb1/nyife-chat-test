@@ -14,6 +14,7 @@ import { ENDPOINTS } from '@/core/api/endpoints';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useAuth } from '@/core/hooks/useAuth';
 import { forceChangePasswordSchema, type ForceChangePasswordFormData } from './validations';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 export function ForceChangePasswordPage() {
   const navigate = useNavigate();
@@ -26,8 +27,15 @@ export function ForceChangePasswordPage() {
     formState: { errors },
   } = useForm<ForceChangePasswordFormData>({
     resolver: zodResolver(forceChangePasswordSchema),
+    mode: 'onChange',
   });
   const newPasswordValue = useWatch({ control, name: 'new_password' }) || '';
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, [
+    'new_password',
+    'confirm_password',
+  ]);
+  const isSubmitDisabled =
+    submitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   const onSubmit = async (values: ForceChangePasswordFormData) => {
     setSubmitting(true);
@@ -62,7 +70,7 @@ export function ForceChangePasswordPage() {
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
             <div className="space-y-2">
-              <Label htmlFor="new_password">New Password</Label>
+              <Label htmlFor="new_password" required>New Password</Label>
               <Input
                 id="new_password"
                 type="password"
@@ -76,7 +84,7 @@ export function ForceChangePasswordPage() {
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm_password">Confirm Password</Label>
+              <Label htmlFor="confirm_password" required>Confirm Password</Label>
               <Input
                 id="confirm_password"
                 type="password"
@@ -88,7 +96,7 @@ export function ForceChangePasswordPage() {
                 <p className="text-sm text-destructive">{errors.confirm_password.message}</p>
               ) : null}
             </div>
-            <Button className="w-full" disabled={submitting} type="submit">
+            <Button className="w-full" disabled={isSubmitDisabled} type="submit">
               {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Update Password
             </Button>

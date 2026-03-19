@@ -25,6 +25,7 @@ import { paiseToRupees } from '@/shared/utils';
 import { useAdminPlan, useCreatePlan, useUpdatePlan } from './useAdminPlans';
 import { createPlanSchema, type CreatePlanFormData } from './validations';
 import { toast } from 'sonner';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 interface Props {
   planId?: string;
@@ -45,6 +46,7 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
     setValue,
     watch,
     reset,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<CreatePlanFormData>({
     resolver: zodResolver(createPlanSchema),
@@ -66,7 +68,26 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
       utility_message_price: 0,
       auth_message_price: 0,
     },
+    mode: 'onChange',
   });
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, [
+    'name',
+    'slug',
+    'type',
+    'price',
+    'max_contacts',
+    'max_templates',
+    'max_campaigns_per_month',
+    'max_messages_per_month',
+    'max_team_members',
+    'max_organizations',
+    'max_whatsapp_numbers',
+    'marketing_message_price',
+    'utility_message_price',
+    'auth_message_price',
+  ]);
+  const isSubmitDisabled =
+    isSubmitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   useEffect(() => {
     if (existingPlan && isEdit) {
@@ -115,7 +136,7 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
     options: { min?: string; step?: string } = {}
   ) => (
     <div className="space-y-1">
-      <Label className="text-xs">{label}</Label>
+      <Label className="text-xs" required>{label}</Label>
       <Input
         type="number"
         min={options.min ?? '1'}
@@ -139,12 +160,12 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 px-1">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>{t('admin.plans.planName')}</Label>
+                <Label required>{t('admin.plans.planName')}</Label>
                 <Input {...register('name')} />
                 {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
               </div>
               <div className="space-y-1">
-                <Label>Slug</Label>
+                <Label required>Slug</Label>
                 <Input {...register('slug')} />
                 {errors.slug && <p className="text-xs text-destructive">{errors.slug.message}</p>}
               </div>
@@ -152,13 +173,21 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>{t('admin.plans.price')} (₹)</Label>
+                <Label required>{t('admin.plans.price')} (₹)</Label>
                 <Input type="number" min="0" step="0.01" {...register('price', { valueAsNumber: true })} />
                 {errors.price && <p className="text-xs text-destructive">{errors.price.message}</p>}
               </div>
               <div className="space-y-1">
-                <Label>{t('admin.plans.planType')}</Label>
-                <Select value={watch('type')} onValueChange={(v) => setValue('type', v as 'monthly' | 'yearly' | 'lifetime')}>
+                <Label required>{t('admin.plans.planType')}</Label>
+                <Select
+                  value={watch('type')}
+                  onValueChange={(v) =>
+                    setValue('type', v as 'monthly' | 'yearly' | 'lifetime', {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
+                  }
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="monthly">Monthly</SelectItem>
@@ -206,7 +235,7 @@ export function PlanFormDialog({ planId, open, onClose }: Props) {
 
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitDisabled}>
                 {isSubmitting ? 'Saving...' : t('common.save')}
               </Button>
             </DialogFooter>

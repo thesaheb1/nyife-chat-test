@@ -78,3 +78,15 @@
 // Request URL : https://localhost:5173/api/v1/wallet/invoices?page=1&limit=20
 // Request Method : GET
 // Status Code ; 500 Internal Server Error
+
+
+// TODO:
+// 1. in our current project phone number is optional and it is not unique. so if we want to register user with phone number then we have to check if phone number is unique or not. if it is unique then we can register user with phone number otherwise we can not register user with phone number.
+// Implement this in our project safely by first reviewing the codebase implementation and then implementing it.
+
+// 2. We have lots of form right now in our project. so we have to review all form validation in our project safely by first reviewing the codebase implementation and then do fixing if required.
+// 3. Also all required field must has asterisk sign.
+// 4. Submit button must have disabled state when form is not filled completely and untill all required field is filled.
+// NOTE: make a comprehensive plan and implement all these requirements. make sure that implementation is complete with production garde and optimized approach.
+
+

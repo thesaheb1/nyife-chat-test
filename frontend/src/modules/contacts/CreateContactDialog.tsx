@@ -18,6 +18,7 @@ import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useCreateContact } from './useContacts';
 import { createContactSchema } from './validations';
 import type { CreateContactFormData } from './validations';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 interface CreateContactDialogProps {
   open: boolean;
@@ -35,7 +36,11 @@ export function CreateContactDialog({ open, onOpenChange }: CreateContactDialogP
     formState: { errors },
   } = useForm<CreateContactFormData>({
     resolver: zodResolver(createContactSchema),
+    mode: 'onChange',
   });
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, ['phone']);
+  const isSubmitDisabled =
+    createContact.isPending || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   const onSubmit = async (data: CreateContactFormData) => {
     try {
@@ -59,7 +64,7 @@ export function CreateContactDialog({ open, onOpenChange }: CreateContactDialogP
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="phone">Phone *</Label>
+            <Label htmlFor="phone" required>Phone</Label>
             <Controller
               control={control}
               name="phone"
@@ -98,7 +103,7 @@ export function CreateContactDialog({ open, onOpenChange }: CreateContactDialogP
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={createContact.isPending}>
+            <Button type="submit" disabled={isSubmitDisabled}>
               {createContact.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create
             </Button>

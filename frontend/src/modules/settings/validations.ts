@@ -3,15 +3,15 @@ import { optionalPhoneSchema } from '@/shared/utils/phone';
 import { strongPasswordSchema } from '@/shared/utils/password';
 
 export const profileSchema = z.object({
-  first_name: z.string().min(1, 'First name is required').max(100),
-  last_name: z.string().min(1, 'Last name is required').max(100),
+  first_name: z.string().trim().min(1, 'First name is required').max(100),
+  last_name: z.string().trim().min(1, 'Last name is required').max(100),
   phone: optionalPhoneSchema,
 });
 export type ProfileFormData = z.infer<typeof profileSchema>;
 
 export const preferencesSchema = z.object({
-  language: z.string().min(1).max(10),
-  timezone: z.string().min(1).max(100),
+  language: z.string().trim().min(1, 'Language is required').max(10),
+  timezone: z.string().trim().min(1, 'Timezone is required').max(100),
 });
 export type PreferencesFormData = z.infer<typeof preferencesSchema>;
 

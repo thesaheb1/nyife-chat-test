@@ -652,26 +652,26 @@ export function TeamMembersPage() {
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>First Name</Label>
+                <Label required>First Name</Label>
                 <Input value={memberForm.first_name} onChange={(event) => setMemberForm((current) => ({ ...current, first_name: event.target.value }))} />
               </div>
               <div className="space-y-2">
-                <Label>Last Name</Label>
+                <Label required>Last Name</Label>
                 <Input value={memberForm.last_name} onChange={(event) => setMemberForm((current) => ({ ...current, last_name: event.target.value }))} />
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Email</Label>
+                <Label required>Email</Label>
                 <Input type="email" value={memberForm.email} onChange={(event) => setMemberForm((current) => ({ ...current, email: event.target.value }))} />
               </div>
               <div className="space-y-2">
-                <Label>Role Title</Label>
+                <Label required>Role Title</Label>
                 <Input value={memberForm.role_title} onChange={(event) => setMemberForm((current) => ({ ...current, role_title: event.target.value }))} />
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Temporary Password</Label>
+              <Label required>Temporary Password</Label>
               <Input
                 type="password"
                 value={memberForm.temporary_password}
@@ -717,21 +717,21 @@ export function TeamMembersPage() {
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>First Name</Label>
+                <Label required>First Name</Label>
                 <Input value={inviteForm.first_name} onChange={(event) => setInviteForm((current) => ({ ...current, first_name: event.target.value }))} />
               </div>
               <div className="space-y-2">
-                <Label>Last Name</Label>
+                <Label required>Last Name</Label>
                 <Input value={inviteForm.last_name} onChange={(event) => setInviteForm((current) => ({ ...current, last_name: event.target.value }))} />
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Email</Label>
+                <Label required>Email</Label>
                 <Input type="email" value={inviteForm.email} onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))} />
               </div>
               <div className="space-y-2">
-                <Label>Role Title</Label>
+                <Label required>Role Title</Label>
                 <Input value={inviteForm.role_title} onChange={(event) => setInviteForm((current) => ({ ...current, role_title: event.target.value }))} />
               </div>
             </div>
@@ -771,7 +771,7 @@ export function TeamMembersPage() {
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Role Title</Label>
+                <Label required>Role Title</Label>
                 <Input value={editRoleTitle} onChange={(event) => setEditRoleTitle(event.target.value)} />
               </div>
               <div className="space-y-2">

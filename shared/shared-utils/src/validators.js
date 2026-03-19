@@ -11,6 +11,19 @@ const phoneSchema = z
   .string()
   .regex(/^\+[1-9]\d{6,14}$/, 'Invalid phone number (E.164 format required)');
 
+const optionalPhoneSchema = z.preprocess((value) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return normalized || null;
+}, phoneSchema.nullable().optional());
+
 /**
  * Canonical strong-password policy shared across services.
  * Requires at least 8 characters, uppercase, lowercase, number, and symbol.
@@ -72,6 +85,7 @@ const searchSchema = z.object({
 
 module.exports = {
   phoneSchema,
+  optionalPhoneSchema,
   emailSchema,
   uuidSchema,
   paginationSchema,

@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 import {
   directCreateUserSchema,
   inviteUserSchema,
@@ -39,6 +40,7 @@ export function CreateUserPage() {
       phone: '',
       password: '',
     },
+    mode: 'onChange',
   });
 
   const inviteForm = useForm<InviteUserFormData>({
@@ -49,12 +51,24 @@ export function CreateUserPage() {
       email: '',
       phone: '',
     },
+    mode: 'onChange',
   });
   const directPasswordValue = useWatch({
     control: directForm.control,
     name: 'password',
     defaultValue: '',
   });
+  const directRequiredFieldsFilled = useRequiredFieldsFilled(directForm.control, [
+    'first_name',
+    'last_name',
+    'email',
+    'password',
+  ]);
+  const inviteRequiredFieldsFilled = useRequiredFieldsFilled(inviteForm.control, [
+    'first_name',
+    'last_name',
+    'email',
+  ]);
 
   const handleDirectCreate = async (values: CreateUserFormData) => {
     try {
@@ -87,6 +101,10 @@ export function CreateUserPage() {
     || inviteForm.formState.isSubmitting
     || createUser.isPending
     || inviteUser.isPending;
+  const directSubmitDisabled =
+    isBusy || !directRequiredFieldsFilled || Object.keys(directForm.formState.errors).length > 0;
+  const inviteSubmitDisabled =
+    isBusy || !inviteRequiredFieldsFilled || Object.keys(inviteForm.formState.errors).length > 0;
 
   return (
     <div className="space-y-6">
@@ -130,14 +148,14 @@ export function CreateUserPage() {
               <form className="space-y-5" onSubmit={directForm.handleSubmit(handleDirectCreate)}>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="direct-first-name">First name</Label>
+                    <Label htmlFor="direct-first-name" required>First name</Label>
                     <Input id="direct-first-name" {...directForm.register('first_name')} />
                     {directForm.formState.errors.first_name ? (
                       <p className="text-xs text-destructive">{directForm.formState.errors.first_name.message}</p>
                     ) : null}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="direct-last-name">Last name</Label>
+                    <Label htmlFor="direct-last-name" required>Last name</Label>
                     <Input id="direct-last-name" {...directForm.register('last_name')} />
                     {directForm.formState.errors.last_name ? (
                       <p className="text-xs text-destructive">{directForm.formState.errors.last_name.message}</p>
@@ -147,7 +165,7 @@ export function CreateUserPage() {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="direct-email">Email</Label>
+                    <Label htmlFor="direct-email" required>Email</Label>
                     <Input id="direct-email" type="email" {...directForm.register('email')} />
                     {directForm.formState.errors.email ? (
                       <p className="text-xs text-destructive">{directForm.formState.errors.email.message}</p>
@@ -176,7 +194,7 @@ export function CreateUserPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="direct-password">Default password</Label>
+                  <Label htmlFor="direct-password" required>Default password</Label>
                   <Input id="direct-password" type="password" {...directForm.register('password')} />
                   <PasswordStrengthMeter password={directPasswordValue} />
                   {directForm.formState.errors.password ? (
@@ -189,7 +207,7 @@ export function CreateUserPage() {
                 </div>
 
                 <div className="flex gap-3">
-                  <Button type="submit" disabled={isBusy}>
+                  <Button type="submit" disabled={directSubmitDisabled}>
                     {createUser.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Create User
                   </Button>
@@ -214,14 +232,14 @@ export function CreateUserPage() {
               <form className="space-y-5" onSubmit={inviteForm.handleSubmit(handleInvite)}>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="invite-first-name">First name</Label>
+                    <Label htmlFor="invite-first-name" required>First name</Label>
                     <Input id="invite-first-name" {...inviteForm.register('first_name')} />
                     {inviteForm.formState.errors.first_name ? (
                       <p className="text-xs text-destructive">{inviteForm.formState.errors.first_name.message}</p>
                     ) : null}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="invite-last-name">Last name</Label>
+                    <Label htmlFor="invite-last-name" required>Last name</Label>
                     <Input id="invite-last-name" {...inviteForm.register('last_name')} />
                     {inviteForm.formState.errors.last_name ? (
                       <p className="text-xs text-destructive">{inviteForm.formState.errors.last_name.message}</p>
@@ -231,7 +249,7 @@ export function CreateUserPage() {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="invite-email">Email</Label>
+                    <Label htmlFor="invite-email" required>Email</Label>
                     <Input id="invite-email" type="email" {...inviteForm.register('email')} />
                     {inviteForm.formState.errors.email ? (
                       <p className="text-xs text-destructive">{inviteForm.formState.errors.email.message}</p>
@@ -264,7 +282,7 @@ export function CreateUserPage() {
                 </div>
 
                 <div className="flex gap-3">
-                  <Button type="submit" disabled={isBusy}>
+                  <Button type="submit" disabled={inviteSubmitDisabled}>
                     {inviteUser.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Send Invitation
                   </Button>

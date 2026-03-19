@@ -107,8 +107,8 @@ export function AcceptUserInvitationPage() {
             </div>
           ) : null}
 
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+              <div className="space-y-2">
+            <Label htmlFor="password" required>Password</Label>
             <Input
               id="password"
               type="password"

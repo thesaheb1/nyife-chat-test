@@ -10,12 +10,14 @@ const { v4: uuidv4 } = require('uuid');
 const { sequelize, AdminUserInvitation } = require('../models');
 const { AppError } = require('@nyife/shared-middleware');
 const {
+  assertAuthUserPhoneAvailable,
   getPagination,
   getPaginationMeta,
   buildDefaultOrganizationSeed,
   generateInvitationToken,
   calculateInvitationExpiry,
   hasPermission,
+  normalizeOptionalPhone,
 } = require('@nyife/shared-utils');
 const config = require('../config');
 
@@ -33,8 +35,7 @@ function normalizeEmail(email) {
 }
 
 function normalizePhone(phone) {
-  const value = normalizeText(phone);
-  return value || null;
+  return normalizeOptionalPhone(phone);
 }
 
 function buildUserInviteLink(inviteToken) {
@@ -691,7 +692,7 @@ async function createUser(data, appLocals = {}) {
   const first_name = normalizeText(data.first_name);
   const last_name = normalizeText(data.last_name);
   const normalizedEmail = normalizeEmail(data.email);
-  const phone = normalizePhone(data.phone);
+  const phone = await assertAuthUserPhoneAvailable(sequelize, normalizePhone(data.phone));
 
   const existing = await findUserByEmail(normalizedEmail);
   if (existing) {
@@ -759,7 +760,7 @@ async function inviteUser(data, invitedBy, appLocals = {}) {
   const first_name = normalizeText(data.first_name);
   const last_name = normalizeText(data.last_name);
   const normalizedEmail = normalizeEmail(data.email);
-  const phone = normalizePhone(data.phone);
+  const phone = await assertAuthUserPhoneAvailable(sequelize, normalizePhone(data.phone));
 
   await expirePendingUserInvitations();
 
@@ -897,6 +898,7 @@ async function validateUserInvitation(token) {
 async function acceptUserInvitation(data) {
   const invitation = await findPendingUserInvitationByToken(data.token);
   const normalizedEmail = normalizeEmail(invitation.email);
+  const phone = await assertAuthUserPhoneAvailable(sequelize, normalizePhone(invitation.phone));
 
   const existingUser = await findUserByEmail(normalizedEmail);
   if (existingUser) {
@@ -944,7 +946,7 @@ async function acceptUserInvitation(data) {
           password: hashedPassword,
           first_name: invitation.first_name,
           last_name: invitation.last_name,
-          phone: invitation.phone || null,
+          phone,
           now,
         },
         type: QueryTypes.INSERT,
@@ -995,7 +997,13 @@ async function updateUser(userId, data, appLocals = {}) {
   }
 
   if (data.phone !== undefined) {
-    updates.phone = data.phone === null ? null : normalizePhone(data.phone);
+    updates.phone = await assertAuthUserPhoneAvailable(
+      sequelize,
+      data.phone === null ? null : normalizePhone(data.phone),
+      {
+        excludeUserId: user.id,
+      }
+    );
   }
 
   if (data.email !== undefined) {

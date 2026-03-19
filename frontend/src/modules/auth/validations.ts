@@ -3,16 +3,16 @@ import { optionalPhoneSchema } from '@/shared/utils/phone';
 import { strongPasswordSchema } from '@/shared/utils/password';
 
 export const loginSchema = z.object({
-  email: z.email('Invalid email address'),
+  email: z.string().trim().email('Invalid email address'),
   password: z.string().min(1, 'Password is required'),
 });
 export type LoginFormData = z.infer<typeof loginSchema>;
 
 export const registerSchema = z
   .object({
-    first_name: z.string().min(1, 'First name is required').max(100),
-    last_name: z.string().min(1, 'Last name is required').max(100),
-    email: z.email('Invalid email address'),
+    first_name: z.string().trim().min(1, 'First name is required').max(100),
+    last_name: z.string().trim().min(1, 'Last name is required').max(100),
+    email: z.string().trim().email('Invalid email address'),
     phone: optionalPhoneSchema,
     password: strongPasswordSchema,
     confirm_password: z.string().min(1, 'Please confirm your password'),
@@ -25,7 +25,7 @@ export const registerSchema = z
 export type RegisterFormData = z.infer<typeof registerSchema>;
 
 export const forgotPasswordSchema = z.object({
-  email: z.email('Invalid email address'),
+  email: z.string().trim().email('Invalid email address'),
 });
 export type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
 

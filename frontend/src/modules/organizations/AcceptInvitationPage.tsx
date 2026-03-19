@@ -120,7 +120,7 @@ export function AcceptInvitationPage() {
                 Set a password to finish creating your team account for this organization invitation.
               </p>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" required>Password</Label>
                 <Input
                   id="password"
                   type="password"

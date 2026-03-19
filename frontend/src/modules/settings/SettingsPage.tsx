@@ -36,6 +36,7 @@ import {
 } from '@/modules/whatsapp/accountOptions';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
+import { useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -74,7 +75,11 @@ function ProfileTab() {
   const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
     defaultValues: { first_name: user?.first_name ?? '', last_name: user?.last_name ?? '', phone: user?.phone ?? '' },
+    mode: 'onChange',
   });
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, ['first_name', 'last_name']);
+  const isSubmitDisabled =
+    isSubmitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   useEffect(() => {
     if (user) reset({ first_name: user.first_name, last_name: user.last_name, phone: user.phone ?? '' });
@@ -99,12 +104,12 @@ function ProfileTab() {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>First Name</Label>
+              <Label required>First Name</Label>
               <Input {...register('first_name')} />
               {errors.first_name && <p className="text-xs text-destructive">{errors.first_name.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label>Last Name</Label>
+              <Label required>Last Name</Label>
               <Input {...register('last_name')} />
               {errors.last_name && <p className="text-xs text-destructive">{errors.last_name.message}</p>}
             </div>
@@ -127,7 +132,7 @@ function ProfileTab() {
             />
             {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
           </div>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={isSubmitDisabled}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Changes
           </Button>
@@ -150,10 +155,12 @@ function PreferencesTab() {
     },
   });
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<PreferencesFormData>({
+  const { register, handleSubmit, reset, control, formState: { errors } } = useForm<PreferencesFormData>({
     resolver: zodResolver(preferencesSchema),
     defaultValues: { language: 'en', timezone: 'Asia/Kolkata' },
+    mode: 'onChange',
   });
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, ['language', 'timezone']);
 
   useEffect(() => {
     if (settings) reset({ language: settings.language, timezone: settings.timezone });
@@ -168,6 +175,8 @@ function PreferencesTab() {
       qc.invalidateQueries({ queryKey: ['settings'] });
     },
   });
+  const isSubmitDisabled =
+    save.isPending || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   return (
     <Card className="max-w-3xl">
@@ -186,16 +195,16 @@ function PreferencesTab() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Language</Label>
+            <Label required>Language</Label>
             <Input {...register('language')} placeholder="en" />
             {errors.language && <p className="text-xs text-destructive">{errors.language.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label>Timezone</Label>
+            <Label required>Timezone</Label>
             <Input {...register('timezone')} placeholder="Asia/Kolkata" />
             {errors.timezone && <p className="text-xs text-destructive">{errors.timezone.message}</p>}
           </div>
-          <Button type="submit" disabled={save.isPending}>
+          <Button type="submit" disabled={isSubmitDisabled}>
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save
           </Button>
@@ -255,8 +264,16 @@ function PasswordTab() {
   const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<ChangePasswordFormData>({
     resolver: zodResolver(changePasswordSchema),
     defaultValues: { current_password: '', new_password: '', confirm_password: '' },
+    mode: 'onChange',
   });
   const newPasswordValue = useWatch({ control, name: 'new_password' }) || '';
+  const requiredFieldsFilled = useRequiredFieldsFilled(control, [
+    'current_password',
+    'new_password',
+    'confirm_password',
+  ]);
+  const isSubmitDisabled =
+    isSubmitting || !requiredFieldsFilled || Object.keys(errors).length > 0;
 
   const onSubmit = async (data: ChangePasswordFormData) => {
     try {
@@ -274,22 +291,22 @@ function PasswordTab() {
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label>Current Password</Label>
+            <Label required>Current Password</Label>
             <Input type="password" {...register('current_password')} />
             {errors.current_password && <p className="text-xs text-destructive">{errors.current_password.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label>New Password</Label>
+            <Label required>New Password</Label>
             <Input type="password" {...register('new_password')} />
             <PasswordStrengthMeter password={newPasswordValue} />
             {errors.new_password && <p className="text-xs text-destructive">{errors.new_password.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label>Confirm New Password</Label>
+            <Label required>Confirm New Password</Label>
             <Input type="password" {...register('confirm_password')} />
             {errors.confirm_password && <p className="text-xs text-destructive">{errors.confirm_password.message}</p>}
           </div>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={isSubmitDisabled}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Change Password
           </Button>

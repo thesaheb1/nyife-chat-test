@@ -307,7 +307,7 @@ async function updateUserStatus(req, res) {
 
 /**
  * DELETE /users/:id
- * Soft-deletes a user after safety checks.
+ * Permanently deletes a user after safety checks.
  */
 async function deleteUser(req, res) {
   const { id } = idParamSchema.parse(req.params);

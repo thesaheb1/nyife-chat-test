@@ -21,6 +21,8 @@ const config = require('../config');
 
 const BCRYPT_ROUNDS = 12;
 const INVITATION_TTL_DAYS = 7;
+const ACCESS_TOKEN_REVOCATION_TTL_SECONDS = 30 * 24 * 60 * 60;
+const ACCESS_TOKEN_REVOKED_AFTER_KEY_PREFIX = 'auth:access-revoked-after:';
 
 function normalizeText(value) {
   return String(value || '').trim();
@@ -61,6 +63,10 @@ function extractAvatarMediaId(avatarUrl) {
   }
 
   return String(avatarUrl).slice('media://'.length) || null;
+}
+
+function buildAccessTokenRevokedAfterKey(userId) {
+  return `${ACCESS_TOKEN_REVOKED_AFTER_KEY_PREFIX}${userId}`;
 }
 
 async function findUserById(userId, attributes = 'id, email, first_name, last_name, phone, avatar_url, role, status, must_change_password, email_verified_at, last_login_at, created_at, updated_at') {
@@ -303,6 +309,16 @@ async function invalidateUserAuthState(userId, appLocals = {}, options = {}) {
   if (appLocals.redis) {
     try {
       await appLocals.redis.del(`user:${userId}`);
+
+      if (options.revokeAccessTokens) {
+        const revokedAfter = Math.floor(Date.now() / 1000);
+        await appLocals.redis.set(
+          buildAccessTokenRevokedAfterKey(userId),
+          String(revokedAfter),
+          'EX',
+          ACCESS_TOKEN_REVOCATION_TTL_SECONDS
+        );
+      }
     } catch (error) {
       console.warn('[admin-user-service] Failed to invalidate user cache:', error.message);
     }
@@ -1058,6 +1074,7 @@ async function updateUserStatus(userId, status, appLocals = {}) {
 
   await invalidateUserAuthState(userId, appLocals, {
     revokeRefreshTokens: status !== 'active',
+    revokeAccessTokens: status !== 'active',
   });
 
   return { id: userId, status, updated_at: now };
@@ -1109,38 +1126,34 @@ async function deleteUser(userId, appLocals = {}) {
     }
   }
 
-  const now = new Date();
-
   await sequelize.transaction(async (transaction) => {
+    if (organizationIds.length) {
+      await sequelize.query(
+        `DELETE FROM org_invitations
+         WHERE organization_id IN (:organizationIds)`,
+        {
+          replacements: { organizationIds },
+          type: QueryTypes.DELETE,
+          transaction,
+        }
+      );
+    }
+
     await sequelize.query(
-      `UPDATE auth_users
-       SET status = 'inactive',
-           deleted_at = :now,
-           updated_at = :now
+      `DELETE FROM auth_users
        WHERE id = :userId`,
       {
-        replacements: { userId, now },
-        type: QueryTypes.UPDATE,
-        transaction,
-      }
-    );
-
-    await sequelize.query(
-      `UPDATE org_organizations
-       SET status = 'inactive',
-           deleted_at = :now,
-           updated_at = :now
-       WHERE user_id = :userId
-         AND deleted_at IS NULL`,
-      {
-        replacements: { userId, now },
-        type: QueryTypes.UPDATE,
+        replacements: { userId },
+        type: QueryTypes.DELETE,
         transaction,
       }
     );
   });
 
-  await invalidateUserAuthState(userId, appLocals, { revokeRefreshTokens: true });
+  await invalidateUserAuthState(userId, appLocals, {
+    revokeRefreshTokens: true,
+    revokeAccessTokens: true,
+  });
 }
 
 async function creditWallet(userId, amount, remarks, adminUserId, organizationId = null) {

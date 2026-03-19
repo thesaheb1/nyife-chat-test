@@ -59,3 +59,21 @@
 
 // FIXES :
 // 1. when admin delete user account then user must be hard deleted not just updated deleted_at and should not be able to login with that account.
+
+
+// TODO:
+// Can we implement ON DELETE CASCADE that automatically deletes related rows in child tables when a row in the parent table is deleted.It ensures referential integrity, preventing "orphan" records and simplifying data cleanup.
+// such as if i delete a user account then all its organizations, team members, invitations, wallets, subscriptions and support tickets etc should be deleted automatically.
+// so we can avoid manual cleanup.
+// and when we delete a team member then all its conversations should be deleted automatically.
+// and when we delete an organization then all its team members, invitations, wallets, subscriptions and support tickets etc should be deleted automatically.
+// and when we delete a sub admin then all its conversations should be deleted automatically.
+
+// NOTE : create comprehensive production grade plan and implement all these requirements. make sure that implementation is complete production garde also .
+// IMPORTANT NOTE : if any new requirements required major changes then discuss with me first before implementation.
+
+
+// TODO:
+// IMPROVEMENTS:
+// 1. in entire frontend codebases the password field must have password visibility toggle button so user can see password and hide password easily and implemented with production grade security.
+// 2. register page or any other page where we are setting password must have password strength meter so user can see password strength easily match with our frontend and backend password validation.

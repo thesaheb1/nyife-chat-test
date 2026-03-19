@@ -94,9 +94,11 @@ const connectRedis = async () => {
     });
 
     await redisClient.connect();
+    app.locals.redis = redisClient;
   } catch (err) {
     console.warn('[api-gateway] Could not connect to Redis — running without Redis:', err.message);
     redisClient = null;
+    app.locals.redis = null;
   }
 };
 

@@ -3,6 +3,8 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 
+const ACCESS_TOKEN_REVOKED_AFTER_KEY_PREFIX = 'auth:access-revoked-after:';
+
 async function resolveApiToken(token) {
   const response = await fetch(
     `${config.services.user}/api/v1/users/internal/api-tokens/resolve`,
@@ -35,6 +37,33 @@ function applyAuthHeaders(req, identity) {
   req.headers['x-user-permissions'] = identity.permissions
     ? JSON.stringify(identity.permissions)
     : '{}';
+}
+
+function buildAccessTokenRevokedAfterKey(userId) {
+  return `${ACCESS_TOKEN_REVOKED_AFTER_KEY_PREFIX}${userId}`;
+}
+
+async function isRevokedAccessToken(req, decoded) {
+  const userId = decoded?.id;
+  const issuedAt = Number(decoded?.iat || 0);
+  const redis = req.app?.locals?.redis;
+
+  if (!userId || !issuedAt || !redis) {
+    return false;
+  }
+
+  try {
+    const rawRevokedAfter = await redis.get(buildAccessTokenRevokedAfterKey(userId));
+    if (!rawRevokedAfter) {
+      return false;
+    }
+
+    const revokedAfter = Number(rawRevokedAfter);
+    return Number.isFinite(revokedAfter) && issuedAt <= revokedAfter;
+  } catch (error) {
+    console.warn('[proxyAuth] Failed to read access-token revocation state:', error.message);
+    return false;
+  }
 }
 
 /**
@@ -84,6 +113,15 @@ const proxyAuth = (req, res, next) => {
 
     try {
       const decoded = jwt.verify(token, config.jwt.secret);
+
+      if (await isRevokedAccessToken(req, decoded)) {
+        return res.status(401).json({
+          success: false,
+          message: 'Access denied. This session is no longer valid.',
+          code: 'AUTH_TOKEN_REVOKED',
+        });
+      }
+
       applyAuthHeaders(req, decoded);
       return next();
     } catch (err) {

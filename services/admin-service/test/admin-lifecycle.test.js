@@ -331,4 +331,81 @@ describe('admin-service lifecycle', () => {
     assert.equal(deleteOptions?.force, true);
     assert.ok(inviteDestroyCalls.every((call) => call.force === true));
   });
+
+  it('hard-deletes platform users and stamps access-token revocation state', async () => {
+    const redisCalls = [];
+    const queryCalls = [];
+    const redis = {
+      async del(key) {
+        redisCalls.push(['del', key]);
+      },
+      async set(...args) {
+        redisCalls.push(['set', ...args]);
+      },
+    };
+
+    mock.method(sequelize, 'transaction', async (callback) => callback({ id: 'tx-1' }));
+    mock.method(sequelize, 'query', async (sql, options = {}) => {
+      queryCalls.push({ sql, options });
+
+      if (sql.includes('FROM auth_users') && sql.includes('deleted_at IS NULL')) {
+        return [{ id: 'user-1', role: 'user' }];
+      }
+
+      if (sql.includes('FROM org_organizations AS o')) {
+        return [{
+          id: 'org-1',
+          user_id: 'user-1',
+          name: 'Acme',
+          slug: 'acme',
+          description: null,
+          logo_url: null,
+          status: 'active',
+          created_at: new Date(),
+          updated_at: new Date(),
+          wallet_balance: 0,
+          current_plan: null,
+          subscription_status: null,
+          team_members_count: 0,
+        }];
+      }
+
+      if (sql.includes('FROM sub_subscriptions')) {
+        return [];
+      }
+
+      if (sql.includes('FROM wallet_wallets')) {
+        return [{ balance: 0 }];
+      }
+
+      if (sql.includes('DELETE FROM org_invitations')) {
+        assert.deepEqual(options.replacements.organizationIds, ['org-1']);
+        return [];
+      }
+
+      if (sql.includes('DELETE FROM auth_users')) {
+        assert.equal(options.replacements.userId, 'user-1');
+        return [];
+      }
+
+      if (sql.includes('UPDATE auth_refresh_tokens')) {
+        return [];
+      }
+
+      throw new Error(`Unexpected sequelize.query SQL: ${sql}`);
+    });
+
+    await adminUserService.deleteUser('user-1', { redis });
+
+    assert.ok(queryCalls.some((entry) => entry.sql.includes('DELETE FROM auth_users')));
+    assert.ok(redisCalls.some((call) => call[0] === 'del' && call[1] === 'user:user-1'));
+    assert.ok(
+      redisCalls.some(
+        (call) =>
+          call[0] === 'set'
+          && call[1] === 'auth:access-revoked-after:user-1'
+          && call[3] === 'EX'
+      )
+    );
+  });
 });

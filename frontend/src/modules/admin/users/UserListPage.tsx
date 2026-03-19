@@ -564,7 +564,7 @@ export function UserListPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete User</AlertDialogTitle>
             <AlertDialogDescription>
-              This keeps the record soft-deleted but revokes access immediately. Deletion is blocked automatically when any organization still has wallet balance or an active or pending subscription.
+              This permanently deletes the account and blocks any active session immediately. Deletion is blocked automatically when any organization still has wallet balance or an active or pending subscription.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

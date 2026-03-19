@@ -1,7 +1,12 @@
 'use strict';
 
 const { z } = require('zod');
-const { ADMIN_ASSIGNABLE_RESOURCE_KEYS, isValidRupeeAmount } = require('@nyife/shared-utils');
+const {
+  ADMIN_ASSIGNABLE_RESOURCE_KEYS,
+  isValidRupeeAmount,
+  strongPasswordRegex,
+  strongPasswordMessage,
+} = require('@nyife/shared-utils');
 
 const resourcePermissionSchema = z.object({
   create: z.boolean().optional(),
@@ -48,7 +53,7 @@ const createSubAdminSchema = z.object({
   last_name: z.string().min(1, 'Last name is required').max(100),
   email: z.string().email('Invalid email format'),
   phone: z.string().min(10).max(20).optional(),
-  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  password: z.string().regex(strongPasswordRegex, strongPasswordMessage).max(128),
   role_id: z.string().uuid('Invalid role ID'),
 });
 
@@ -87,7 +92,7 @@ const createUserSchema = z.object({
   last_name: z.string().min(1, 'Last name is required').max(100),
   email: z.string().email('Invalid email format'),
   phone: z.string().min(10).max(20).optional(),
-  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  password: z.string().regex(strongPasswordRegex, strongPasswordMessage).max(128),
   status: z.enum(['active', 'inactive', 'suspended']).default('active'),
 });
 
@@ -368,7 +373,7 @@ const validateAdminInvitationSchema = z.object({
 
 const acceptAdminInvitationSchema = z.object({
   token: z.string().min(1, 'Invitation token is required'),
-  password: z.string().min(8).max(128).optional(),
+  password: z.string().regex(strongPasswordRegex, strongPasswordMessage).max(128).optional(),
 });
 
 const validateUserInvitationSchema = z.object({
@@ -377,7 +382,7 @@ const validateUserInvitationSchema = z.object({
 
 const acceptUserInvitationSchema = z.object({
   token: z.string().min(1, 'Invitation token is required'),
-  password: z.string().min(8).max(128),
+  password: z.string().regex(strongPasswordRegex, strongPasswordMessage).max(128),
 });
 
 module.exports = {

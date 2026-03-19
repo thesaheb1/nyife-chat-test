@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AuthLayout } from '@/shared/layouts/AuthLayout';
+import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { resetPasswordSchema } from './validations';
@@ -23,10 +24,12 @@ export function ResetPasswordPage() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<ResetPasswordFormData>({
     resolver: zodResolver(resetPasswordSchema),
   });
+  const newPasswordValue = useWatch({ control, name: 'new_password' }) || '';
 
   const onSubmit = async (data: ResetPasswordFormData) => {
     if (!token) {
@@ -85,10 +88,11 @@ export function ResetPasswordPage() {
               <Input
                 id="new_password"
                 type="password"
-                placeholder="Minimum 8 characters"
+                placeholder="Use uppercase, lowercase, number, and symbol"
                 autoComplete="new-password"
                 {...register('new_password')}
               />
+              <PasswordStrengthMeter password={newPasswordValue} />
               {errors.new_password && (
                 <p className="text-sm text-destructive">{errors.new_password.message}</p>
               )}

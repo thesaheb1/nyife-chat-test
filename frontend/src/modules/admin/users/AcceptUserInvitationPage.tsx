@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
+import { PASSWORD_POLICY_MESSAGE, isStrongPassword } from '@/shared/utils/password';
 import { apiClient } from '@/core/api/client';
 import { ADMIN_ENDPOINTS } from '../api';
 import type { ApiResponse } from '@/core/types';
@@ -43,7 +45,12 @@ export function AcceptUserInvitationPage() {
   });
 
   const handleSubmit = async () => {
-    if (!token || password.trim().length < 8) {
+    if (!token) {
+      return;
+    }
+
+    if (!isStrongPassword(password)) {
+      toast.error(PASSWORD_POLICY_MESSAGE);
       return;
     }
 
@@ -107,13 +114,14 @@ export function AcceptUserInvitationPage() {
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Minimum 8 characters"
+              placeholder="Use uppercase, lowercase, number, and symbol"
             />
+            <PasswordStrengthMeter password={password} />
           </div>
 
           <Button
             className="w-full"
-            disabled={!token || validationQuery.isLoading || validationQuery.isError || password.trim().length < 8 || submitting}
+            disabled={!token || validationQuery.isLoading || validationQuery.isError || !isStrongPassword(password) || submitting}
             onClick={handleSubmit}
           >
             {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

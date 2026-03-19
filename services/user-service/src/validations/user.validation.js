@@ -1,6 +1,7 @@
 'use strict';
 
 const { z } = require('zod');
+const { strongPasswordRegex, strongPasswordMessage } = require('@nyife/shared-utils');
 
 // ---------------------------------------------------------------------------
 // Profile validation schemas
@@ -45,14 +46,7 @@ const changePasswordSchema = z
       .min(1, 'Current password is required'),
     new_password: z
       .string()
-      .min(8, 'New password must be at least 8 characters')
-      .regex(/[A-Z]/, 'New password must contain at least one uppercase letter')
-      .regex(/[a-z]/, 'New password must contain at least one lowercase letter')
-      .regex(/[0-9]/, 'New password must contain at least one number')
-      .regex(
-        /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/,
-        'New password must contain at least one special character'
-      ),
+      .regex(strongPasswordRegex, strongPasswordMessage),
   })
   .refine((data) => data.current_password !== data.new_password, {
     message: 'New password must be different from current password',
@@ -62,14 +56,7 @@ const changePasswordSchema = z
 const forceChangePasswordSchema = z.object({
   new_password: z
     .string()
-    .min(8, 'New password must be at least 8 characters')
-    .regex(/[A-Z]/, 'New password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'New password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'New password must contain at least one number')
-    .regex(
-      /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/,
-      'New password must contain at least one special character'
-    ),
+    .regex(strongPasswordRegex, strongPasswordMessage),
 });
 
 // ---------------------------------------------------------------------------

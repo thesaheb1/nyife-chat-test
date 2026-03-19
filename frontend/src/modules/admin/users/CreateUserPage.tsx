@@ -1,4 +1,4 @@
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Mail, UserPlus } from 'lucide-react';
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
+import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
 import {
   directCreateUserSchema,
   inviteUserSchema,
@@ -48,6 +49,11 @@ export function CreateUserPage() {
       email: '',
       phone: '',
     },
+  });
+  const directPasswordValue = useWatch({
+    control: directForm.control,
+    name: 'password',
+    defaultValue: '',
   });
 
   const handleDirectCreate = async (values: CreateUserFormData) => {
@@ -172,6 +178,7 @@ export function CreateUserPage() {
                 <div className="space-y-2">
                   <Label htmlFor="direct-password">Default password</Label>
                   <Input id="direct-password" type="password" {...directForm.register('password')} />
+                  <PasswordStrengthMeter password={directPasswordValue} />
                   {directForm.formState.errors.password ? (
                     <p className="text-xs text-destructive">{directForm.formState.errors.password.message}</p>
                   ) : null}

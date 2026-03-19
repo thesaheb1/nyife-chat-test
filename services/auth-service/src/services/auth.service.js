@@ -46,6 +46,82 @@ async function createDefaultOrganizationForUser(user, transaction) {
   return organizationId;
 }
 
+async function ensureDefaultOrganizationForUser(user, transaction) {
+  const organizationSeed = buildDefaultOrganizationSeed({
+    userId: user.id,
+    firstName: user.first_name,
+  });
+  const now = new Date();
+
+  const [organizations] = await sequelize.query(
+    `SELECT id
+     FROM org_organizations
+     WHERE user_id = :userId
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    {
+      replacements: { userId: user.id },
+      transaction,
+    }
+  );
+
+  const organizationId = organizations?.[0]?.id || null;
+
+  if (!organizationId) {
+    return createDefaultOrganizationForUser(user, transaction);
+  }
+
+  await sequelize.query(
+    `UPDATE org_organizations
+     SET name = :name,
+         slug = :slug,
+         description = :description,
+         updated_at = :now
+     WHERE id = :organizationId
+       AND user_id = :userId`,
+    {
+      replacements: {
+        organizationId,
+        userId: user.id,
+        name: organizationSeed.name,
+        slug: organizationSeed.slug,
+        description: organizationSeed.description,
+        now,
+      },
+      transaction,
+    }
+  );
+
+  const [wallets] = await sequelize.query(
+    `SELECT id
+     FROM wallet_wallets
+     WHERE user_id = :organizationId
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    {
+      replacements: { organizationId },
+      transaction,
+    }
+  );
+
+  if (!wallets?.[0]?.id) {
+    await sequelize.query(
+      `INSERT INTO wallet_wallets (id, user_id, balance, currency, created_at, updated_at)
+       VALUES (:id, :userId, 0, 'INR', :now, :now)`,
+      {
+        replacements: {
+          id: crypto.randomUUID(),
+          userId: organizationId,
+          now,
+        },
+        transaction,
+      }
+    );
+  }
+
+  return organizationId;
+}
+
 function buildVerificationEmailPayload(user, verificationToken) {
   return {
     to_emails: [user.email],
@@ -131,6 +207,12 @@ async function sendVerificationEmail(user, verificationToken) {
   return sendTransactionalEmail(buildVerificationEmailPayload(user, verificationToken));
 }
 
+function isReusablePendingRegistration(user) {
+  return Boolean(user)
+    && user.status === 'pending_verification'
+    && !user.email_verified_at;
+}
+
 async function rollbackPendingRegistration(userId, organizationId) {
   await sequelize.transaction(async (transaction) => {
     await sequelize.query(
@@ -162,12 +244,41 @@ async function rollbackPendingRegistration(userId, organizationId) {
  */
 async function register({ email, password, first_name, last_name, phone }) {
   const existing = await User.unscoped().findOne({ where: { email } });
-  if (existing) {
+
+  if (existing && !isReusablePendingRegistration(existing)) {
     throw AppError.conflict('A user with this email already exists');
   }
 
   const emailVerificationToken = crypto.randomBytes(32).toString('hex');
   const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+  if (isReusablePendingRegistration(existing)) {
+    await sequelize.transaction(async (transaction) => {
+      await existing.update({
+        password,
+        first_name,
+        last_name,
+        phone: phone || null,
+        role: 'user',
+        status: 'pending_verification',
+        email_verified_at: null,
+        email_verification_token: emailVerificationToken,
+        email_verification_expires: emailVerificationExpires,
+        password_reset_token: null,
+        password_reset_expires: null,
+        must_change_password: false,
+      }, { transaction });
+
+      await ensureDefaultOrganizationForUser(existing, transaction);
+    });
+
+    await sendVerificationEmail(existing, emailVerificationToken);
+
+    return {
+      user: existing.toSafeJSON(),
+      emailVerificationToken,
+    };
+  }
 
   const { user, organizationId } = await sequelize.transaction(async (transaction) => {
     const createdUser = await User.create({

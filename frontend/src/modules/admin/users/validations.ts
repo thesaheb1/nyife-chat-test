@@ -1,13 +1,14 @@
 import { z } from 'zod/v4';
 import { isValidRupeeAmount } from '@/shared/utils';
 import { optionalPhoneSchema } from '@/shared/utils/phone';
+import { strongPasswordSchema } from '@/shared/utils/password';
 
 export const directCreateUserSchema = z.object({
   first_name: z.string().min(1, 'First name is required').max(100),
   last_name: z.string().min(1, 'Last name is required').max(100),
   email: z.email('Invalid email address'),
   phone: optionalPhoneSchema,
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: strongPasswordSchema,
 });
 
 export const inviteUserSchema = z.object({
@@ -25,7 +26,7 @@ export const updateUserSchema = z.object({
 });
 
 export const acceptUserInvitationSchema = z.object({
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: strongPasswordSchema,
 });
 
 export type CreateUserFormData = z.infer<typeof directCreateUserSchema>;

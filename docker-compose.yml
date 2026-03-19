@@ -29,9 +29,24 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+        else
+          exec redis-server --appendonly yes
+        fi
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test:
+        - CMD-SHELL
+        - >
+          if [ -n "$$REDIS_PASSWORD" ]; then
+            redis-cli -a "$$REDIS_PASSWORD" ping;
+          else
+            redis-cli ping;
+          fi
       interval: 10s
       timeout: 5s
       retries: 5
@@ -227,7 +242,9 @@ services:
       NODE_ENV: production
       WALLET_SERVICE_PORT: 3004
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
+      ORGANIZATION_SERVICE_URL: http://organization-service:3011
       KAFKA_BROKERS: kafka:29092
     depends_on:
       mysql:

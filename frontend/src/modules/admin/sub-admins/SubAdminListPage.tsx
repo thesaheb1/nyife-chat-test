@@ -34,6 +34,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
+import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
+import { PASSWORD_POLICY_MESSAGE, isStrongPassword } from '@/shared/utils/password';
 import {
   useSubAdmins,
   useCreateSubAdmin,
@@ -108,6 +110,11 @@ export function SubAdminListPage() {
   const isResendingInvitation = resendInvitation.isPending;
 
   const handleCreate = async () => {
+    if (!isStrongPassword(createForm.password)) {
+      toast.error(PASSWORD_POLICY_MESSAGE);
+      return;
+    }
+
     try {
       await createSubAdmin.mutateAsync(createForm);
       toast.success('Sub-admin account created. Share the temporary password securely.');
@@ -440,8 +447,9 @@ export function SubAdminListPage() {
                 type="password"
                 value={createForm.password}
                 onChange={(event) => setCreateForm((current) => ({ ...current, password: event.target.value }))}
-                placeholder="Minimum 8 characters"
+                placeholder="Use uppercase, lowercase, number, and symbol"
               />
+              <PasswordStrengthMeter password={createForm.password} />
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label>{t('admin.subAdmins.role')}</Label>
@@ -473,7 +481,7 @@ export function SubAdminListPage() {
                 !createForm.first_name.trim() ||
                 !createForm.last_name.trim() ||
                 !createForm.email.trim() ||
-                !createForm.password.trim() ||
+                !isStrongPassword(createForm.password) ||
                 !createForm.role_id
               }
             >

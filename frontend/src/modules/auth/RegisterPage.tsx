@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AuthLayout } from '@/shared/layouts/AuthLayout';
+import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import type { ApiResponse, User } from '@/core/types';
@@ -33,7 +34,6 @@ export function RegisterPage() {
     handleSubmit,
     setValue,
     reset,
-    watch,
     control,
     formState: { errors },
   } = useForm<RegisterFormData>({
@@ -41,7 +41,8 @@ export function RegisterPage() {
     defaultValues: { terms: false as unknown as true },
   });
 
-  const termsValue = watch('terms');
+  const termsValue = useWatch({ control, name: 'terms' });
+  const passwordValue = useWatch({ control, name: 'password' }) || '';
 
   const onSubmit = async (data: RegisterFormData) => {
     setIsSubmitting(true);
@@ -184,10 +185,11 @@ export function RegisterPage() {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="Minimum 8 characters"
+                  placeholder="Use uppercase, lowercase, number, and symbol"
                   autoComplete="new-password"
                   {...register('password')}
                 />
+                <PasswordStrengthMeter password={passwordValue} />
                 {errors.password && (
                   <p className="text-sm text-destructive">{errors.password.message}</p>
                 )}

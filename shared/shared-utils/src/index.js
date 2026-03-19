@@ -16,6 +16,8 @@ const {
   paginationSchema,
   dateRangeSchema,
   searchSchema,
+  strongPasswordRegex,
+  strongPasswordMessage,
 } = require('./validators');
 const {
   generateUUID,
@@ -80,6 +82,8 @@ module.exports = {
   paginationSchema,
   dateRangeSchema,
   searchSchema,
+  strongPasswordRegex,
+  strongPasswordMessage,
 
   // Helpers
   generateUUID,

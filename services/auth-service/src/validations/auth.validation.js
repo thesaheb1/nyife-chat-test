@@ -1,14 +1,11 @@
 'use strict';
 
 const { z } = require('zod');
-
-const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
-const passwordMessage =
-  'Password must be at least 8 characters and contain uppercase, lowercase, number, and special character';
+const { strongPasswordRegex, strongPasswordMessage } = require('@nyife/shared-utils');
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email format').toLowerCase().trim(),
-  password: z.string().regex(passwordRegex, passwordMessage),
+  password: z.string().regex(strongPasswordRegex, strongPasswordMessage),
   first_name: z.string().min(2, 'First name must be at least 2 characters').max(100).trim(),
   last_name: z.string().min(2, 'Last name must be at least 2 characters').max(100).trim(),
   phone: z
@@ -37,7 +34,7 @@ const forgotPasswordSchema = z.object({
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Reset token is required'),
-  new_password: z.string().regex(passwordRegex, passwordMessage),
+  new_password: z.string().regex(strongPasswordRegex, strongPasswordMessage),
 });
 
 const oauthTokenSchema = z.object({

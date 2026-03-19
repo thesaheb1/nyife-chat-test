@@ -1,9 +1,7 @@
 'use strict';
 
 const { z } = require('zod');
-const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
-const passwordMessage =
-  'Temporary password must be at least 8 characters and contain uppercase, lowercase, number, and special character';
+const { strongPasswordRegex, strongPasswordMessage } = require('@nyife/shared-utils');
 
 /**
  * Permission shape for a single resource.
@@ -142,7 +140,7 @@ const createMemberAccountSchema = z.object({
     .min(2, 'Role title must be at least 2 characters')
     .max(100, 'Role title must not exceed 100 characters')
     .trim(),
-  temporary_password: z.string().regex(passwordRegex, passwordMessage),
+  temporary_password: z.string().regex(strongPasswordRegex, strongPasswordMessage),
   permissions: permissionsSchema,
 });
 
@@ -186,7 +184,7 @@ const internalValidateTeamMemberSchema = z.object({
 
 const acceptInvitationSchema = z.object({
   token: z.string().min(1, 'Invitation token is required'),
-  password: z.string().min(8).max(255).optional(),
+  password: z.string().regex(strongPasswordRegex, strongPasswordMessage).max(255).optional(),
 });
 
 const resolveOrgContextSchema = z.object({

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, LogOut } from 'lucide-react';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
 import { apiClient, refreshSession } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { getApiErrorMessage } from '@/core/errors/apiError';
@@ -21,10 +22,12 @@ export function ForceChangePasswordPage() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<ForceChangePasswordFormData>({
     resolver: zodResolver(forceChangePasswordSchema),
   });
+  const newPasswordValue = useWatch({ control, name: 'new_password' }) || '';
 
   const onSubmit = async (values: ForceChangePasswordFormData) => {
     setSubmitting(true);
@@ -64,9 +67,10 @@ export function ForceChangePasswordPage() {
                 id="new_password"
                 type="password"
                 autoComplete="new-password"
-                placeholder="Enter a secure password"
+                placeholder="Use uppercase, lowercase, number, and symbol"
                 {...register('new_password')}
               />
+              <PasswordStrengthMeter password={newPasswordValue} />
               {errors.new_password ? (
                 <p className="text-sm text-destructive">{errors.new_password.message}</p>
               ) : null}

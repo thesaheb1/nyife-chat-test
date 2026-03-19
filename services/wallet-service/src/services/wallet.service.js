@@ -9,6 +9,7 @@ const config = require('../config');
 
 // Initialize Razorpay instance
 let razorpayInstance = null;
+const RAZORPAY_RECEIPT_MAX_LENGTH = 40;
 
 async function publishWalletTransactionEvent(kafkaProducer, payload) {
   if (!kafkaProducer) {
@@ -30,7 +31,14 @@ async function publishWalletTransactionEvent(kafkaProducer, payload) {
 function getRazorpay() {
   if (!razorpayInstance) {
     if (!config.razorpay.keyId || !config.razorpay.keySecret) {
-      throw AppError.internal('Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
+      console.error('[wallet-service] Razorpay keys are missing from configuration');
+      throw new AppError(
+        'Wallet recharge is temporarily unavailable. Please try again later.',
+        503,
+        [],
+        true,
+        'WALLET_RECHARGE_UNAVAILABLE'
+      );
     }
     razorpayInstance = new Razorpay({
       key_id: config.razorpay.keyId,
@@ -38,6 +46,15 @@ function getRazorpay() {
     });
   }
   return razorpayInstance;
+}
+
+function buildRechargeReceipt(userId) {
+  const normalizedUserId = String(userId || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(-12);
+  const timestamp = Date.now().toString(36);
+
+  return `wallet_${normalizedUserId}_${timestamp}`.slice(0, RAZORPAY_RECEIPT_MAX_LENGTH);
 }
 
 /**
@@ -141,18 +158,45 @@ async function initiateRecharge(userId, amount) {
 
   // Create Razorpay order
   const razorpay = getRazorpay();
-  const order = await razorpay.orders.create({
-    amount: totalAmount,
-    currency: wallet.currency,
-    receipt: `wallet_${userId}_${Date.now()}`,
-    notes: {
-      user_id: userId,
-      wallet_id: wallet.id,
-      type: 'wallet_recharge',
-      base_amount: baseAmount,
-      tax_amount: taxAmount,
-    },
-  });
+  const receipt = buildRechargeReceipt(userId);
+  let order;
+
+  try {
+    order = await razorpay.orders.create({
+      amount: totalAmount,
+      currency: wallet.currency,
+      receipt,
+      notes: {
+        user_id: userId,
+        wallet_id: wallet.id,
+        type: 'wallet_recharge',
+        base_amount: baseAmount,
+        tax_amount: taxAmount,
+      },
+    });
+  } catch (error) {
+    console.error('[wallet-service] Failed to create Razorpay recharge order:', {
+      userId,
+      walletId: wallet.id,
+      receipt,
+      amount: totalAmount,
+      message: error?.message,
+      statusCode: error?.statusCode,
+      code: error?.error?.code,
+      description: error?.error?.description,
+      reason: error?.error?.reason,
+      source: error?.error?.source,
+      step: error?.error?.step,
+    });
+
+    throw new AppError(
+      'Unable to initiate wallet recharge right now. Please try again later.',
+      503,
+      [],
+      true,
+      'WALLET_RECHARGE_UNAVAILABLE'
+    );
+  }
 
   return {
     order_id: order.id,
@@ -783,5 +827,6 @@ module.exports = {
   getInvoice,
   adminCredit,
   adminDebit,
+  buildRechargeReceipt,
   generateInvoiceNumber,
 };

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Activity, ArrowUpRight, Loader2, Trash2 } from 'lucide-react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector, useDispatch } from 'react-redux';
@@ -35,6 +35,7 @@ import {
   getWhatsAppAccountConnectionVariant,
 } from '@/modules/whatsapp/accountOptions';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
+import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -251,10 +252,11 @@ function NotificationsTab() {
 }
 
 function PasswordTab() {
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ChangePasswordFormData>({
+  const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<ChangePasswordFormData>({
     resolver: zodResolver(changePasswordSchema),
     defaultValues: { current_password: '', new_password: '', confirm_password: '' },
   });
+  const newPasswordValue = useWatch({ control, name: 'new_password' }) || '';
 
   const onSubmit = async (data: ChangePasswordFormData) => {
     try {
@@ -279,6 +281,7 @@ function PasswordTab() {
           <div className="space-y-2">
             <Label>New Password</Label>
             <Input type="password" {...register('new_password')} />
+            <PasswordStrengthMeter password={newPasswordValue} />
             {errors.new_password && <p className="text-xs text-destructive">{errors.new_password.message}</p>}
           </div>
           <div className="space-y-2">

@@ -1,5 +1,6 @@
 import { z } from 'zod/v4';
 import { optionalPhoneSchema } from '@/shared/utils/phone';
+import { strongPasswordSchema } from '@/shared/utils/password';
 
 export const profileSchema = z.object({
   first_name: z.string().min(1, 'First name is required').max(100),
@@ -16,7 +17,7 @@ export type PreferencesFormData = z.infer<typeof preferencesSchema>;
 
 export const changePasswordSchema = z.object({
   current_password: z.string().min(1, 'Current password is required'),
-  new_password: z.string().min(8, 'Password must be at least 8 characters'),
+  new_password: strongPasswordSchema,
   confirm_password: z.string().min(1, 'Confirmation is required'),
 }).refine((d) => d.new_password === d.confirm_password, {
   message: 'Passwords do not match',

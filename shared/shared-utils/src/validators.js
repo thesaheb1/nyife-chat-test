@@ -12,6 +12,15 @@ const phoneSchema = z
   .regex(/^\+[1-9]\d{6,14}$/, 'Invalid phone number (E.164 format required)');
 
 /**
+ * Canonical strong-password policy shared across services.
+ * Requires at least 8 characters, uppercase, lowercase, number, and symbol.
+ */
+const strongPasswordRegex =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]).{8,}$/;
+const strongPasswordMessage =
+  'Password must be at least 8 characters and contain uppercase, lowercase, number, and special character';
+
+/**
  * Validates and normalizes an email address to lowercase.
  */
 const emailSchema = z
@@ -68,4 +77,6 @@ module.exports = {
   paginationSchema,
   dateRangeSchema,
   searchSchema,
+  strongPasswordRegex,
+  strongPasswordMessage,
 };

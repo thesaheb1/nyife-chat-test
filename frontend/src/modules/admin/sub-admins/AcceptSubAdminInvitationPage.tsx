@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
+import { PASSWORD_POLICY_MESSAGE, isStrongPassword } from '@/shared/utils/password';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import type { ApiResponse } from '@/core/types';
@@ -54,11 +56,14 @@ export function AcceptSubAdminInvitationPage() {
       return true;
     }
 
-    return password.trim().length >= 8;
+    return isStrongPassword(password);
   }, [isInlineRegistration, password, token, validationQuery.isError, validationQuery.isLoading]);
 
   const handleSubmit = async () => {
     if (!canSubmit) {
+      if (isInlineRegistration && !isStrongPassword(password)) {
+        toast.error(PASSWORD_POLICY_MESSAGE);
+      }
       return;
     }
 
@@ -133,8 +138,9 @@ export function AcceptSubAdminInvitationPage() {
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Minimum 8 characters"
+                  placeholder="Use uppercase, lowercase, number, and symbol"
                 />
+                <PasswordStrengthMeter password={password} />
               </div>
             </>
           ) : (

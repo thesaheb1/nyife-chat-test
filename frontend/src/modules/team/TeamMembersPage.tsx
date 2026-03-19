@@ -14,7 +14,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
+import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
 import { PermissionMatrix } from '@/shared/components/PermissionMatrix';
+import { PASSWORD_POLICY_MESSAGE, isStrongPassword } from '@/shared/utils/password';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { organizationQueryKey } from '@/core/queryKeys';
@@ -257,6 +259,11 @@ export function TeamMembersPage() {
   });
 
   const handleCreateMember = async () => {
+    if (!isStrongPassword(memberForm.temporary_password)) {
+      toast.error(PASSWORD_POLICY_MESSAGE);
+      return;
+    }
+
     try {
       await createMemberMutation.mutateAsync(memberForm);
       toast.success('Team account created. Share the temporary password securely.');
@@ -669,8 +676,9 @@ export function TeamMembersPage() {
                 type="password"
                 value={memberForm.temporary_password}
                 onChange={(event) => setMemberForm((current) => ({ ...current, temporary_password: event.target.value }))}
-                placeholder="Minimum 8 characters with uppercase, lowercase, number, and symbol"
+                placeholder="Use uppercase, lowercase, number, and symbol"
               />
+              <PasswordStrengthMeter password={memberForm.temporary_password} />
             </div>
             <div className="space-y-2">
               <Label>Permissions</Label>
@@ -690,7 +698,7 @@ export function TeamMembersPage() {
                 !memberForm.last_name.trim() ||
                 !memberForm.email.trim() ||
                 !memberForm.role_title.trim() ||
-                !memberForm.temporary_password.trim()
+                !isStrongPassword(memberForm.temporary_password)
               }
               onClick={handleCreateMember}
             >

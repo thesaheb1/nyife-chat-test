@@ -107,7 +107,7 @@ export function usePublishTemplate() {
     mutationFn: async ({ id, wa_account_id }: { id: string; wa_account_id?: string }) => {
       const { data } = await apiClient.post<ApiResponse<{ template: Template }>>(
         `${ENDPOINTS.TEMPLATES.BASE}/${id}/publish`,
-        { wa_account_id }
+        wa_account_id ? { wa_account_id } : {}
       );
       return data.data.template;
     },
@@ -119,10 +119,11 @@ export function usePublishTemplate() {
 export function useSyncTemplates() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (wa_account_id: string) => {
+    mutationFn: async (wa_account_id?: string) => {
+      const payload = wa_account_id ? { wa_account_id } : {};
       const { data } = await apiClient.post<ApiResponse<{ synced: number; created: number; updated: number }>>(
         ENDPOINTS.TEMPLATES.SYNC,
-        { wa_account_id }
+        payload
       );
       return data.data;
     },

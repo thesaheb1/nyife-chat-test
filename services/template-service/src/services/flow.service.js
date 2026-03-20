@@ -18,12 +18,7 @@ const {
   validateFlowDefinition,
 } = require('../helpers/flowSchema');
 const config = require('../config');
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isUuid(value) {
-  return typeof value === 'string' && UUID_REGEX.test(value);
-}
+const { resolveSingleWabaAccount } = require('./waAccountContext.service');
 
 function normalizeCategories(categories) {
   if (!Array.isArray(categories) || categories.length === 0) {
@@ -49,47 +44,33 @@ function normalizeValidationState(name, definitionInput) {
   };
 }
 
-async function resolveAccessToken(userId, wabaId, providedAccessToken) {
+async function resolveFlowExecutionContext(userId, wabaId, providedAccessToken) {
+  const selection = await resolveSingleWabaAccount(userId, {
+    wabaId: wabaId || null,
+    allowFallbackByWaba: Boolean(wabaId),
+    allowAutoResolve: true,
+  });
+  const resolvedWabaId = selection.waba_id || (wabaId ? String(wabaId) : null);
+
   if (providedAccessToken) {
-    return Array.isArray(providedAccessToken) ? providedAccessToken[0] : providedAccessToken;
-  }
-
-  if (!wabaId) {
-    return config.meta.systemUserAccessToken || null;
-  }
-
-  let accounts = [];
-  try {
-    accounts = await sequelize.query(
-      `SELECT access_token
-       FROM wa_accounts
-       WHERE user_id = :userId
-         AND waba_id = :wabaId
-         AND status = :status
-         AND deleted_at IS NULL
-       ORDER BY updated_at DESC
-       LIMIT 1`,
-      {
-        replacements: {
-          userId,
-          wabaId: String(wabaId),
-          status: 'active',
-        },
-        type: QueryTypes.SELECT,
-      }
-    );
-  } catch (err) {
-    console.warn('[template-service] Failed to load stored WhatsApp account token for flows:', err.message);
-    return null;
+    return {
+      accessToken: Array.isArray(providedAccessToken) ? providedAccessToken[0] : providedAccessToken,
+      wabaId: resolvedWabaId,
+      waAccountId: selection.wa_account_id || null,
+    };
   }
 
   const credential = resolveMetaAccessCredential({
     systemUserAccessToken: config.meta.systemUserAccessToken,
-    encryptedAccessToken: accounts?.[0]?.access_token || null,
+    encryptedAccessToken: selection.account?.access_token || null,
     allowLegacyAccountTokenFallback: config.meta.allowLegacyAccountTokenFallback,
   });
 
-  return credential?.accessToken || null;
+  return {
+    accessToken: credential?.accessToken || null,
+    wabaId: resolvedWabaId,
+    waAccountId: selection.wa_account_id || null,
+  };
 }
 
 async function findFlow(userId, flowId) {
@@ -311,14 +292,23 @@ function buildSyncPayload(remoteFlow) {
 }
 
 async function createFlow(userId, data) {
-  await ensureUniqueFlowName(userId, data.name, data.waba_id || null);
+  const selection = await resolveSingleWabaAccount(userId, {
+    waAccountId: data.wa_account_id || null,
+    wabaId: data.waba_id || null,
+    allowFallbackByWaba: Boolean(data.waba_id),
+    allowAutoResolve: !data.wa_account_id && !data.waba_id,
+  });
+  const resolvedWabaId = selection.waba_id || null;
+  const resolvedWaAccountId = selection.wa_account_id || data.wa_account_id || null;
+
+  await ensureUniqueFlowName(userId, data.name, resolvedWabaId);
 
   const validationState = normalizeValidationState(data.name, data.json_definition);
 
   const flow = await Flow.create({
     user_id: userId,
-    waba_id: data.waba_id || null,
-    wa_account_id: data.wa_account_id || null,
+    waba_id: resolvedWabaId,
+    wa_account_id: resolvedWaAccountId,
     name: data.name,
     categories: normalizeCategories(data.categories),
     status: 'DRAFT',
@@ -375,8 +365,29 @@ async function getFlow(userId, flowId) {
 
 async function updateFlow(userId, flowId, data) {
   const flow = await findFlow(userId, flowId);
-  const nextWabaId = data.waba_id !== undefined ? (data.waba_id || null) : flow.waba_id;
+  let nextWabaId = data.waba_id !== undefined ? (data.waba_id || null) : flow.waba_id;
+  let nextWaAccountId =
+    data.wa_account_id !== undefined ? data.wa_account_id || null : flow.wa_account_id;
   const nextName = data.name || flow.name;
+
+  if (data.waba_id !== undefined || data.wa_account_id !== undefined) {
+    const selection = await resolveSingleWabaAccount(userId, {
+      waAccountId: data.wa_account_id || null,
+      wabaId: data.waba_id || null,
+      allowFallbackByWaba: Boolean(data.waba_id),
+      allowAutoResolve: !data.wa_account_id && !data.waba_id,
+    });
+
+    nextWabaId = selection.waba_id || nextWabaId;
+    nextWaAccountId = selection.wa_account_id || nextWaAccountId;
+  } else if (!nextWabaId) {
+    const selection = await resolveSingleWabaAccount(userId, {
+      allowAutoResolve: true,
+    });
+
+    nextWabaId = selection.waba_id || null;
+    nextWaAccountId = nextWaAccountId || selection.wa_account_id || null;
+  }
 
   if (nextName !== flow.name || nextWabaId !== flow.waba_id) {
     await ensureUniqueFlowName(userId, nextName, nextWabaId, flowId);
@@ -390,7 +401,7 @@ async function updateFlow(userId, flowId, data) {
   await flow.update({
     name: nextName,
     waba_id: nextWabaId,
-    wa_account_id: data.wa_account_id !== undefined ? data.wa_account_id || null : flow.wa_account_id,
+    wa_account_id: nextWaAccountId,
     categories: data.categories ? normalizeCategories(data.categories) : flow.categories,
     json_version: data.json_version || validationState.jsonVersion,
     json_definition: validationState.definitionToStore,
@@ -447,12 +458,17 @@ async function saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride) {
     );
   }
 
-  const wabaId = wabaIdOverride || flow.waba_id;
+  const executionContext = await resolveFlowExecutionContext(
+    userId,
+    wabaIdOverride || flow.waba_id,
+    accessToken
+  );
+  const wabaId = executionContext.wabaId;
   if (!wabaId) {
-    throw AppError.badRequest('WABA ID is required to save a flow to Meta.');
+    throw AppError.badRequest('Connect an active WhatsApp number before saving a flow to Meta.');
   }
 
-  const resolvedAccessToken = await resolveAccessToken(userId, wabaId, accessToken);
+  const resolvedAccessToken = executionContext.accessToken;
   if (!resolvedAccessToken) {
     throw AppError.badRequest(
       'WhatsApp access token is required for flows. Connect an active WhatsApp account for this WABA or provide x-wa-access-token.'
@@ -490,6 +506,7 @@ async function saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride) {
   await flow.update({
     meta_flow_id: metaFlowId,
     waba_id: wabaId,
+    wa_account_id: flow.wa_account_id || executionContext.waAccountId || null,
     preview_url:
       uploadResponse.preview_url
       || createResponse.preview_url
@@ -505,7 +522,8 @@ async function saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride) {
 
 async function publishFlow(userId, flowId, accessToken, wabaIdOverride) {
   const flow = await saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride);
-  const resolvedAccessToken = await resolveAccessToken(userId, flow.waba_id, accessToken);
+  const executionContext = await resolveFlowExecutionContext(userId, flow.waba_id, accessToken);
+  const resolvedAccessToken = executionContext.accessToken;
 
   if (!resolvedAccessToken) {
     throw AppError.badRequest('WhatsApp access token is required to publish a flow.');
@@ -537,7 +555,8 @@ async function deprecateFlow(userId, flowId, accessToken) {
     throw AppError.badRequest('This flow has not been saved to Meta yet.');
   }
 
-  const resolvedAccessToken = await resolveAccessToken(userId, flow.waba_id, accessToken);
+  const executionContext = await resolveFlowExecutionContext(userId, flow.waba_id, accessToken);
+  const resolvedAccessToken = executionContext.accessToken;
   if (!resolvedAccessToken) {
     throw AppError.badRequest('WhatsApp access token is required to deprecate a flow.');
   }
@@ -560,16 +579,22 @@ async function deprecateFlow(userId, flowId, accessToken) {
 }
 
 async function syncFlows(userId, wabaId, accessToken, force = false) {
-  const resolvedAccessToken = await resolveAccessToken(userId, wabaId, accessToken);
+  const executionContext = await resolveFlowExecutionContext(userId, wabaId, accessToken);
+  const resolvedAccessToken = executionContext.accessToken;
+  const resolvedWabaId = executionContext.wabaId;
   if (!resolvedAccessToken) {
     throw AppError.badRequest(
       'WhatsApp access token is required for syncing flows. Connect an active WhatsApp account for this WABA or provide x-wa-access-token.'
     );
   }
 
+  if (!resolvedWabaId) {
+    throw AppError.badRequest('Connect an active WhatsApp number before syncing flows from Meta.');
+  }
+
   let remoteFlows = [];
   try {
-    remoteFlows = await listRemoteFlows(wabaId, resolvedAccessToken);
+    remoteFlows = await listRemoteFlows(resolvedWabaId, resolvedAccessToken);
   } catch (err) {
     const metaError = err.response?.data?.error;
     throw AppError.badRequest(
@@ -589,7 +614,7 @@ async function syncFlows(userId, wabaId, accessToken, force = false) {
           { meta_flow_id: remoteFlow.id || null },
           {
             name: remoteFlow.name || '',
-            waba_id: wabaId,
+            waba_id: resolvedWabaId,
           },
         ],
       },
@@ -610,7 +635,8 @@ async function syncFlows(userId, wabaId, accessToken, force = false) {
       await local.update({
         ...payload,
         meta_flow_id: remoteFlow.id || local.meta_flow_id,
-        waba_id: wabaId,
+        waba_id: resolvedWabaId,
+        wa_account_id: local.wa_account_id || executionContext.waAccountId || null,
       });
       updated += 1;
       continue;
@@ -618,8 +644,8 @@ async function syncFlows(userId, wabaId, accessToken, force = false) {
 
     await Flow.create({
       user_id: userId,
-      waba_id: wabaId,
-      wa_account_id: null,
+      waba_id: resolvedWabaId,
+      wa_account_id: executionContext.waAccountId || null,
       meta_flow_id: remoteFlow.id || null,
       name: payload.name,
       categories: payload.categories,

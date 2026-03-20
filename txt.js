@@ -179,3 +179,4 @@
 
 
 // Whatsapp account is connected and i created a template successfully. but it in in pending state. Now can i assure that our whatsapp embedded signup is implemented correctly with industry standard?.
+

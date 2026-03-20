@@ -23,9 +23,9 @@ import { createCampaignSchema } from './validations';
 import type { CreateCampaignFormData } from './validations';
 import { useTemplates } from '@/modules/templates/useTemplates';
 import {
-  buildActiveWhatsAppAccountOptions,
+  buildActivePhoneNumberOptions,
   findWhatsAppAccount,
-  getWhatsAppAccountLabel,
+  getWhatsAppPhoneNumberLabel,
 } from '@/modules/whatsapp/accountOptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { hasFilledValue, useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
@@ -60,7 +60,7 @@ export function CreateCampaignPage() {
     () => findWhatsAppAccount(waAccounts, selectedWaAccountId),
     [selectedWaAccountId, waAccounts]
   );
-  const activeAccountOptions = useMemo(() => buildActiveWhatsAppAccountOptions(waAccounts), [waAccounts]);
+  const activeAccountOptions = useMemo(() => buildActivePhoneNumberOptions(waAccounts), [waAccounts]);
   const requiredFieldsFilled = useRequiredFieldsFilled(control, [
     'name',
     'wa_account_id',
@@ -158,7 +158,7 @@ export function CreateCampaignPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label required>WhatsApp Account</Label>
+                <Label required>Phone number</Label>
                 <Select
                   value={selectedWaAccountId || ''}
                   onValueChange={(value) => {
@@ -167,7 +167,7 @@ export function CreateCampaignPage() {
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select account" />
+                    <SelectValue placeholder="Select phone number" />
                   </SelectTrigger>
                   <SelectContent>
                     {activeAccountOptions.map((account) => (
@@ -177,7 +177,7 @@ export function CreateCampaignPage() {
                     ))}
                     {activeAccountOptions.length === 0 && (
                       <SelectItem value="none" disabled>
-                        No active accounts connected
+                        No active phone numbers connected
                       </SelectItem>
                     )}
                   </SelectContent>
@@ -185,11 +185,11 @@ export function CreateCampaignPage() {
                 {errors.wa_account_id && <p className="text-sm text-destructive">{errors.wa_account_id.message}</p>}
                 {selectedWaAccount ? (
                   <p className="text-xs text-muted-foreground">
-                    {getWhatsAppAccountLabel(selectedWaAccount)} / WABA {selectedWaAccount.waba_id}
+                    {getWhatsAppPhoneNumberLabel(selectedWaAccount)}
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Choose the connected account first. The template list is filtered to that account's WABA.
+                    Choose the connected phone number first. Nyife will use this number for the selected template automatically.
                   </p>
                 )}
               </div>
@@ -201,7 +201,7 @@ export function CreateCampaignPage() {
                   disabled={!selectedWaAccount}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={selectedWaAccount ? 'Select template' : 'Select account first'} />
+                    <SelectValue placeholder={selectedWaAccount ? 'Select template' : 'Select phone number first'} />
                   </SelectTrigger>
                   <SelectContent>
                     {templates.map((t) => (
@@ -216,7 +216,7 @@ export function CreateCampaignPage() {
                     ))}
                     {templates.length === 0 && (
                       <SelectItem value="none" disabled>
-                        {selectedWaAccount ? 'No approved templates for this account' : 'Select an account first'}
+                        {selectedWaAccount ? 'No approved templates for this phone number' : 'Select a phone number first'}
                       </SelectItem>
                     )}
                   </SelectContent>

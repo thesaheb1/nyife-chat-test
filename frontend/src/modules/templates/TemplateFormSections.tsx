@@ -210,7 +210,7 @@ export function FlowTemplateSection({
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="rounded-2xl border bg-muted/10 p-4 text-sm text-muted-foreground">
-          Official Meta flow template examples do not include a header or footer. The selected WABA controls which Nyife flows are available in this dropdown.
+          Official Meta flow template examples do not include a header or footer. This dropdown shows flows available to the current organization.
         </div>
         <VariableTextareaField
           label="Body text"
@@ -237,9 +237,9 @@ export function FlowTemplateSection({
                 label: flow.name,
                 description: `${flow.status} / ${flow.categories.join(', ')}`,
               }))}
-              placeholder={draft.waba_id ? 'Select Nyife flow' : 'Select an account first'}
+              placeholder="Select Nyife flow"
               searchPlaceholder="Search saved WhatsApp flows"
-              emptyMessage={draft.waba_id ? 'No flows found for the selected account.' : 'Choose an account above to load flows.'}
+              emptyMessage="No flows found for this organization yet."
               onChange={(value) => {
                 const flow = flows.find((item) => item.id === value);
                 const firstScreen = flow?.json_definition?.screens?.[0]?.id || '';
@@ -254,7 +254,7 @@ export function FlowTemplateSection({
                   },
                 });
               }}
-              disabled={!draft.waba_id || flows.length === 0}
+              disabled={flows.length === 0}
             />
           </div>
         </div>

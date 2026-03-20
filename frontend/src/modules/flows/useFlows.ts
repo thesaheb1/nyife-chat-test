@@ -186,7 +186,7 @@ export function useSaveFlowToMeta() {
     mutationFn: async ({ id, waba_id }: { id: string; waba_id?: string }) => {
       const { data } = await apiClient.post<ApiResponse<{ flow: WhatsAppFlow }>>(
         `${ENDPOINTS.FLOWS.BASE}/${id}/save-to-meta`,
-        { waba_id }
+        waba_id ? { waba_id } : {}
       );
       return data.data.flow;
     },
@@ -205,7 +205,7 @@ export function usePublishFlow() {
     mutationFn: async ({ id, waba_id }: { id: string; waba_id?: string }) => {
       const { data } = await apiClient.post<ApiResponse<{ flow: WhatsAppFlow }>>(
         `${ENDPOINTS.FLOWS.BASE}/${id}/publish`,
-        { waba_id }
+        waba_id ? { waba_id } : {}
       );
       return data.data.flow;
     },
@@ -239,10 +239,10 @@ export function useDeprecateFlow() {
 export function useSyncFlows() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ waba_id, force }: { waba_id: string; force?: boolean }) => {
+    mutationFn: async ({ waba_id, force }: { waba_id?: string; force?: boolean }) => {
       const { data } = await apiClient.post<
         ApiResponse<{ synced: number; created: number; updated: number; conflicts: Array<Record<string, string>> }>
-      >(ENDPOINTS.FLOWS.SYNC, { waba_id, force: Boolean(force) });
+      >(ENDPOINTS.FLOWS.SYNC, waba_id ? { waba_id, force: Boolean(force) } : { force: Boolean(force) });
       return data.data;
     },
     onSuccess: async () => {

@@ -25,7 +25,6 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { FlowComponent, FlowDefinition, FlowScreen, WhatsAppFlow } from '@/core/types';
-import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { FlowComponentInspector } from './FlowComponentInspector';
 import { FlowComponentPreview } from './FlowComponentPreview';
 import {
@@ -65,7 +64,6 @@ export function FlowBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
   const { data: existing, isLoading } = useFlow(id);
-  const { data: waAccounts = [] } = useWhatsAppAccounts();
   const createFlow = useCreateFlow();
   const updateFlow = useUpdateFlow();
   const saveToMeta = useSaveFlowToMeta();
@@ -74,8 +72,6 @@ export function FlowBuilderPage() {
   const duplicateFlow = useDuplicateFlow();
 
   const [name, setName] = useState('Lead capture flow');
-  const [wabaId, setWabaId] = useState('');
-  const [waAccountId, setWaAccountId] = useState('');
   const [categories, setCategories] = useState<WhatsAppFlow['categories']>(['LEAD_GENERATION']);
   const [flowDefinition, setFlowDefinition] = useState<FlowDefinition>(() => createFlowDefinition('Lead capture flow'));
   const [editorState, setEditorState] = useState<Record<string, unknown>>({});
@@ -91,8 +87,6 @@ export function FlowBuilderPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(existing.name);
-    setWabaId(existing.waba_id || '');
-    setWaAccountId(existing.wa_account_id || '');
     setCategories(existing.categories);
     setFlowDefinition(existing.json_definition);
     setEditorState(existing.editor_state || {});
@@ -128,18 +122,6 @@ export function FlowBuilderPage() {
     ...validateFlowDefinition(flowDefinition),
   ]));
   const dataSourceConfig = activeScreen ? getScreenDataExchangeConfig(dataExchangeConfig, activeScreen.id) : null;
-  const wabaOptions = Array.from(
-    new Map(
-      waAccounts.map((account) => [
-        account.waba_id,
-        {
-          value: account.waba_id,
-          label: `${account.verified_name || account.display_phone || account.waba_id} (${account.waba_id})`,
-          waAccountId: account.id,
-        },
-      ])
-    ).values()
-  );
 
   const updateScreen = (screenId: string, updater: (screen: FlowScreen) => FlowScreen) => {
     setFlowDefinition((current) => ({
@@ -166,8 +148,6 @@ export function FlowBuilderPage() {
   const persistFlow = async () => {
     const payload = {
       name: name.trim(),
-      waba_id: wabaId || undefined,
-      wa_account_id: waAccountId || undefined,
       categories,
       json_definition: flowDefinition,
       editor_state: {
@@ -191,10 +171,10 @@ export function FlowBuilderPage() {
       if (action === 'save') {
         toast.success('Flow saved successfully.');
       } else if (action === 'meta') {
-        await saveToMeta.mutateAsync({ id: flow.id, waba_id: wabaId || undefined });
+        await saveToMeta.mutateAsync({ id: flow.id });
         toast.success('Flow saved to Meta successfully.');
       } else {
-        await publishFlow.mutateAsync({ id: flow.id, waba_id: wabaId || undefined });
+        await publishFlow.mutateAsync({ id: flow.id });
         toast.success('Flow published successfully.');
       }
       if (!isEdit) {
@@ -278,51 +258,28 @@ export function FlowBuilderPage() {
             <Label>Flow name</Label>
             <Input value={name} onChange={(event) => setName(event.target.value)} />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>WABA</Label>
-              <Select value={wabaId || 'manual'} onValueChange={(value) => {
-                if (value === 'manual') {
-                  setWabaId('');
-                  return;
-                }
-                const selected = wabaOptions.find((option) => option.value === value);
-                setWabaId(value);
-                setWaAccountId(selected?.waAccountId || '');
-              }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="manual">Manual entry</SelectItem>
-                  {wabaOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input value={wabaId} onChange={(event) => setWabaId(event.target.value)} placeholder="WhatsApp Business Account ID" />
-            </div>
-            <div className="space-y-2">
-              <Label>Categories</Label>
-              <div className="flex flex-wrap gap-2 rounded-md border p-3">
-                {flowCategories.map((category) => {
-                  const active = categories.includes(category.value);
-                  return (
-                    <button
-                      key={category.value}
-                      type="button"
-                      onClick={() => setCategories((current) => {
-                        if (active) {
-                          const next = current.filter((item) => item !== category.value);
-                          return next.length > 0 ? next : ['OTHER'];
-                        }
-                        return [...current, category.value];
-                      })}
-                      className={cn('rounded-full border px-3 py-1 text-xs transition-colors', active ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground')}
-                    >
-                      {category.label}
-                    </button>
-                  );
-                })}
-              </div>
+          <div className="space-y-2">
+            <Label>Categories</Label>
+            <div className="flex flex-wrap gap-2 rounded-md border p-3">
+              {flowCategories.map((category) => {
+                const active = categories.includes(category.value);
+                return (
+                  <button
+                    key={category.value}
+                    type="button"
+                    onClick={() => setCategories((current) => {
+                      if (active) {
+                        const next = current.filter((item) => item !== category.value);
+                        return next.length > 0 ? next : ['OTHER'];
+                      }
+                      return [...current, category.value];
+                    })}
+                    className={cn('rounded-full border px-3 py-1 text-xs transition-colors', active ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground')}
+                  >
+                    {category.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </CardContent>
@@ -529,8 +486,8 @@ function FlowPhoneCanvas(props: {
         <CardTitle className="text-base">Phone preview</CardTitle>
         <CardDescription>Preview the active screen as a WhatsApp Flow.</CardDescription>
       </CardHeader>
-      <CardContent className="bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.08),_transparent_45%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] p-6">
-        <div className="mx-auto max-w-[360px] rounded-[32px] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60">
+      <CardContent className="bg-[radial-gradient(circle_at_top,rgba(15,118,110,0.08),transparent_45%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] p-6">
+        <div className="mx-auto max-w-90 rounded-[32px] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60">
           <div className="mx-auto mb-4 h-1.5 w-24 rounded-full bg-slate-200" />
           {props.activeScreen ? (
             <div className="space-y-3">

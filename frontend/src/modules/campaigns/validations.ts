@@ -6,7 +6,7 @@ export const createCampaignSchema = z
   .object({
     name: z.string().trim().min(1, 'Campaign name is required').max(255),
     description: z.string().trim().max(5000).optional().or(z.literal('')),
-    wa_account_id: z.string().regex(uuidRegex, 'Invalid WhatsApp account'),
+    wa_account_id: z.string().regex(uuidRegex, 'Select a valid phone number'),
     template_id: z.string().regex(uuidRegex, 'Invalid template'),
     type: z.enum(['immediate', 'scheduled']),
     target_type: z.enum(['group', 'contacts', 'tags', 'all']),
@@ -29,7 +29,7 @@ export type CreateCampaignFormData = z.infer<typeof createCampaignSchema>;
 export const updateCampaignSchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
   description: z.string().trim().max(5000).optional().or(z.literal('')),
-  wa_account_id: z.string().regex(uuidRegex).optional(),
+  wa_account_id: z.string().regex(uuidRegex, 'Select a valid phone number').optional(),
   template_id: z.string().regex(uuidRegex).optional(),
   type: z.enum(['immediate', 'scheduled']).optional(),
   target_type: z.enum(['group', 'contacts', 'tags', 'all']).optional(),

@@ -13,7 +13,7 @@ const metaLanguageSchema = z.enum(META_LANGUAGE_CODES, {
 
 const waAccountSchema = z
   .string()
-  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, 'Select a connected WABA.');
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, 'Select a connected WhatsApp number.');
 
 const buttonSchema = z.object({
   type: z.enum(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'OTP', 'FLOW', 'CATALOG', 'MPM']),
@@ -224,7 +224,7 @@ const baseTemplateSchema = z.object({
   type: z.enum(TEMPLATE_TYPES),
   components: z.array(componentSchema).min(1, 'At least one component is required'),
   example_values: z.record(z.string(), z.unknown()).optional(),
-  wa_account_id: waAccountSchema,
+  wa_account_id: waAccountSchema.optional(),
 });
 
 function templateBusinessRules(schema: typeof baseTemplateSchema) {
@@ -337,11 +337,11 @@ export const updateTemplateSchema = createTemplateSchema;
 export type UpdateTemplateFormData = z.infer<typeof updateTemplateSchema>;
 
 export const publishTemplateSchema = z.object({
-  wa_account_id: waAccountSchema,
+  wa_account_id: waAccountSchema.optional(),
 });
 export type PublishTemplateFormData = z.infer<typeof publishTemplateSchema>;
 
 export const syncTemplatesSchema = z.object({
-  wa_account_id: waAccountSchema,
+  wa_account_id: waAccountSchema.optional(),
 });
 export type SyncTemplatesFormData = z.infer<typeof syncTemplatesSchema>;

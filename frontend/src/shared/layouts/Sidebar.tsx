@@ -169,7 +169,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
       className={cn(
         'flex min-h-0 flex-col overflow-hidden border-r border-border/70 bg-background text-foreground',
         mobile ? 'h-full w-full shadow-xl shadow-slate-950/10' : 'h-screen transition-[width] duration-200 ease-out',
-        isCompact ? 'w-[5.5rem]' : 'w-[17.5rem] xl:w-[18.5rem]'
+        isCompact ? 'w-22' : 'w-70 xl:w-74'
       )}
     >
       <div className="border-b border-border/70 px-3 py-4">

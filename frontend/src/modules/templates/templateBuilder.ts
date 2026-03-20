@@ -386,9 +386,13 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
     language: draft.language,
     category: draft.type === 'authentication' ? 'AUTHENTICATION' : draft.category,
     type: draft.type,
-    wa_account_id: trim(draft.wa_account_id),
     components: [],
   };
+
+  const resolvedWaAccountId = trim(draft.wa_account_id);
+  if (resolvedWaAccountId) {
+    payload.wa_account_id = resolvedWaAccountId;
+  }
 
   if (draft.type === 'standard') {
     const header = buildHeaderComponent(

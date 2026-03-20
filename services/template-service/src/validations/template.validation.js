@@ -98,7 +98,7 @@ const createTemplateSchema = z.object({
     .record(z.any())
     .optional()
     .nullable(),
-  wa_account_id: uuidSchema,
+  wa_account_id: uuidSchema.optional().nullable(),
 });
 
 const updateTemplateSchema = z.object({
@@ -163,7 +163,7 @@ const publishTemplateSchema = z.object({
 });
 
 const syncTemplatesSchema = z.object({
-  wa_account_id: uuidSchema,
+  wa_account_id: uuidSchema.optional(),
 });
 
 const templateIdSchema = z.object({

@@ -352,7 +352,7 @@ function WhatsAppTab() {
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium">{account.verified_name || account.display_phone || account.waba_id}</p>
+                  <p className="text-sm font-medium">{account.verified_name || account.display_phone || 'Connected phone'}</p>
                   <Badge variant={getWhatsAppAccountConnectionVariant(account)} className="text-[10px]">
                     {getWhatsAppAccountConnectionLabel(account)}
                   </Badge>
@@ -360,7 +360,6 @@ function WhatsAppTab() {
                 </div>
                 <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
                   <p>Connected number: {account.display_phone || 'Unknown'}</p>
-                  <p>WABA ID: {account.waba_id}</p>
                   <p>Message limits: {account.messaging_limit || 'N/A'}</p>
                   <p>Number status: {account.number_status || account.status}</p>
                   {account.code_verification_status ? (

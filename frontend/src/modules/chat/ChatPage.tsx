@@ -51,7 +51,7 @@ import { formatPhone } from '@/shared/utils/formatters';
 import type { Conversation, ChatMessage, ApiResponse, TeamMember } from '@/core/types';
 import type { RootState } from '@/core/store';
 import {
-  buildActiveWhatsAppAccountOptions,
+  buildActivePhoneNumberOptions,
   findWhatsAppAccount,
   getWhatsAppAccountDescription,
   getWhatsAppAccountLabel,
@@ -91,7 +91,7 @@ export function ChatPage() {
     currentUser?.id,
     Boolean(isOwner)
   );
-  const activeAccountOptions = useMemo(() => buildActiveWhatsAppAccountOptions(waAccounts), [waAccounts]);
+  const activeAccountOptions = useMemo(() => buildActivePhoneNumberOptions(waAccounts), [waAccounts]);
   const accountsById = useMemo(
     () => new Map((waAccounts || []).map((account) => [account.id, account])),
     [waAccounts]
@@ -108,18 +108,12 @@ export function ChatPage() {
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
 
-  useEffect(() => {
-    if (selectedId && !conversations.some((conversation) => conversation.id === selectedId)) {
-      setSelectedId(null);
-    }
-  }, [conversations, selectedId]);
-
   return (
     <div className="flex h-[calc(100vh-5rem)] -m-4 md:-m-6">
       {/* Conversation List */}
       <div
         className={`w-full border-r md:w-80 lg:w-96 flex flex-col ${
-          selectedId ? 'hidden md:flex' : 'flex'
+          selected ? 'hidden md:flex' : 'flex'
         }`}
       >
         {/* Search & Filter */}
@@ -152,10 +146,10 @@ export function ChatPage() {
             onValueChange={(value) => setAccountFilterId(value === 'all' ? '' : value)}
           >
             <SelectTrigger className="h-8">
-              <SelectValue placeholder="All accounts" />
+              <SelectValue placeholder="All phone numbers" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All accounts</SelectItem>
+              <SelectItem value="all">All phone numbers</SelectItem>
               {activeAccountOptions.map((account) => (
                 <SelectItem key={account.value} value={account.value}>
                   {account.label}
@@ -221,7 +215,7 @@ export function ChatPage() {
       {/* Message Panel */}
       <div
         className={`flex-1 flex flex-col ${
-          selectedId ? 'flex' : 'hidden md:flex'
+          selected ? 'flex' : 'hidden md:flex'
         }`}
       >
         {selected ? (
@@ -454,7 +448,7 @@ function MessagePanel({
             value={conversation.assigned_to || 'unassigned'}
             onValueChange={handleAssignmentChange}
           >
-            <SelectTrigger className="h-8 w-[180px]">
+            <SelectTrigger className="h-8 w-45">
               <SelectValue placeholder="Assign chat" />
             </SelectTrigger>
             <SelectContent>
@@ -612,7 +606,7 @@ function MessageContent({
 }) {
   switch (type) {
     case 'text':
-      return <p className="whitespace-pre-wrap break-words">{content.body as string}</p>;
+      return <p className="whitespace-pre-wrap wrap-break-word">{content.body as string}</p>;
     case 'image':
       return (
         <div className="space-y-1">

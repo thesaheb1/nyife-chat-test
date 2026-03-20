@@ -101,7 +101,6 @@ export function FlowDetailPage() {
             <CardDescription>Status, Meta linkage, categories, and validation health.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <Metric label="WABA" value={flow.waba_id || 'Not set'} mono />
             <Metric label="Meta flow ID" value={flow.meta_flow_id || 'Not linked'} mono />
             <Metric label="JSON version" value={flow.json_version} />
             <Metric label="Screens" value={String(flow.json_definition.screens.length)} />
@@ -115,8 +114,8 @@ export function FlowDetailPage() {
             <CardTitle>First-screen preview</CardTitle>
             <CardDescription>The first screen is what users usually see first when the flow opens.</CardDescription>
           </CardHeader>
-          <CardContent className="bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.08),_transparent_45%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] p-6">
-            <div className="mx-auto max-w-[360px] rounded-[32px] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60">
+          <CardContent className="bg-[radial-gradient(circle_at_top,rgba(15,118,110,0.08),transparent_45%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] p-6">
+            <div className="mx-auto max-w-90 rounded-[32px] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60">
               <div className="mx-auto mb-4 h-1.5 w-24 rounded-full bg-slate-200" />
               <div className="space-y-3">
                 <div className="rounded-2xl bg-emerald-950 px-4 py-3 text-white">

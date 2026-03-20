@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { getWhatsAppPhoneNumberLabel } from '@/modules/whatsapp/accountOptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { SummaryCards, UsageProgress } from './SummaryCards';
 import { MessagesChart } from './MessagesChart';
@@ -30,7 +31,7 @@ export function DashboardPage() {
       .filter((account) => account.status === 'active')
       .map((account) => ({
         value: account.id,
-        label: account.display_phone || account.verified_name || account.waba_id,
+        label: getWhatsAppPhoneNumberLabel(account),
       })),
     [waAccounts]
   );

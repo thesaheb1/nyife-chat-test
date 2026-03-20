@@ -58,7 +58,7 @@ export const TEMPLATE_ACTION_LABELS: Record<TemplateActionKey, string> = {
   view: 'View details',
   edit: 'Edit draft',
   publish: 'Submit to Meta',
-  sync: 'Sync WABA templates',
+  sync: 'Sync from Meta',
   delete: 'Delete template',
 };
 

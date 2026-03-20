@@ -19,7 +19,7 @@ export function getWhatsAppAccountLabel(account: WaAccount | null | undefined) {
     return 'Disconnected account';
   }
 
-  return account.verified_name || account.display_phone || account.waba_id;
+  return account.verified_name || account.display_phone || 'Connected phone';
 }
 
 export function getWhatsAppAccountDescription(account: WaAccount | null | undefined) {
@@ -27,9 +27,21 @@ export function getWhatsAppAccountDescription(account: WaAccount | null | undefi
     return '';
   }
 
-  return [account.display_phone || null, account.verified_name ? account.waba_id : null]
-    .filter(Boolean)
-    .join(' / ');
+  if (account.verified_name && account.display_phone) {
+    return account.display_phone;
+  }
+
+  return '';
+}
+
+export function getWhatsAppPhoneNumberLabel(account: WaAccount | null | undefined) {
+  if (!account) {
+    return 'Unknown - (Unavailable)';
+  }
+
+  const name = account.verified_name || account.display_phone || 'Connected phone';
+  const phone = account.display_phone || 'Unavailable';
+  return `${name} - (${phone})`;
 }
 
 export function getWhatsAppAccountConnectionLabel(account: WaAccount | null | undefined) {
@@ -68,6 +80,16 @@ export function buildActiveWhatsAppAccountOptions(accounts: WaAccount[] | undefi
   return getActiveWhatsAppAccounts(accounts).map((account) => ({
     value: account.id,
     label: getWhatsAppAccountLabel(account),
+    description: getWhatsAppAccountDescription(account),
+    waba_id: account.waba_id,
+    account,
+  }));
+}
+
+export function buildActivePhoneNumberOptions(accounts: WaAccount[] | undefined): WhatsAppAccountOption[] {
+  return getActiveWhatsAppAccounts(accounts).map((account) => ({
+    value: account.id,
+    label: getWhatsAppPhoneNumberLabel(account),
     description: getWhatsAppAccountDescription(account),
     waba_id: account.waba_id,
     account,

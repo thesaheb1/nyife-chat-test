@@ -104,7 +104,7 @@ async function publishTemplate(req, res) {
  */
 async function syncTemplates(req, res) {
   const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
-  const { wa_account_id } = syncTemplatesSchema.parse(req.body);
+  const { wa_account_id } = syncTemplatesSchema.parse(req.body || {});
   const accessToken = req.headers['x-wa-access-token'] || null;
 
   const result = await templateService.syncTemplates(userId, wa_account_id, accessToken);

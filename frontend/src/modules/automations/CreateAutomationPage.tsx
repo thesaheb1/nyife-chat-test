@@ -40,6 +40,7 @@ import {
   type WebhookActionState,
 } from './builder';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
+import { buildActivePhoneNumberOptions } from '@/modules/whatsapp/accountOptions';
 import { AutomationFlowEditor } from './flow-editor/AutomationFlowEditor';
 import { useTemplates } from '@/modules/templates/useTemplates';
 import { useTags } from '@/modules/contacts/useContacts';
@@ -82,6 +83,7 @@ export function CreateAutomationPage() {
   const automationType = useWatch({ control, name: 'type' });
   const selectedAccountId = useWatch({ control, name: 'wa_account_id' });
   const selectedAccount = (waAccounts || []).find((account) => account.id === selectedAccountId);
+  const phoneNumberOptions = buildActivePhoneNumberOptions(waAccounts);
   const { data: templatesData } = useTemplates({
     limit: 100,
     status: 'approved',
@@ -182,7 +184,7 @@ export function CreateAutomationPage() {
   };
 
   return (
-    <div className="mx-auto max-w-[1700px] space-y-6">
+    <div className="mx-auto max-w-425 space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate('/automations')}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="flex-1">
@@ -222,7 +224,7 @@ export function CreateAutomationPage() {
                 </Select>
               </div>
               <div className="space-y-2 lg:col-span-2">
-                <Label required>WhatsApp Account</Label>
+                <Label required>Phone number</Label>
                 <Select
                   value={selectedAccountId}
                   onValueChange={(value) =>
@@ -232,11 +234,14 @@ export function CreateAutomationPage() {
                     })
                   }
                 >
-                  <SelectTrigger><SelectValue placeholder="Select connected account" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select phone number" /></SelectTrigger>
                   <SelectContent>
-                    {(waAccounts || []).map((account) => (
-                      <SelectItem key={account.id} value={account.id}>{(account.verified_name || account.display_phone || account.waba_id)} ({account.display_phone || account.waba_id})</SelectItem>
+                    {phoneNumberOptions.map((account) => (
+                      <SelectItem key={account.value} value={account.value}>{account.label}</SelectItem>
                     ))}
+                    {phoneNumberOptions.length === 0 ? (
+                      <SelectItem value="none" disabled>No active phone numbers connected</SelectItem>
+                    ) : null}
                   </SelectContent>
                 </Select>
                 {errors.wa_account_id && <p className="text-xs text-destructive">{errors.wa_account_id.message}</p>}

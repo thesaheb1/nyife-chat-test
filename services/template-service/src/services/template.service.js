@@ -1,8 +1,8 @@
 'use strict';
 
-const { Op, QueryTypes } = require('sequelize');
+const { Op } = require('sequelize');
 const axios = require('axios');
-const { Template, Flow, sequelize } = require('../models');
+const { Template, Flow } = require('../models');
 const {
   AppError,
   getPagination,
@@ -11,6 +11,10 @@ const {
 } = require('@nyife/shared-utils');
 const config = require('../config');
 const { assertTemplateBusinessRules, getTemplateAvailableActions } = require('../helpers/templateRules');
+const {
+  fetchActiveWaAccountById,
+  resolveSingleWabaAccount,
+} = require('./waAccountContext.service');
 const TEMPLATE_MEDIA_RULES = {
   IMAGE: {
     label: 'Image',
@@ -126,69 +130,6 @@ function didTemplateConsumeQuota(template) {
   return true;
 }
 
-async function fetchActiveWaAccountById(userId, waAccountId) {
-  if (!waAccountId) {
-    return null;
-  }
-
-  try {
-    const accounts = await sequelize.query(
-      `SELECT id, user_id, waba_id, access_token, status, onboarding_status, display_phone, verified_name
-       FROM wa_accounts
-       WHERE id = :waAccountId
-         AND user_id = :userId
-         AND status = :status
-         AND deleted_at IS NULL
-       LIMIT 1`,
-      {
-        replacements: {
-          waAccountId,
-          userId,
-          status: 'active',
-        },
-        type: QueryTypes.SELECT,
-      }
-    );
-
-    return accounts[0] || null;
-  } catch (err) {
-    console.warn('[template-service] Failed to load WhatsApp account by ID:', err.message);
-    return null;
-  }
-}
-
-async function fetchLatestActiveWaAccountByWaba(userId, wabaId) {
-  if (!wabaId) {
-    return null;
-  }
-
-  try {
-    const accounts = await sequelize.query(
-      `SELECT id, user_id, waba_id, access_token, status, onboarding_status, display_phone, verified_name
-       FROM wa_accounts
-       WHERE user_id = :userId
-         AND waba_id = :wabaId
-         AND status = :status
-         AND deleted_at IS NULL
-       ORDER BY updated_at DESC
-       LIMIT 1`,
-      {
-        replacements: {
-          userId,
-          wabaId: String(wabaId),
-          status: 'active',
-        },
-        type: QueryTypes.SELECT,
-      }
-    );
-
-    return accounts[0] || null;
-  } catch (err) {
-    console.warn('[template-service] Failed to load active WhatsApp account by WABA:', err.message);
-    return null;
-  }
-}
-
 async function resolveAccountContext(userId, options = {}) {
   const {
     waAccountId = null,
@@ -197,17 +138,14 @@ async function resolveAccountContext(userId, options = {}) {
     allowFallbackByWaba = true,
   } = options;
 
-  let account = null;
-
-  if (waAccountId) {
-    account = await fetchActiveWaAccountById(userId, waAccountId);
-  }
-
-  if (!account && allowFallbackByWaba && wabaId) {
-    account = await fetchLatestActiveWaAccountByWaba(userId, wabaId);
-  }
-
-  const resolvedWabaId = account?.waba_id || (wabaId ? String(wabaId) : null);
+  const selection = await resolveSingleWabaAccount(userId, {
+    waAccountId,
+    wabaId,
+    allowFallbackByWaba,
+    allowAutoResolve: !waAccountId && !wabaId,
+  });
+  const account = selection.account || null;
+  const resolvedWabaId = selection.waba_id || (wabaId ? String(wabaId) : null);
 
   if (providedAccessToken && resolvedWabaId) {
     return {
@@ -286,6 +224,22 @@ async function requireActiveWaAccount(userId, waAccountId) {
     throw AppError.badRequest('Select an active WhatsApp account before continuing.');
   }
   return account;
+}
+
+async function requireAutoResolvedWaAccount(userId, waAccountId, actionLabel) {
+  if (waAccountId) {
+    return requireActiveWaAccount(userId, waAccountId);
+  }
+
+  const selection = await resolveSingleWabaAccount(userId, {
+    allowAutoResolve: true,
+  });
+
+  if (!selection.account) {
+    throw AppError.badRequest(`Connect an active WhatsApp number before ${actionLabel}.`);
+  }
+
+  return selection.account;
 }
 
 function normalizeComponentType(type) {
@@ -748,7 +702,11 @@ function serializeTemplate(template) {
 async function createTemplate(userId, data) {
   // Check subscription limit before creating
   await checkSubscriptionLimit(userId);
-  const activeAccount = await requireActiveWaAccount(userId, data.wa_account_id);
+  const activeAccount = await requireAutoResolvedWaAccount(
+    userId,
+    data.wa_account_id,
+    'creating a template'
+  );
   const resolvedWabaId = String(activeAccount.waba_id);
 
   assertTemplateBusinessRules({

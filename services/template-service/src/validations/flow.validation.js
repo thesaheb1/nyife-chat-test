@@ -47,7 +47,7 @@ const flowMetaActionSchema = z.object({
 });
 
 const syncFlowsSchema = z.object({
-  waba_id: z.string().min(1).max(100),
+  waba_id: z.string().min(1).max(100).optional(),
   force: z.coerce.boolean().optional().default(false),
 });
 

@@ -6,6 +6,7 @@ const { TOPICS, publishEvent } = require('@nyife/shared-events');
 const accountService = require('./account.service');
 const messageService = require('./message.service');
 const config = require('../config');
+const { normalizeQualityRating } = require('./qualityRating');
 
 /**
  * Verifies the webhook subscription from Meta.
@@ -652,7 +653,7 @@ async function publishAccountLifecycleEvent(kafkaProducer, account, lifecycleTyp
 async function handlePhoneQualityUpdate(wabaId, value, kafkaProducer) {
   const displayPhone = value.display_phone_number;
   const currentLimit = value.current_limit;
-  const qualityRating = value.event; // GREEN, YELLOW, RED
+  const qualityRating = normalizeQualityRating(value.event);
 
   console.log(
     `[whatsapp-service] Phone quality update for WABA ${wabaId}: ` +
@@ -662,24 +663,19 @@ async function handlePhoneQualityUpdate(wabaId, value, kafkaProducer) {
   // Find account by WABA and update quality rating
   // The event value contains the display_phone_number, but we need to find the account
   if (qualityRating) {
-    const validRatings = ['GREEN', 'YELLOW', 'RED'];
-    const rating = qualityRating.toUpperCase();
-    if (validRatings.includes(rating)) {
-      // Find accounts for this WABA and update their quality rating
-      const accounts = await WaAccount.findAll({
-        where: { waba_id: String(wabaId) },
-      });
+    const accounts = await WaAccount.findAll({
+      where: { waba_id: String(wabaId) },
+    });
 
-      for (const account of accounts) {
-        // Match by display_phone if we have it, otherwise update all for this WABA
-        if (!displayPhone || account.display_phone === displayPhone) {
-          await account.update({
-            quality_rating: rating,
-            messaging_limit: currentLimit || account.messaging_limit,
-            last_health_checked_at: new Date(),
-          });
-          await publishAccountLifecycleEvent(kafkaProducer, account, 'quality_update');
-        }
+    for (const account of accounts) {
+      // Match by display_phone if we have it, otherwise update all for this WABA
+      if (!displayPhone || account.display_phone === displayPhone) {
+        await account.update({
+          quality_rating: qualityRating,
+          messaging_limit: currentLimit || account.messaging_limit,
+          last_health_checked_at: new Date(),
+        });
+        await publishAccountLifecycleEvent(kafkaProducer, account, 'quality_update');
       }
     }
   }

@@ -376,7 +376,7 @@ export interface WaAccount {
   business_id: string | null;
   credential_source: 'provider_system_user' | 'legacy_embedded_user_token';
   assigned_system_user_id: string | null;
-  quality_rating: 'GREEN' | 'YELLOW' | 'RED' | null;
+  quality_rating: 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN' | null;
   name_status: string | null;
   number_status: string | null;
   code_verification_status: string | null;
@@ -399,7 +399,7 @@ export interface EmbeddedSignupPreviewAccount {
   phone_number_id: string;
   display_phone: string | null;
   verified_name: string | null;
-  quality_rating: 'GREEN' | 'YELLOW' | 'RED' | null;
+  quality_rating: 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN' | null;
   already_connected: boolean;
   eligible: boolean;
   eligibility_reason?: 'already_connected' | 'organization_waba_locked' | null;

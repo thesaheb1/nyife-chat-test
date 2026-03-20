@@ -90,3 +90,92 @@
 // NOTE: make a comprehensive plan and implement all these requirements. make sure that implementation is complete with production garde and optimized approach.
 
 
+// ERRORS : 
+// in this project when i try to connect my meta account using whatsapp embedded signup then i am getting error :
+
+// error : Data truncated for column 'quality_rating' at row 1.
+
+// API Gateway :
+
+// Request URL : https://localhost:5173/api/v1/whatsapp/accounts/embedded-signup
+// Request Method : POST
+// Status Code : 201 Created
+
+// API Response :
+
+// {
+//     "success": true,
+//     "message": "WhatsApp account connection completed successfully",
+//     "data": {
+//         "accounts": [],
+//         "connected_count": 0,
+//         "skipped": [],
+//         "warnings": [
+//             "Some optional provider-mode Meta credentials are incomplete. Nyife will continue in the standard Embedded Signup mode.",
+//             "Data truncated for column 'quality_rating' at row 1"
+//         ],
+//         "results": [
+//             {
+//                 "waba_id": "1203110378568518",
+//                 "phone_number_id": "1062092656981230",
+//                 "status": "failed",
+//                 "steps": [
+//                     {
+//                         "name": "assign_system_user",
+//                         "status": "skipped",
+//                         "message": "Nyife is using the standard Embedded Signup connection flow for this account.",
+//                         "timestamp": "2026-03-20T05:39:32.782Z"
+//                     },
+//                     {
+//                         "name": "subscribe_app",
+//                         "status": "subscribed",
+//                         "message": "Nyife app subscribed to the WABA.",
+//                         "timestamp": "2026-03-20T05:39:34.074Z",
+//                         "raw": {
+//                             "success": true
+//                         },
+//                         "callback_override_applied": false
+//                     },
+//                     {
+//                         "name": "attach_credit_line",
+//                         "status": "skipped",
+//                         "message": "Credit sharing status: not_required.",
+//                         "timestamp": "2026-03-20T05:39:34.086Z",
+//                         "credit_sharing_status": "not_required"
+//                     },
+//                     {
+//                         "name": "register_phone",
+//                         "status": "completed",
+//                         "message": "Phone number registered successfully with Meta.",
+//                         "timestamp": "2026-03-20T05:39:44.135Z"
+//                     },
+//                     {
+//                         "name": "onboarding_failed",
+//                         "status": "failed",
+//                         "message": "Data truncated for column 'quality_rating' at row 1",
+//                         "timestamp": "2026-03-20T05:39:44.752Z"
+//                     }
+//                 ],
+//                 "warnings": [],
+//                 "account": null,
+//                 "error": "Data truncated for column 'quality_rating' at row 1"
+//             }
+//         ]
+//     }
+// }
+
+
+// API 2 :
+
+// Request URL : https://localhost:5173/api/v1/whatsapp/accounts
+// Request Method : GET
+// Status Code : 200 OK
+
+// API 2 Response :
+
+// {"success":true,"message":"WhatsApp accounts retrieved","data":{"accounts":[]}}
+
+// earlier it was working fine but now it is not working. please do a deep review of this error and fix it safely. also see attached screenshot to understand better.
+
+
+// Whatsapp account is connected and i created a template successfully. but it in in pending state. Now can i assure that our whatsapp embedded signup is implemented correctly with industry standard?.

@@ -15,6 +15,7 @@ const {
   requireResolvedMetaCredential,
   hasProviderManagementConfig,
 } = require('./metaAccess.service');
+const { normalizeQualityRating } = require('./qualityRating');
 
 const SIGNUP_SESSION_TTL_SECONDS = 10 * 60;
 const signupSessionFallbackStore = new Map();
@@ -144,7 +145,7 @@ function serializeDiscoveredPhone(phone, existingAccount, organizationWabaId = n
     phone_number_id: String(phone.phone_number_id),
     display_phone: phone.display_phone || null,
     verified_name: phone.verified_name || null,
-    quality_rating: phone.quality_rating || null,
+    quality_rating: normalizeQualityRating(phone.quality_rating),
     already_connected: alreadyConnected,
     eligible: !alreadyConnected && !wabaMismatch,
     eligibility_reason: eligibilityReason,
@@ -477,7 +478,7 @@ async function fetchWabaPhoneNumbers(accessToken, waba) {
       phone_number_id: String(phone.id),
       display_phone: phone.display_phone_number || null,
       verified_name: phone.verified_name || waba.name || null,
-      quality_rating: phone.quality_rating || null,
+      quality_rating: normalizeQualityRating(phone.quality_rating),
       messaging_limit: phone.throughput?.level || null,
       platform_type: phone.platform_type || 'CLOUD_API',
     }));
@@ -844,7 +845,7 @@ function applyResolvedPhoneMetadata(phone, phoneDetails, accountReviewStatus) {
     ...phone,
     display_phone: phoneDetails?.display_phone_number || phone.display_phone || null,
     verified_name: phoneDetails?.verified_name || phone.verified_name || null,
-    quality_rating: phoneDetails?.quality_rating || phone.quality_rating || null,
+    quality_rating: normalizeQualityRating(phoneDetails?.quality_rating ?? phone.quality_rating),
     name_status: phoneDetails?.name_status || null,
     number_status: phoneDetails?.status || null,
     code_verification_status: phoneDetails?.code_verification_status || null,
@@ -934,7 +935,7 @@ async function upsertConnectedAccount(
     display_phone: phone.display_phone || null,
     verified_name: phone.verified_name || null,
     business_id: businessId ? String(businessId) : null,
-    quality_rating: phone.quality_rating || null,
+    quality_rating: normalizeQualityRating(phone.quality_rating),
     name_status: phone.name_status || null,
     number_status: phone.number_status || null,
     code_verification_status: phone.code_verification_status || null,
@@ -1426,7 +1427,7 @@ async function findByPhoneNumberId(phoneNumberId) {
 async function updateQualityRating(phoneNumberId, qualityRating) {
   await WaAccount.update(
     {
-      quality_rating: qualityRating,
+      quality_rating: normalizeQualityRating(qualityRating),
       last_health_checked_at: new Date(),
     },
     {
@@ -1504,7 +1505,7 @@ async function getAccountHealth(userId, accountId, kafkaProducer = null) {
   await account.update({
     verified_name: phoneDetails?.verified_name || account.verified_name,
     display_phone: phoneDetails?.display_phone_number || account.display_phone,
-    quality_rating: phoneDetails?.quality_rating || account.quality_rating,
+    quality_rating: normalizeQualityRating(phoneDetails?.quality_rating ?? account.quality_rating),
     name_status: phoneDetails?.name_status || account.name_status,
     number_status: phoneDetails?.status || account.number_status,
     code_verification_status: phoneDetails?.code_verification_status || account.code_verification_status,

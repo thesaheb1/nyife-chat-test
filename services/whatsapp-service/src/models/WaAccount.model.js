@@ -53,7 +53,7 @@ module.exports = (sequelize) => {
         allowNull: true,
       },
       quality_rating: {
-        type: DataTypes.ENUM('GREEN', 'YELLOW', 'RED'),
+        type: DataTypes.ENUM('GREEN', 'YELLOW', 'RED', 'UNKNOWN'),
         allowNull: true,
       },
       name_status: {

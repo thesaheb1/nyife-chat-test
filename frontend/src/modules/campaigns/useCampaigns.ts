@@ -7,6 +7,7 @@ import type { RootState } from '@/core/store';
 import type { Campaign, CampaignMessage, ApiResponse, PaginationMeta } from '@/core/types';
 import type { CreateCampaignFormData, UpdateCampaignFormData } from './validations';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import { buildListQuery } from '@/shared/utils/listing';
 
 interface CampaignListParams {
   page?: number;
@@ -45,16 +46,7 @@ interface CampaignAnalytics {
 export function useCampaigns(params: CampaignListParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.status) query.set('status', params.status);
-  if (params.search) query.set('search', params.search);
-  if (params.date_from) query.set('date_from', params.date_from);
-  if (params.date_to) query.set('date_to', params.date_to);
-
-  const qs = query.toString();
-  const url = `${ENDPOINTS.CAMPAIGNS.BASE}${qs ? `?${qs}` : ''}`;
+  const url = `${ENDPOINTS.CAMPAIGNS.BASE}${buildListQuery(params)}`;
 
   return useQuery<{ data: { campaigns: Campaign[] }; meta: PaginationMeta }>({
     queryKey: organizationQueryKey(['campaigns', params] as const, userId, activeOrganization?.id),
@@ -98,16 +90,12 @@ export function useCampaignAnalytics(id: string | undefined) {
 export function useCampaignMessages(id: string | undefined, params: { page?: number; limit?: number; status?: string } = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.status) query.set('status', params.status);
-  const qs = query.toString();
+  const qs = buildListQuery(params);
 
   return useQuery<{ data: { messages: CampaignMessage[] }; meta: PaginationMeta }>({
     queryKey: organizationQueryKey(['campaigns', id, 'messages', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<{ messages: CampaignMessage[] }>>(`${ENDPOINTS.CAMPAIGNS.BASE}/${id}/messages${qs ? `?${qs}` : ''}`);
+      const { data } = await apiClient.get<ApiResponse<{ messages: CampaignMessage[] }>>(`${ENDPOINTS.CAMPAIGNS.BASE}/${id}/messages${qs}`);
       return { data: data.data, meta: data.meta! };
     },
     enabled: Boolean(id && userId && activeOrganization?.id),

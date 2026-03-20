@@ -15,7 +15,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -32,20 +31,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { getApiErrorMessage } from '@/core/errors/apiError';
-import { useDebounce } from '@/core/hooks';
 import { usePermissions } from '@/core/hooks/usePermissions';
 import type { Template } from '@/core/types';
 import { DataTable } from '@/shared/components/DataTable';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
+import { useListingState } from '@/shared/hooks/useListingState';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingToolbar,
+} from '@/shared/components';
 import {
   TEMPLATE_ACTION_LABELS,
   TEMPLATE_CATEGORY_OPTIONS,
@@ -61,15 +58,16 @@ import { useDeleteTemplate, usePublishTemplate, useSyncTemplates, useTemplates }
 export function TemplateListPage() {
   const navigate = useNavigate();
   const { canOrganization } = usePermissions();
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [page, setPage] = useState(1);
   const [publishTarget, setPublishTarget] = useState<Template | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Template | null>(null);
   const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
-  const debouncedSearch = useDebounce(search, 300);
+  const listing = useListingState({
+    initialFilters: {
+      status: '',
+      category: '',
+      type: '',
+    },
+  });
 
   const { data: waAccounts } = useWhatsAppAccounts();
   const activeAccountCount = useMemo(
@@ -78,12 +76,14 @@ export function TemplateListPage() {
   );
 
   const { data, isLoading } = useTemplates({
-    page,
+    page: listing.page,
     limit: 20,
-    search: debouncedSearch || undefined,
-    status: statusFilter || undefined,
-    category: categoryFilter || undefined,
-    type: typeFilter || undefined,
+    search: listing.debouncedSearch || undefined,
+    status: listing.filters.status || undefined,
+    category: listing.filters.category || undefined,
+    type: listing.filters.type || undefined,
+    date_from: listing.dateRange.from,
+    date_to: listing.dateRange.to,
   });
 
   const publishTemplate = usePublishTemplate();
@@ -157,14 +157,6 @@ export function TemplateListPage() {
     } finally {
       setBusy(null);
     }
-  };
-
-  const resetFilters = () => {
-    setSearch('');
-    setStatusFilter('');
-    setCategoryFilter('');
-    setTypeFilter('');
-    setPage(1);
   };
 
   const columns = useMemo<ColumnDef<Template, unknown>[]>(
@@ -332,18 +324,14 @@ export function TemplateListPage() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-none bg-linear-to-r from-[#0f766e] via-[#115e59] to-[#134e4a] text-white shadow-lg">
-        <CardHeader className="border-none pb-0">
-          <CardTitle className="text-2xl">WhatsApp Templates</CardTitle>
-          <CardDescription className="text-emerald-50/80">
-            Manage template inventory for the current organization and let Nyife route Meta sync and publish actions through the connected WhatsApp account automatically.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4 pb-6 pt-4 sm:flex-row sm:justify-end">
-          <div className="flex flex-col gap-2 sm:flex-row">
+      <ListingPageHeader
+        title="WhatsApp Templates"
+        description="Manage template inventory for the current organization. Meta sync and publish actions run through the connected WhatsApp account automatically."
+        actions={
+          <>
             {canUpdateTemplates ? (
               <Button
-                variant="secondary"
+                variant="outline"
                 onClick={() => void handleSync('sync:global')}
                 disabled={syncTemplates.isPending || activeAccountCount === 0}
               >
@@ -352,107 +340,70 @@ export function TemplateListPage() {
               </Button>
             ) : null}
             {canCreateTemplates ? (
-              <Button className="bg-white text-emerald-900 hover:bg-emerald-50" onClick={() => navigate('/templates/create')}>
+              <Button onClick={() => navigate('/templates/create')}>
                 <Plus className="mr-2 h-4 w-4" />
                 Create Template
               </Button>
             ) : null}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="gap-3">
-          <div>
-            <CardTitle>Filter templates</CardTitle>
-            <CardDescription>
-              Narrow by status, type, and category. Template actions use the connected WhatsApp account automatically.
-            </CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))_auto]">
-          <Input
-            placeholder="Search by template name or display name"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-          />
-          <Select
-            value={statusFilter || 'all'}
-            onValueChange={(value) => {
-              setStatusFilter(value === 'all' ? '' : value);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {Object.entries(TEMPLATE_STATUS_LABELS).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={categoryFilter || 'all'}
-            onValueChange={(value) => {
-              setCategoryFilter(value === 'all' ? '' : value);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
-              {TEMPLATE_CATEGORY_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={typeFilter || 'all'}
-            onValueChange={(value) => {
-              setTypeFilter(value === 'all' ? '' : value);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {TEMPLATE_TYPE_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" onClick={resetFilters}>
-            Reset
-          </Button>
-        </CardContent>
-      </Card>
-
-      <DataTable
-        columns={columns}
-        data={templates}
-        isLoading={isLoading}
-        page={meta?.page ?? 1}
-        totalPages={meta?.totalPages ?? 1}
-        total={meta?.total}
-        onPageChange={setPage}
-        onRowClick={(template) => navigate(`/templates/${template.id}`)}
-        emptyMessage="No templates found for the selected filters."
+          </>
+        }
       />
+      <ListingTableCard>
+        <ListingToolbar
+          searchValue={listing.search}
+          onSearchChange={listing.setSearch}
+          searchPlaceholder="Search by template name or display name"
+          filters={[
+            {
+              id: 'status',
+              value: listing.filters.status,
+              placeholder: 'Status',
+              onChange: (value) => listing.setFilter('status', value),
+              options: Object.entries(TEMPLATE_STATUS_LABELS).map(([value, label]) => ({ value, label })),
+              allLabel: 'All statuses',
+            },
+            {
+              id: 'category',
+              value: listing.filters.category,
+              placeholder: 'Category',
+              onChange: (value) => listing.setFilter('category', value),
+              options: TEMPLATE_CATEGORY_OPTIONS,
+              allLabel: 'All categories',
+            },
+            {
+              id: 'type',
+              value: listing.filters.type,
+              placeholder: 'Type',
+              onChange: (value) => listing.setFilter('type', value),
+              options: TEMPLATE_TYPE_OPTIONS,
+              allLabel: 'All types',
+            },
+          ]}
+          dateRange={listing.dateRange}
+          onDateRangeChange={listing.setDateRange}
+          dateRangePlaceholder="Updated date range"
+          hasActiveFilters={listing.hasActiveFilters}
+          onReset={listing.resetAll}
+        />
+
+
+        <DataTable
+          columns={columns}
+          data={templates}
+          isLoading={isLoading}
+          page={meta?.page ?? 1}
+          totalPages={meta?.totalPages ?? 1}
+          total={meta?.total}
+          onPageChange={listing.setPage}
+          onRowClick={(template) => navigate(`/templates/${template.id}`)}
+          emptyMessage={
+            <ListingEmptyState
+              title="No templates found"
+              description="Adjust the current filters or create a new template to get started."
+            />
+          }
+        />
+      </ListingTableCard>
 
       <Dialog
         open={!!publishTarget}

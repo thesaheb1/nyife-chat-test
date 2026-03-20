@@ -1,22 +1,20 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
 import { useCampaigns } from './useCampaigns';
-import { useDebounce } from '@/core/hooks';
 import { formatCurrency } from '@/shared/utils/formatters';
 import type { Campaign } from '@/core/types';
+import { useListingState } from '@/shared/hooks/useListingState';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingToolbar,
+} from '@/shared/components';
 
 const STATUS_COLORS: Record<Campaign['status'], string> = {
   draft: 'bg-gray-100 text-gray-800',
@@ -37,16 +35,19 @@ const TARGET_LABELS: Record<Campaign['target_type'], string> = {
 
 export function CampaignListPage() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState('');
-  const debouncedSearch = useDebounce(search, 300);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [page, setPage] = useState(1);
+  const listing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+  });
 
   const { data, isLoading } = useCampaigns({
-    page,
+    page: listing.page,
     limit: 20,
-    search: debouncedSearch || undefined,
-    status: statusFilter || undefined,
+    search: listing.debouncedSearch || undefined,
+    status: listing.filters.status || undefined,
+    date_from: listing.dateRange.from,
+    date_to: listing.dateRange.to,
   });
 
   const campaigns = data?.data?.campaigns ?? [];
@@ -125,66 +126,64 @@ export function CampaignListPage() {
   );
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Campaigns</h1>
-          <p className="text-sm text-muted-foreground">
-            {meta?.total !== undefined ? `${meta.total} campaigns` : 'Create and manage WhatsApp campaigns'}
-          </p>
-        </div>
-        <Button size="sm" onClick={() => navigate('/campaigns/create')}>
-          <Plus className="mr-2 h-4 w-4" />
-          Create Campaign
-        </Button>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Input
-          placeholder="Search campaigns..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          className="h-9 w-64"
-        />
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => {
-            setStatusFilter(v === 'all' ? '' : v);
-            setPage(1);
-          }}
-        >
-          <SelectTrigger className="h-9 w-40">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="scheduled">Scheduled</SelectItem>
-            <SelectItem value="running">Running</SelectItem>
-            <SelectItem value="paused">Paused</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="failed">Failed</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Table */}
-      <DataTable
-        columns={columns}
-        data={campaigns}
-        isLoading={isLoading}
-        page={meta?.page ?? 1}
-        totalPages={meta?.totalPages ?? 1}
-        total={meta?.total}
-        onPageChange={setPage}
-        emptyMessage="No campaigns yet. Create your first campaign to get started."
+    <div className="space-y-6">
+      <ListingPageHeader
+        title="Campaigns"
+        description={meta?.total !== undefined ? `${meta.total} campaigns` : 'Create and manage WhatsApp campaigns'}
+        actions={
+          <Button size="sm" onClick={() => navigate('/campaigns/create')}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create Campaign
+          </Button>
+        }
       />
+
+
+      <ListingTableCard>
+        <ListingToolbar
+          searchValue={listing.search}
+          onSearchChange={listing.setSearch}
+          searchPlaceholder="Search campaigns..."
+          filters={[
+            {
+              id: 'status',
+              value: listing.filters.status,
+              placeholder: 'Status',
+              onChange: (value) => listing.setFilter('status', value),
+              allLabel: 'All statuses',
+              options: [
+                { value: 'draft', label: 'Draft' },
+                { value: 'scheduled', label: 'Scheduled' },
+                { value: 'running', label: 'Running' },
+                { value: 'paused', label: 'Paused' },
+                { value: 'completed', label: 'Completed' },
+                { value: 'failed', label: 'Failed' },
+                { value: 'cancelled', label: 'Cancelled' },
+              ],
+            },
+          ]}
+          dateRange={listing.dateRange}
+          onDateRangeChange={listing.setDateRange}
+          dateRangePlaceholder="Created date range"
+          hasActiveFilters={listing.hasActiveFilters}
+          onReset={listing.resetAll}
+        />
+        <DataTable
+          columns={columns}
+          data={campaigns}
+          isLoading={isLoading}
+          page={meta?.page ?? 1}
+          totalPages={meta?.totalPages ?? 1}
+          total={meta?.total}
+          onPageChange={listing.setPage}
+          emptyMessage={
+            <ListingEmptyState
+              title="No campaigns found"
+              description="Adjust the current filters or create your first campaign to get started."
+            />
+          }
+        />
+      </ListingTableCard>
     </div>
   );
 }

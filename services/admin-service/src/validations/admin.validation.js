@@ -74,6 +74,24 @@ const updateSubAdminSchema = z
     message: 'At least one field is required',
   });
 
+const listSubAdminsSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(255).optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
+});
+
+const listSubAdminInvitationsSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(255).optional(),
+  status: z.enum(['pending', 'accepted', 'revoked', 'expired']).optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
+});
+
 // ---------------------------------------------------------------------------
 // User management schemas
 // ---------------------------------------------------------------------------
@@ -84,6 +102,15 @@ const listUsersSchema = z.object({
   search: z.string().max(255).optional(),
   status: z.enum(['active', 'inactive', 'suspended']).optional(),
   plan: z.string().uuid().optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
+});
+
+const listUserInvitationsSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(255).optional(),
+  status: z.enum(['pending', 'accepted', 'revoked', 'expired']).optional(),
   date_from: z.string().optional(),
   date_to: z.string().optional(),
 });
@@ -304,6 +331,8 @@ const listCouponsSchema = z.object({
   search: z.string().trim().max(255).optional(),
   status: z.enum(['active', 'inactive', 'scheduled', 'expired']).optional(),
   discount_type: z.enum(['percentage', 'fixed']).optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
 });
 
 const couponStatusSchema = z.object({
@@ -390,7 +419,10 @@ module.exports = {
   createSubAdminSchema,
   inviteSubAdminSchema,
   updateSubAdminSchema,
+  listSubAdminsSchema,
+  listSubAdminInvitationsSchema,
   listUsersSchema,
+  listUserInvitationsSchema,
   createUserSchema,
   inviteUserSchema,
   updateUserSchema,

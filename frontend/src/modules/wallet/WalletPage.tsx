@@ -11,12 +11,18 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DataTable } from '@/shared/components/DataTable';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingToolbar,
+} from '@/shared/components';
+import { useListingState } from '@/shared/hooks/useListingState';
 import { formatCurrency } from '@/shared/utils/formatters';
 import { loadRazorpayCheckout, unloadRazorpayCheckout } from '@/shared/utils/loadRazorpayCheckout';
-import { isValidRupeeAmount } from '@/shared/utils';
+import { buildListQuery, isValidRupeeAmount } from '@/shared/utils';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { organizationQueryKey } from '@/core/queryKeys';
@@ -36,30 +42,48 @@ function useWalletBalance(userId?: string | null, organizationId?: string | null
 }
 
 function useTransactions(
-  params: { page?: number; type?: string; source?: string },
+  params: { page?: number; limit?: number; search?: string; type?: string; source?: string; date_from?: string; date_to?: string },
   userId?: string | null,
   organizationId?: string | null
 ) {
-  const q = new URLSearchParams();
-  if (params.page) q.set('page', String(params.page));
-  q.set('limit', '20');
-  if (params.type) q.set('type', params.type);
-  if (params.source) q.set('source', params.source);
   return useQuery<{ data: Transaction[]; meta: PaginationMeta }>({
     queryKey: organizationQueryKey(['transactions', params] as const, userId, organizationId),
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<Transaction[]>>(`${ENDPOINTS.WALLET.TRANSACTIONS}?${q}`);
+      const { data } = await apiClient.get<ApiResponse<Transaction[]>>(
+        `${ENDPOINTS.WALLET.TRANSACTIONS}${buildListQuery({
+          page: params.page ?? 1,
+          limit: params.limit ?? 20,
+          search: params.search,
+          type: params.type,
+          source: params.source,
+          date_from: params.date_from,
+          date_to: params.date_to,
+        })}`
+      );
       return { data: data.data, meta: data.meta! };
     },
     enabled: Boolean(userId && organizationId),
   });
 }
 
-function useInvoices(page = 1, userId?: string | null, organizationId?: string | null) {
+function useInvoices(
+  params: { page?: number; limit?: number; search?: string; status?: Invoice['status']; date_from?: string; date_to?: string } = {},
+  userId?: string | null,
+  organizationId?: string | null
+) {
   return useQuery<{ data: Invoice[]; meta: PaginationMeta }>({
-    queryKey: organizationQueryKey(['invoices', page] as const, userId, organizationId),
+    queryKey: organizationQueryKey(['invoices', params] as const, userId, organizationId),
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<Invoice[]>>(`${ENDPOINTS.WALLET.INVOICES}?page=${page}&limit=20`);
+      const { data } = await apiClient.get<ApiResponse<Invoice[]>>(
+        `${ENDPOINTS.WALLET.INVOICES}${buildListQuery({
+          page: params.page ?? 1,
+          limit: params.limit ?? 20,
+          search: params.search,
+          status: params.status,
+          date_from: params.date_from,
+          date_to: params.date_to,
+        })}`
+      );
       return { data: data.data, meta: data.meta! };
     },
     enabled: Boolean(userId && organizationId),
@@ -73,18 +97,50 @@ export function WalletPage() {
   const { activeOrganization } = useOrganizationContext();
   const organizationId = activeOrganization?.id;
   const { data: wallet } = useWalletBalance(userId, organizationId);
+  const transactionListing = useListingState({
+    initialFilters: {
+      type: '',
+      source: '',
+    },
+    syncToUrl: true,
+    namespace: 'transactions',
+  });
+  const invoiceListing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+    syncToUrl: true,
+    namespace: 'invoices',
+  });
   const [rechargeOpen, setRechargeOpen] = useState(false);
   const [amount, setAmount] = useState('');
-  const [txPage, setTxPage] = useState(1);
-  const [txType, setTxType] = useState('');
-  const [invPage, setInvPage] = useState(1);
+  const [activeTab, setActiveTab] = useState<'transactions' | 'invoices'>('transactions');
 
   const { data: txData, isLoading: txLoading } = useTransactions(
-    { page: txPage, type: txType || undefined },
+    {
+      page: transactionListing.page,
+      limit: 20,
+      search: transactionListing.debouncedSearch || undefined,
+      type: transactionListing.filters.type || undefined,
+      source: transactionListing.filters.source || undefined,
+      date_from: transactionListing.dateRange.from,
+      date_to: transactionListing.dateRange.to,
+    },
     userId,
     organizationId
   );
-  const { data: invData, isLoading: invLoading } = useInvoices(invPage, userId, organizationId);
+  const { data: invData, isLoading: invLoading } = useInvoices(
+    {
+      page: invoiceListing.page,
+      limit: 20,
+      search: invoiceListing.debouncedSearch || undefined,
+      status: (invoiceListing.filters.status || undefined) as Invoice['status'] | undefined,
+      date_from: invoiceListing.dateRange.from,
+      date_to: invoiceListing.dateRange.to,
+    },
+    userId,
+    organizationId
+  );
 
   const transactions = txData?.data ?? [];
   const txMeta = txData?.meta;
@@ -180,7 +236,11 @@ export function WalletPage() {
 
   return (
     <div className="space-y-6">
-      {/* Balance Card */}
+      <ListingPageHeader
+        title={t('wallet.balance')}
+        description="Review wallet balance, transactions, and invoices from a unified ledger view."
+      />
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <Card className="flex-1">
           <CardContent className="flex items-center justify-between pt-6">
@@ -195,31 +255,117 @@ export function WalletPage() {
         </Card>
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="transactions">
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'transactions' | 'invoices')}>
         <TabsList>
           <TabsTrigger value="transactions">Transactions</TabsTrigger>
           <TabsTrigger value="invoices">Invoices</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="transactions" className="space-y-3">
-          <Select value={txType} onValueChange={(v) => { setTxType(v === 'all' ? '' : v); setTxPage(1); }}>
-            <SelectTrigger className="h-9 w-32"><SelectValue placeholder="All types" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="credit">Credits</SelectItem>
-              <SelectItem value="debit">Debits</SelectItem>
-            </SelectContent>
-          </Select>
-          <DataTable columns={txColumns} data={transactions} isLoading={txLoading} page={txMeta?.page ?? 1} totalPages={txMeta?.totalPages ?? 1} total={txMeta?.total} onPageChange={setTxPage} emptyMessage="No transactions yet." />
+        <TabsContent value="transactions" className="space-y-4">
+
+          <ListingTableCard>
+            <ListingToolbar
+              searchValue={transactionListing.search}
+              onSearchChange={transactionListing.setSearch}
+              searchPlaceholder="Search transactions..."
+              filters={[
+                {
+                  id: 'type',
+                  value: transactionListing.filters.type,
+                  placeholder: 'Type',
+                  onChange: (value) => transactionListing.setFilter('type', value),
+                  allLabel: 'All types',
+                  options: [
+                    { value: 'credit', label: 'Credit' },
+                    { value: 'debit', label: 'Debit' },
+                  ],
+                },
+                {
+                  id: 'source',
+                  value: transactionListing.filters.source,
+                  placeholder: 'Source',
+                  onChange: (value) => transactionListing.setFilter('source', value),
+                  allLabel: 'All sources',
+                  options: [
+                    { value: 'recharge', label: 'Recharge' },
+                    { value: 'message_debit', label: 'Message debit' },
+                    { value: 'admin_credit', label: 'Admin credit' },
+                    { value: 'admin_debit', label: 'Admin debit' },
+                    { value: 'refund', label: 'Refund' },
+                    { value: 'subscription_payment', label: 'Subscription payment' },
+                  ],
+                },
+              ]}
+              dateRange={transactionListing.dateRange}
+              onDateRangeChange={transactionListing.setDateRange}
+              dateRangePlaceholder="Transaction date range"
+              hasActiveFilters={transactionListing.hasActiveFilters}
+              onReset={transactionListing.resetAll}
+            />
+            <DataTable
+              columns={txColumns}
+              data={transactions}
+              isLoading={txLoading}
+              page={txMeta?.page ?? 1}
+              totalPages={txMeta?.totalPages ?? 1}
+              total={txMeta?.total}
+              onPageChange={transactionListing.setPage}
+              emptyMessage={(
+                <ListingEmptyState
+                  title="No transactions found"
+                  description="Adjust the current filters or recharge the wallet to create new ledger activity."
+                />
+              )}
+            />
+          </ListingTableCard>
         </TabsContent>
 
-        <TabsContent value="invoices">
-          <DataTable columns={invColumns} data={invoices} isLoading={invLoading} page={invMeta?.page ?? 1} totalPages={invMeta?.totalPages ?? 1} total={invMeta?.total} onPageChange={setInvPage} emptyMessage="No invoices yet." />
+        <TabsContent value="invoices" className="space-y-4">
+
+          <ListingTableCard>
+            <ListingToolbar
+              searchValue={invoiceListing.search}
+              onSearchChange={invoiceListing.setSearch}
+              searchPlaceholder="Search invoices..."
+              filters={[
+                {
+                  id: 'status',
+                  value: invoiceListing.filters.status,
+                  placeholder: 'Status',
+                  onChange: (value) => invoiceListing.setFilter('status', value),
+                  allLabel: 'All statuses',
+                  options: [
+                    { value: 'paid', label: 'Paid' },
+                    { value: 'pending', label: 'Pending' },
+                    { value: 'cancelled', label: 'Cancelled' },
+                  ],
+                },
+              ]}
+              dateRange={invoiceListing.dateRange}
+              onDateRangeChange={invoiceListing.setDateRange}
+              dateRangePlaceholder="Invoice date range"
+              hasActiveFilters={invoiceListing.hasActiveFilters}
+              onReset={invoiceListing.resetAll}
+            />
+            <DataTable
+              columns={invColumns}
+              data={invoices}
+              isLoading={invLoading}
+              page={invMeta?.page ?? 1}
+              totalPages={invMeta?.totalPages ?? 1}
+              total={invMeta?.total}
+              onPageChange={invoiceListing.setPage}
+              emptyMessage={(
+                <ListingEmptyState
+                  title="No invoices found"
+                  description="Invoices for wallet recharges and subscription billing will appear here."
+                />
+              )}
+            />
+          </ListingTableCard>
         </TabsContent>
       </Tabs>
 
-      {/* Recharge Dialog */}
       <Dialog open={rechargeOpen} onOpenChange={setRechargeOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Recharge Wallet</DialogTitle></DialogHeader>

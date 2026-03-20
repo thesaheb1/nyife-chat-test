@@ -329,7 +329,7 @@ async function createFlow(userId, data) {
 }
 
 async function listFlows(userId, filters) {
-  const { page, limit, status, search, waba_id, category } = filters;
+  const { page, limit, status, search, waba_id, category, date_from, date_to } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
 
   const where = { user_id: userId };
@@ -344,6 +344,17 @@ async function listFlows(userId, filters) {
   }
   if (category) {
     where.categories = { [Op.like]: `%${category}%` };
+  }
+  if (date_from || date_to) {
+    where.updated_at = {};
+    if (date_from) {
+      where.updated_at[Op.gte] = new Date(date_from);
+    }
+    if (date_to) {
+      const endDate = new Date(date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.updated_at[Op.lt] = endDate;
+    }
   }
 
   const { rows, count } = await Flow.findAndCountAll({

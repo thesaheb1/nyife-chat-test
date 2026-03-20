@@ -735,12 +735,45 @@ async function updateAutoRenew(userId, enabled) {
   return serializeSubscriptionRecord(subscription);
 }
 
-async function getHistory(userId, page, limit) {
+async function getHistory(userId, filtersOrPage, maybeLimit) {
+  const filters =
+    typeof filtersOrPage === 'object' && filtersOrPage !== null
+      ? filtersOrPage
+      : { page: filtersOrPage, limit: maybeLimit };
+  const { page = 1, limit = 20, search, status, date_from, date_to } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
+  const where = { user_id: userId };
+  const include = [{ model: Plan, as: 'plan', attributes: ['id', 'name', 'slug', 'type', 'price', 'currency'] }];
+
+  if (status) {
+    where.status = status;
+  }
+
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) {
+      where.created_at[Op.gte] = new Date(date_from);
+    }
+    if (date_to) {
+      const endDate = new Date(date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
+    }
+  }
+
+  if (search) {
+    include[0].where = {
+      [Op.or]: [
+        { name: { [Op.like]: `%${search}%` } },
+        { slug: { [Op.like]: `%${search}%` } },
+      ],
+    };
+    include[0].required = true;
+  }
 
   const { count, rows } = await Subscription.findAndCountAll({
-    where: { user_id: userId },
-    include: [{ model: Plan, as: 'plan', attributes: ['id', 'name', 'slug', 'type', 'price', 'currency'] }],
+    where,
+    include,
     order: [['created_at', 'DESC']],
     offset,
     limit: sanitizedLimit,

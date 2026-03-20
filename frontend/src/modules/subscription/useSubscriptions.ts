@@ -16,6 +16,7 @@ import type {
   Wallet,
 } from '@/core/types';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import { buildListQuery } from '@/shared/utils/listing';
 
 export const subscriptionQueryKeys = {
   all: ['subscription'] as const,
@@ -25,8 +26,8 @@ export const subscriptionQueryKeys = {
     organizationQueryKey(['subscription', 'plan', slug] as const, userId, organizationId),
   current: (userId?: string | null, organizationId?: string | null) =>
     organizationQueryKey(['subscription', 'current'] as const, userId, organizationId),
-  history: (page: number, userId?: string | null, organizationId?: string | null) =>
-    organizationQueryKey(['subscription', 'history', page] as const, userId, organizationId),
+  history: (params: Record<string, unknown>, userId?: string | null, organizationId?: string | null) =>
+    organizationQueryKey(['subscription', 'history', params] as const, userId, organizationId),
   walletBalance: (userId?: string | null, organizationId?: string | null) =>
     organizationQueryKey(['wallet'] as const, userId, organizationId),
 };
@@ -79,14 +80,29 @@ export function useCurrentSubscription() {
   });
 }
 
-export function useSubscriptionHistory(page: number) {
+export function useSubscriptionHistory(params: {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  date_from?: string;
+  date_to?: string;
+}) {
   const { userId, organizationId } = useSubscriptionScope();
+  const queryString = buildListQuery({
+    page: params.page ?? 1,
+    limit: params.limit ?? 10,
+    search: params.search,
+    status: params.status,
+    date_from: params.date_from,
+    date_to: params.date_to,
+  });
 
   return useQuery({
-    queryKey: subscriptionQueryKeys.history(page, userId, organizationId),
+    queryKey: subscriptionQueryKeys.history(params, userId, organizationId),
     queryFn: async (): Promise<SubscriptionHistoryResult> => {
       const { data } = await apiClient.get<ApiResponse<{ subscriptions: Subscription[] }>>(
-        `${ENDPOINTS.SUBSCRIPTIONS.HISTORY}?page=${page}&limit=10`
+        `${ENDPOINTS.SUBSCRIPTIONS.HISTORY}${queryString}`
       );
 
       return {

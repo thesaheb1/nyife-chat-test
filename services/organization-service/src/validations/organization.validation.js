@@ -151,6 +151,15 @@ const orgIdParamSchema = z.object({
   id: z.string().uuid('Invalid organization ID format'),
 });
 
+const listOrganizationsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(255).optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+  date_from: z.coerce.date().optional(),
+  date_to: z.coerce.date().optional(),
+});
+
 /**
  * Schema for validating member ID route parameter.
  */
@@ -166,6 +175,9 @@ const listMembersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   status: z.enum(['active', 'inactive', 'invited']).optional(),
+  search: z.string().trim().max(255).optional(),
+  date_from: z.coerce.date().optional(),
+  date_to: z.coerce.date().optional(),
   resource: z.string().trim().min(1).optional(),
   permission: z.enum(['create', 'read', 'update', 'delete']).optional(),
 });
@@ -173,6 +185,10 @@ const listMembersQuerySchema = z.object({
 const listInvitationsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(255).optional(),
+  status: z.enum(['pending', 'accepted', 'expired', 'revoked']).optional(),
+  date_from: z.coerce.date().optional(),
+  date_to: z.coerce.date().optional(),
 });
 
 const internalValidateTeamMemberSchema = z.object({
@@ -199,6 +215,7 @@ module.exports = {
   updateMemberSchema,
   createMemberAccountSchema,
   orgIdParamSchema,
+  listOrganizationsQuerySchema,
   memberIdParamSchema,
   invitationIdParamSchema,
   listMembersQuerySchema,

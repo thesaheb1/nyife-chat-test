@@ -1,39 +1,47 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Plus, RefreshCw, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import { usePermissions } from '@/core/hooks/usePermissions';
 import type { WhatsAppFlow } from '@/core/types';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
+import { useListingState } from '@/shared/hooks/useListingState';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingToolbar,
+} from '@/shared/components';
 import { flowCategories, humanizeFlowCategory } from './flowUtils';
 import { useFlows, useSyncFlows } from './useFlows';
 
 export function FlowListPage() {
   const navigate = useNavigate();
   const { canOrganization } = usePermissions();
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [category, setCategory] = useState('');
-  const [page, setPage] = useState(1);
+  const listing = useListingState({
+    initialFilters: {
+      status: '',
+      category: '',
+    },
+  });
   const { data: waAccounts = [] } = useWhatsAppAccounts();
   const activeAccounts = useMemo(
     () => waAccounts.filter((account) => account.status === 'active'),
     [waAccounts]
   );
   const { data, isLoading } = useFlows({
-    page,
+    page: listing.page,
     limit: 20,
-    search: search || undefined,
-    status: status || undefined,
-    category: category || undefined,
+    search: listing.debouncedSearch || undefined,
+    status: listing.filters.status || undefined,
+    category: listing.filters.category || undefined,
+    date_from: listing.dateRange.from,
+    date_to: listing.dateRange.to,
   });
   const syncFlows = useSyncFlows();
   const canCreateFlows = canOrganization('flows', 'create');
@@ -75,72 +83,88 @@ export function FlowListPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">WhatsApp Flows</h1>
-          <p className="text-sm text-muted-foreground">Create, sync, publish, and track form-style WhatsApp Flows for lead capture, booking, feedback, support, and more.</p>
-        </div>
-        <div className="flex gap-2">
-          {canUpdateFlows ? (
-            <Button variant="outline" onClick={async () => {
-              try {
-                const result = await syncFlows.mutateAsync({ force: false });
-                toast.success(`Synced ${result.synced} flows (${result.created} created, ${result.updated} updated).`);
-              } catch (error) {
-                toast.error(getApiErrorMessage(error, 'Failed to sync flows.'));
-              }
-            }} disabled={syncFlows.isPending || activeAccounts.length === 0}>
-              {syncFlows.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              Sync from Meta
-            </Button>
-          ) : null}
-          {canCreateFlows ? (
-            <Button onClick={() => navigate('/flows/create')}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create flow
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Filters and sync</CardTitle>
-          <CardDescription>Filter local flows or sync the latest definitions from Meta for this organization.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_160px_180px]">
-          <Input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search flows..." />
-          <Select value={status || 'all'} onValueChange={(value) => { setStatus(value === 'all' ? '' : value); setPage(1); }}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="DRAFT">Draft</SelectItem>
-              <SelectItem value="PUBLISHED">Published</SelectItem>
-              <SelectItem value="DEPRECATED">Deprecated</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={category || 'all'} onValueChange={(value) => { setCategory(value === 'all' ? '' : value); setPage(1); }}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
-              {flowCategories.map((categoryOption) => (
-                <SelectItem key={categoryOption.value} value={categoryOption.value}>{categoryOption.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
-
-      <DataTable
-        columns={columns}
-        data={data?.flows || []}
-        isLoading={isLoading}
-        page={data?.meta.page ?? 1}
-        totalPages={data?.meta.totalPages ?? 1}
-        total={data?.meta.total ?? 0}
-        onPageChange={setPage}
-        emptyMessage="No flows found. Create your first WhatsApp Flow to get started."
+      <ListingPageHeader
+        title="WhatsApp Flows"
+        description="Create, sync, publish, and track form-style WhatsApp Flows for lead capture, booking, feedback, support, and more."
+        actions={
+          <>
+            {canUpdateFlows ? (
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const result = await syncFlows.mutateAsync({ force: false });
+                    toast.success(`Synced ${result.synced} flows (${result.created} created, ${result.updated} updated).`);
+                  } catch (error) {
+                    toast.error(getApiErrorMessage(error, 'Failed to sync flows.'));
+                  }
+                }}
+                disabled={syncFlows.isPending || activeAccounts.length === 0}
+              >
+                {syncFlows.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                Sync from Meta
+              </Button>
+            ) : null}
+            {canCreateFlows ? (
+              <Button onClick={() => navigate('/flows/create')}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Flow
+              </Button>
+            ) : null}
+          </>
+        }
       />
+
+
+      <ListingTableCard>
+        <ListingToolbar
+          searchValue={listing.search}
+          onSearchChange={listing.setSearch}
+          searchPlaceholder="Search flows..."
+          filters={[
+            {
+              id: 'status',
+              value: listing.filters.status,
+              placeholder: 'Status',
+              onChange: (value) => listing.setFilter('status', value),
+              allLabel: 'All statuses',
+              options: [
+                { value: 'DRAFT', label: 'Draft' },
+                { value: 'PUBLISHED', label: 'Published' },
+                { value: 'DEPRECATED', label: 'Deprecated' },
+              ],
+            },
+            {
+              id: 'category',
+              value: listing.filters.category,
+              placeholder: 'Category',
+              onChange: (value) => listing.setFilter('category', value),
+              allLabel: 'All categories',
+              options: flowCategories,
+            },
+          ]}
+          dateRange={listing.dateRange}
+          onDateRangeChange={listing.setDateRange}
+          dateRangePlaceholder="Updated date range"
+          hasActiveFilters={listing.hasActiveFilters}
+          onReset={listing.resetAll}
+        />
+        <DataTable
+          columns={columns}
+          data={data?.flows || []}
+          isLoading={isLoading}
+          page={data?.meta.page ?? 1}
+          totalPages={data?.meta.totalPages ?? 1}
+          total={data?.meta.total ?? 0}
+          onPageChange={listing.setPage}
+          emptyMessage={
+            <ListingEmptyState
+              title="No flows found"
+              description="Adjust the current filters or create your first WhatsApp Flow."
+            />
+          }
+        />
+      </ListingTableCard>
     </div>
   );
 }

@@ -613,7 +613,19 @@ async function creditWallet(
  * @returns {Promise<object>} Paginated list of transactions with metadata
  */
 async function listTransactions(userId, filters) {
-  const { type, source, from_date, to_date, page, limit } = filters;
+  const {
+    type,
+    source,
+    search,
+    from_date,
+    to_date,
+    date_from,
+    date_to,
+    page,
+    limit,
+  } = filters;
+  const resolvedFromDate = date_from || from_date;
+  const resolvedToDate = date_to || to_date;
 
   const where = { user_id: userId };
 
@@ -625,13 +637,24 @@ async function listTransactions(userId, filters) {
     where.source = source;
   }
 
-  if (from_date || to_date) {
+  if (search) {
+    where[Op.or] = [
+      { description: { [Op.like]: `%${search}%` } },
+      { remarks: { [Op.like]: `%${search}%` } },
+      { reference_type: { [Op.like]: `%${search}%` } },
+      { reference_id: { [Op.like]: `%${search}%` } },
+    ];
+  }
+
+  if (resolvedFromDate || resolvedToDate) {
     where.created_at = {};
-    if (from_date) {
-      where.created_at[Op.gte] = new Date(from_date);
+    if (resolvedFromDate) {
+      where.created_at[Op.gte] = new Date(resolvedFromDate);
     }
-    if (to_date) {
-      where.created_at[Op.lte] = new Date(to_date);
+    if (resolvedToDate) {
+      const endDate = new Date(resolvedToDate);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
     }
   }
 
@@ -675,11 +698,37 @@ async function listTransactions(userId, filters) {
  * @param {number} limit - Items per page
  * @returns {Promise<object>} Paginated list of invoices with metadata
  */
-async function listInvoices(userId, page, limit) {
+async function listInvoices(userId, filters = {}) {
+  const { page = 1, limit = 20, search, status, date_from, date_to } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
+  const where = { user_id: userId };
+
+  if (status) {
+    where.status = status;
+  }
+
+  if (search) {
+    where[Op.or] = [
+      { invoice_number: { [Op.like]: `%${search}%` } },
+      { type: { [Op.like]: `%${search}%` } },
+      { status: { [Op.like]: `%${search}%` } },
+    ];
+  }
+
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) {
+      where.created_at[Op.gte] = new Date(date_from);
+    }
+    if (date_to) {
+      const endDate = new Date(date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
+    }
+  }
 
   const { count, rows } = await Invoice.findAndCountAll({
-    where: { user_id: userId },
+    where,
     order: [['created_at', 'DESC']],
     offset,
     limit: sanitizedLimit,

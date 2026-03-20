@@ -119,11 +119,21 @@ const resolveApiTokenSchema = z.object({
     .min(1, 'API token is required'),
 });
 
+const listApiTokensSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(255).optional(),
+  status: z.enum(['active', 'revoked']).optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
+});
+
 module.exports = {
   updateProfileSchema,
   changePasswordSchema,
   forceChangePasswordSchema,
   updateSettingsSchema,
   createApiTokenSchema,
+  listApiTokensSchema,
   resolveApiTokenSchema,
 };

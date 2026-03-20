@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
@@ -11,6 +11,14 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { DataTable } from '@/shared/components/DataTable';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingToolbar,
+} from '@/shared/components';
+import { useListingState } from '@/shared/hooks/useListingState';
+import { buildListQuery } from '@/shared/utils';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { sessionQueryKey } from '@/core/queryKeys';
@@ -24,11 +32,31 @@ import {
 } from './context';
 import { accessibleOrganizationsQueryKey, useOrganizationContext } from './useOrganizationContext';
 
-function useOrganizations(page = 1, userId?: string | null) {
+const EMPTY_ORGANIZATIONS: Organization[] = [];
+
+interface OrganizationListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: Organization['status'];
+  date_from?: string;
+  date_to?: string;
+}
+
+function useOrganizations(params: OrganizationListParams = {}, userId?: string | null) {
   return useQuery<{ data: Organization[]; meta: PaginationMeta }>({
-    queryKey: sessionQueryKey(['organizations', page] as const, userId),
+    queryKey: sessionQueryKey(['organizations', params] as const, userId),
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<Organization[]>>(`${ENDPOINTS.ORGANIZATIONS.BASE}?page=${page}&limit=20`);
+      const { data } = await apiClient.get<ApiResponse<Organization[]>>(
+        `${ENDPOINTS.ORGANIZATIONS.BASE}${buildListQuery({
+          page: params.page ?? 1,
+          limit: params.limit ?? 20,
+          search: params.search,
+          status: params.status,
+          date_from: params.date_from,
+          date_to: params.date_to,
+        })}`
+      );
       return { data: data.data, meta: data.meta! };
     },
     enabled: Boolean(userId),
@@ -54,14 +82,27 @@ export function OrganizationsPage() {
   const navigate = useNavigate();
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const [page, setPage] = useState(1);
-  const { data, isLoading } = useOrganizations(page, userId);
+  const listing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+    syncToUrl: true,
+    namespace: 'organizations',
+  });
+  const { data, isLoading } = useOrganizations({
+    page: listing.page,
+    limit: 20,
+    search: listing.debouncedSearch || undefined,
+    status: (listing.filters.status || undefined) as Organization['status'] | undefined,
+    date_from: listing.dateRange.from,
+    date_to: listing.dateRange.to,
+  }, userId);
   const createOrg = useCreateOrg(userId);
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
 
-  const orgs = data?.data ?? [];
+  const orgs = data?.data ?? EMPTY_ORGANIZATIONS;
   const meta = data?.meta;
 
   useEffect(() => {
@@ -99,7 +140,7 @@ export function OrganizationsPage() {
     );
   };
 
-  const columns = useMemo<ColumnDef<Organization, unknown>[]>(() => [
+  const columns: ColumnDef<Organization, unknown>[] = [
     {
       accessorKey: 'name',
       header: 'Name',
@@ -174,16 +215,62 @@ export function OrganizationsPage() {
         );
       },
     },
-  ], [activeOrganization?.id, location.hash, location.pathname, location.search, navigate, userId]);
+  ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Organizations</h1>
-        <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />Create Organization</Button>
-      </div>
+    <div className="space-y-6">
+      <ListingPageHeader
+        title="Organizations"
+        description={meta?.total !== undefined ? `${meta.total} organizations` : 'Manage your accessible organizations'}
+        actions={(
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create Organization
+          </Button>
+        )}
+      />
 
-      <DataTable columns={columns} data={orgs} isLoading={isLoading} page={meta?.page ?? 1} totalPages={meta?.totalPages ?? 1} total={meta?.total} onPageChange={setPage} emptyMessage="No organizations yet." />
+
+      <ListingTableCard>
+        <ListingToolbar
+          searchValue={listing.search}
+          onSearchChange={listing.setSearch}
+          searchPlaceholder="Search organizations..."
+          filters={[
+            {
+              id: 'status',
+              value: listing.filters.status,
+              placeholder: 'Status',
+              onChange: (value) => listing.setFilter('status', value),
+              allLabel: 'All statuses',
+              options: [
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+              ],
+            },
+          ]}
+          dateRange={listing.dateRange}
+          onDateRangeChange={listing.setDateRange}
+          dateRangePlaceholder="Created date range"
+          hasActiveFilters={listing.hasActiveFilters}
+          onReset={listing.resetAll}
+        />
+        <DataTable
+          columns={columns}
+          data={orgs}
+          isLoading={isLoading}
+          page={meta?.page ?? 1}
+          totalPages={meta?.totalPages ?? 1}
+          total={meta?.total}
+          onPageChange={listing.setPage}
+          emptyMessage={(
+            <ListingEmptyState
+              title="No organizations found"
+              description="Adjust the filters or create a new organization to get started."
+            />
+          )}
+        />
+      </ListingTableCard>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-sm">

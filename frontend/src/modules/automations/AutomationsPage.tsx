@@ -1,24 +1,21 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Plus, Webhook } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
 import { useAutomations, useUpdateAutomationStatus } from './useAutomations';
-import { useDebounce } from '@/core/hooks';
 import type { Automation } from '@/core/types';
+import { useListingState } from '@/shared/hooks/useListingState';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingToolbar,
+} from '@/shared/components';
 
 const TYPE_LABELS: Record<string, string> = {
   basic_reply: 'Basic Reply',
@@ -30,18 +27,21 @@ const TYPE_LABELS: Record<string, string> = {
 export function AutomationsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const [search, setSearch] = useState('');
-  const debouncedSearch = useDebounce(search, 300);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [page, setPage] = useState(1);
+  const listing = useListingState({
+    initialFilters: {
+      status: '',
+      type: '',
+    },
+  });
 
   const { data, isLoading } = useAutomations({
-    page,
+    page: listing.page,
     limit: 20,
-    search: debouncedSearch || undefined,
-    status: statusFilter || undefined,
-    type: typeFilter || undefined,
+    search: listing.debouncedSearch || undefined,
+    status: listing.filters.status || undefined,
+    type: listing.filters.type || undefined,
+    date_from: listing.dateRange.from,
+    date_to: listing.dateRange.to,
   });
   const updateStatus = useUpdateAutomationStatus();
 
@@ -108,64 +108,79 @@ export function AutomationsPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t('automations.title')}</h1>
-          <p className="text-sm text-muted-foreground">
-            {meta?.total !== undefined ? `${meta.total} automations` : 'Auto-reply and workflow automations'}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigate('/automations/webhooks')}>
-            <Webhook className="mr-2 h-4 w-4" />
-            Manage Webhooks
-          </Button>
-          <Button size="sm" onClick={() => navigate('/automations/create')}>
-            <Plus className="mr-2 h-4 w-4" />
-            {t('automations.createAutomation')}
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Input
-          placeholder="Search..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          className="h-9 w-56"
-        />
-        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v === 'all' ? '' : v); setPage(1); }}>
-          <SelectTrigger className="h-9 w-32"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v === 'all' ? '' : v); setPage(1); }}>
-          <SelectTrigger className="h-9 w-36"><SelectValue placeholder="Type" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            <SelectItem value="basic_reply">Basic Reply</SelectItem>
-            <SelectItem value="advanced_flow">Advanced Flow</SelectItem>
-            <SelectItem value="webhook_trigger">Webhook</SelectItem>
-            <SelectItem value="api_trigger">API Trigger</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={automations}
-        isLoading={isLoading}
-        page={meta?.page ?? 1}
-        totalPages={meta?.totalPages ?? 1}
-        total={meta?.total}
-        onPageChange={setPage}
-        emptyMessage="No automations yet. Create your first automation."
+    <div className="space-y-6">
+      <ListingPageHeader
+        title={t('automations.title')}
+        description={meta?.total !== undefined ? `${meta.total} automations` : 'Auto-reply and workflow automations'}
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => navigate('/automations/webhooks')}>
+              <Webhook className="mr-2 h-4 w-4" />
+              Manage Webhooks
+            </Button>
+            <Button size="sm" onClick={() => navigate('/automations/create')}>
+              <Plus className="mr-2 h-4 w-4" />
+              {t('automations.createAutomation')}
+            </Button>
+          </>
+        }
       />
+
+
+      <ListingTableCard>
+        <ListingToolbar
+          searchValue={listing.search}
+          onSearchChange={listing.setSearch}
+          searchPlaceholder="Search automations..."
+          filters={[
+            {
+              id: 'status',
+              value: listing.filters.status,
+              placeholder: 'Status',
+              onChange: (value) => listing.setFilter('status', value),
+              allLabel: 'All statuses',
+              options: [
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+                { value: 'draft', label: 'Draft' },
+              ],
+            },
+            {
+              id: 'type',
+              value: listing.filters.type,
+              placeholder: 'Type',
+              onChange: (value) => listing.setFilter('type', value),
+              allLabel: 'All types',
+              options: [
+                { value: 'basic_reply', label: 'Basic Reply' },
+                { value: 'advanced_flow', label: 'Advanced Flow' },
+                { value: 'webhook_trigger', label: 'Webhook' },
+                { value: 'api_trigger', label: 'API Trigger' },
+              ],
+            },
+          ]}
+          dateRange={listing.dateRange}
+          onDateRangeChange={listing.setDateRange}
+          dateRangePlaceholder="Created date range"
+          hasActiveFilters={listing.hasActiveFilters}
+          onReset={listing.resetAll}
+        />
+        <DataTable
+          columns={columns}
+          data={automations}
+          isLoading={isLoading}
+          page={meta?.page ?? 1}
+          totalPages={meta?.totalPages ?? 1}
+          total={meta?.total}
+          onPageChange={listing.setPage}
+          emptyMessage={
+            <ListingEmptyState
+              title="No automations found"
+              description="Adjust the current filters or create your first automation."
+            />
+          }
+        />
+      </ListingTableCard>
     </div>
   );
 }

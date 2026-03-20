@@ -174,7 +174,7 @@ async function createAutomation(userId, data) {
  * Lists automations for a user with pagination, status/type/search filters.
  */
 async function listAutomations(userId, filters) {
-  const { page, limit, status, type, search, wa_account_id } = filters;
+  const { page, limit, status, type, search, wa_account_id, date_from, date_to } = filters;
   const { offset, limit: paginationLimit } = getPagination(page, limit);
 
   const where = { user_id: userId };
@@ -193,6 +193,17 @@ async function listAutomations(userId, filters) {
 
   if (search) {
     where.name = { [Op.like]: `%${search}%` };
+  }
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) {
+      where.created_at[Op.gte] = new Date(date_from);
+    }
+    if (date_to) {
+      const endDate = new Date(date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
+    }
   }
 
   const { rows: automations, count: total } = await Automation.findAndCountAll({

@@ -8,6 +8,7 @@ const {
   forceChangePasswordSchema,
   updateSettingsSchema,
   createApiTokenSchema,
+  listApiTokensSchema,
   resolveApiTokenSchema,
 } = require('../validations/user.validation');
 
@@ -119,10 +120,9 @@ const createApiToken = async (req, res) => {
  */
 const listApiTokens = async (req, res) => {
   const userId = req.user.id;
-  const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 20;
+  const filters = listApiTokensSchema.parse(req.query || {});
 
-  const { tokens, meta } = await userService.listApiTokens(userId, page, limit);
+  const { tokens, meta } = await userService.listApiTokens(userId, filters);
   return successResponse(res, tokens, 'API tokens retrieved successfully', 200, meta);
 };
 

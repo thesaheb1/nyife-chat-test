@@ -83,6 +83,9 @@ const adminCreditDebitSchema = z.object({
 const transactionFilterSchema = z.object({
   type: z.enum(['credit', 'debit']).optional(),
   source: z.enum(TRANSACTION_SOURCES).optional(),
+  search: z.string().trim().max(255).optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
   from_date: z.string().optional(),
   to_date: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
@@ -93,6 +96,10 @@ const transactionFilterSchema = z.object({
  * Schema for paginated invoice listing.
  */
 const invoiceListSchema = z.object({
+  search: z.string().trim().max(255).optional(),
+  status: z.enum(['pending', 'paid', 'failed', 'cancelled']).optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });

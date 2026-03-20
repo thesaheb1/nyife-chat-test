@@ -134,6 +134,16 @@ function buildCouponWhereClause(filters, replacements = {}) {
     }
   }
 
+  if (filters.date_from) {
+    whereClauses.push('created_at >= :date_from');
+    replacements.date_from = filters.date_from;
+  }
+
+  if (filters.date_to) {
+    whereClauses.push('created_at < DATE_ADD(:date_to, INTERVAL 1 DAY)');
+    replacements.date_to = filters.date_to;
+  }
+
   return whereClauses.join(' AND ');
 }
 
@@ -745,12 +755,40 @@ async function inviteSubAdmin(data, invitedBy, kafkaProducer = null) {
 }
 
 async function listSubAdminInvitations(filters) {
-  const { page = 1, limit = 20 } = filters;
+  const { page = 1, limit = 20, search, status, date_from, date_to } = filters;
   const { offset, limit: safeLimit } = getPagination(page, limit);
 
   await expirePendingAdminInvitations();
 
+  const where = {};
+
+  if (status) {
+    where.status = status;
+  }
+
+  if (search) {
+    where[Op.or] = [
+      { email: { [Op.like]: `%${search}%` } },
+      { first_name: { [Op.like]: `%${search}%` } },
+      { last_name: { [Op.like]: `%${search}%` } },
+      { role_title: { [Op.like]: `%${search}%` } },
+    ];
+  }
+
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) {
+      where.created_at[Op.gte] = new Date(date_from);
+    }
+    if (date_to) {
+      const endDate = new Date(date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
+    }
+  }
+
   const { count, rows } = await AdminInvitation.findAndCountAll({
+    where,
     include: [{ model: AdminRole, as: 'role', required: false }],
     order: [['created_at', 'DESC']],
     offset,
@@ -994,42 +1032,121 @@ async function acceptSubAdminInvitation(authUserId, data) {
  * @returns {Promise<{ data: Array, meta: object }>}
  */
 async function listSubAdmins(filters) {
-  const { page = 1, limit = 20 } = filters;
+  const { page = 1, limit = 20, search, status, date_from, date_to } = filters;
   const { offset, limit: safeLimit } = getPagination(page, limit);
 
-  const { count, rows } = await SubAdmin.findAndCountAll({
-    include: [{ model: AdminRole, as: 'role' }],
-    offset,
-    limit: safeLimit,
-    order: [['created_at', 'DESC']],
-  });
+  const replacements = {};
+  const whereClauses = ['sa.deleted_at IS NULL', 'u.deleted_at IS NULL'];
 
-  // Fetch user info for each sub-admin from auth_users
-  const userIds = rows.map((sa) => sa.user_id);
-  let usersMap = {};
-
-  if (userIds.length > 0) {
-    const placeholders = userIds.map(() => '?').join(',');
-    const users = await sequelize.query(
-      `SELECT id, email, first_name, last_name, phone, status, last_login_at
-       FROM auth_users WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-      { replacements: userIds, type: QueryTypes.SELECT }
-    );
-    usersMap = users.reduce((map, u) => {
-      map[u.id] = u;
-      return map;
-    }, {});
+  if (status) {
+    whereClauses.push('sa.status = :status');
+    replacements.status = status;
   }
 
-  const data = rows.map((sa) => ({
-    ...sa.toJSON(),
-    role: sa.role ? buildStoredRole(sa.role) : null,
-    user: usersMap[sa.user_id] || null,
+  if (search) {
+    whereClauses.push(`(
+      LOWER(COALESCE(u.first_name, '')) LIKE :search
+      OR LOWER(COALESCE(u.last_name, '')) LIKE :search
+      OR LOWER(COALESCE(CONCAT_WS(' ', u.first_name, u.last_name), '')) LIKE :search
+      OR LOWER(COALESCE(u.email, '')) LIKE :search
+      OR LOWER(COALESCE(ar.title, '')) LIKE :search
+    )`);
+    replacements.search = `%${String(search).trim().toLowerCase()}%`;
+  }
+
+  if (date_from) {
+    whereClauses.push('sa.created_at >= :date_from');
+    replacements.date_from = date_from;
+  }
+
+  if (date_to) {
+    whereClauses.push('sa.created_at < DATE_ADD(:date_to, INTERVAL 1 DAY)');
+    replacements.date_to = date_to;
+  }
+
+  const whereSql = whereClauses.join(' AND ');
+
+  const [countResult] = await sequelize.query(
+    `SELECT COUNT(*) AS total
+     FROM admin_sub_admins AS sa
+     INNER JOIN auth_users AS u
+       ON u.id = sa.user_id
+     LEFT JOIN admin_roles AS ar
+       ON ar.id = sa.role_id
+     WHERE ${whereSql}`,
+    { replacements, type: QueryTypes.SELECT }
+  );
+  const total = Number(countResult.total || 0);
+
+  const rows = await sequelize.query(
+    `SELECT
+        sa.id,
+        sa.user_id,
+        sa.role_id,
+        sa.status,
+        sa.created_by,
+        sa.created_at,
+        sa.updated_at,
+        u.id AS user_row_id,
+        u.email,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.status AS user_status,
+        u.last_login_at,
+        ar.id AS role_row_id,
+        ar.title AS role_title,
+        ar.permissions AS role_permissions,
+        ar.is_system AS role_is_system,
+        ar.created_at AS role_created_at,
+        ar.updated_at AS role_updated_at
+     FROM admin_sub_admins AS sa
+     INNER JOIN auth_users AS u
+       ON u.id = sa.user_id
+     LEFT JOIN admin_roles AS ar
+       ON ar.id = sa.role_id
+     WHERE ${whereSql}
+     ORDER BY sa.created_at DESC
+     LIMIT :limit OFFSET :offset`,
+    {
+      replacements: { ...replacements, limit: safeLimit, offset },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const data = rows.map((row) => ({
+    id: row.id,
+    user_id: row.user_id,
+    role_id: row.role_id,
+    status: row.status,
+    created_by: row.created_by,
+    last_login_at: row.last_login_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    user: row.user_row_id
+      ? {
+          id: row.user_row_id,
+          email: row.email,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          phone: row.phone,
+          status: row.user_status,
+          last_login_at: row.last_login_at,
+        }
+      : null,
+    role: row.role_row_id
+      ? buildStoredRole({
+          id: row.role_row_id,
+          title: row.role_title,
+          permissions: parseJsonField(row.role_permissions),
+          is_system: Boolean(row.role_is_system),
+          created_at: row.role_created_at,
+          updated_at: row.role_updated_at,
+        })
+      : null,
   }));
 
-  const meta = getPaginationMeta(count, page, limit);
-
-  return { data, meta };
+  return { data, meta: getPaginationMeta(total, page, limit) };
 }
 
 /**

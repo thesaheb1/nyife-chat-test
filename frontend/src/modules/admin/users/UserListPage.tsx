@@ -16,10 +16,15 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { DataTable } from '@/shared/components/DataTable';
-import { DateRangeFilter } from '@/shared/components/DateRangeFilter';
-import { useDebounce } from '@/core/hooks/useDebounce';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingTabsShell,
+  ListingToolbar,
+} from '@/shared/components';
+import { useListingState } from '@/shared/hooks/useListingState';
 import { formatCurrency } from '@/shared/utils/formatters';
 import {
   AlertDialog,
@@ -41,14 +46,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TabsContent } from '@/components/ui/tabs';
 import { useCan } from '@/core/hooks/usePermissions';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useAdminPlans } from '@/modules/admin/plans/useAdminPlans';
@@ -77,32 +75,44 @@ export function UserListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = (searchParams.get('tab') as UserTab) || 'users';
   const activeTab: UserTab = rawTab === 'invitations' ? 'invitations' : 'users';
-  const [page, setPage] = useState(1);
-  const [invitationPage, setInvitationPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [planFilter, setPlanFilter] = useState('all');
-  const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({});
+  const userListing = useListingState({
+    initialFilters: {
+      status: '',
+      plan: '',
+    },
+    syncToUrl: true,
+    namespace: 'users',
+  });
+  const invitationListing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+    syncToUrl: true,
+    namespace: 'user_invitations',
+  });
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [invitationAction, setInvitationAction] = useState<{ id: string; mode: 'revoke' | 'delete' } | null>(null);
-  const debouncedSearch = useDebounce(search, 300);
 
   const canCreate = useCan('admin', 'users', 'create');
   const canUpdate = useCan('admin', 'users', 'update');
   const canDelete = useCan('admin', 'users', 'delete');
 
   const usersQuery = useAdminUsers({
-    page,
+    page: userListing.page,
     limit: 20,
-    search: debouncedSearch || undefined,
-    status: statusFilter !== 'all' ? statusFilter : undefined,
-    plan: planFilter !== 'all' ? planFilter : undefined,
-    date_from: dateRange.from,
-    date_to: dateRange.to,
+    search: userListing.debouncedSearch || undefined,
+    status: userListing.filters.status || undefined,
+    plan: userListing.filters.plan || undefined,
+    date_from: userListing.dateRange.from,
+    date_to: userListing.dateRange.to,
   });
   const invitationsQuery = useAdminUserInvitations({
-    page: invitationPage,
+    page: invitationListing.page,
     limit: 20,
+    search: invitationListing.debouncedSearch || undefined,
+    status: invitationListing.filters.status || undefined,
+    date_from: invitationListing.dateRange.from,
+    date_to: invitationListing.dateRange.to,
     enabled: activeTab === 'invitations',
   });
   const plansQuery = useAdminPlans();
@@ -119,6 +129,17 @@ export function UserListPage() {
   const plans = plansQuery.data?.plans ?? [];
 
   const isResendingInvitation = resendInvitation.isPending;
+  const setActiveTab = (value: UserTab) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (value === 'users') {
+        next.delete('tab');
+      } else {
+        next.set('tab', value);
+      }
+      return next;
+    }, { replace: true });
+  };
 
   const navigateToDashboard = useCallback((userId: string, tab?: string, extraParams?: Record<string, string>) => {
     const params = new URLSearchParams();
@@ -422,16 +443,11 @@ export function UserListPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage platform users, their invitations, access status, and organization-linked history.
-          </p>
-        </div>
-
-        {canCreate ? (
-          <div className="flex flex-wrap gap-2">
+      <ListingPageHeader
+        title="Users"
+        description="Manage platform users, invitations, access status, and account history."
+        actions={canCreate ? (
+          <>
             <Button variant="outline" onClick={() => navigate('/admin/users/create?mode=invite')}>
               <Mail className="mr-2 h-4 w-4" />
               Invite User
@@ -440,124 +456,122 @@ export function UserListPage() {
               <Plus className="mr-2 h-4 w-4" />
               Create User
             </Button>
-          </div>
+          </>
         ) : null}
-      </div>
+      />
 
-      <Tabs
+      <ListingTabsShell
         value={activeTab}
-        onValueChange={(value) => setSearchParams({ tab: value })}
-        className="space-y-4"
+        onValueChange={(value) => setActiveTab(value === 'invitations' ? 'invitations' : 'users')}
+        tabs={[
+          { value: 'users', label: 'Users' },
+          { value: 'invitations', label: 'Invitations' },
+        ]}
       >
-        <TabsList>
-          <TabsTrigger value="users">Users</TabsTrigger>
-          <TabsTrigger value="invitations">Invitations</TabsTrigger>
-        </TabsList>
 
         <TabsContent value="users" className="space-y-4">
-          <div className="flex justify-between flex-wrap gap-3 rounded-lg border bg-card p-4">
-            <div className="flex gap-3">
-              <Input
-                placeholder="Search by name, email, phone, organization, or team member"
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  setPage(1);
-                }}
-                className="xl:max-w-md"
-              />
-              <Select
-                value={statusFilter}
-                onValueChange={(value) => {
-                  setStatusFilter(value);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-full sm:w-[160px]">
-                  <SelectValue placeholder="All statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                  <SelectItem value="suspended">Suspended</SelectItem>
-                </SelectContent>
-              </Select>
 
-              <Select
-                value={planFilter}
-                onValueChange={(value) => {
-                  setPlanFilter(value);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-full sm:w-[220px]">
-                  <SelectValue placeholder="All plans" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All plans</SelectItem>
-                  {plans.map((plan) => (
-                    <SelectItem key={plan.id} value={plan.id}>
-                      {plan.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <DateRangeFilter
-                value={dateRange}
-                onChange={(range) => {
-                  setDateRange(range);
-                  setPage(1);
-                }}
-              />
-              {(search || statusFilter !== 'all' || planFilter !== 'all' || dateRange.from || dateRange.to) ? (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setSearch('');
-                    setStatusFilter('all');
-                    setPlanFilter('all');
-                    setDateRange({});
-                    setPage(1);
-                  }}
-                >
-                  Reset Filters
-                </Button>
-              ) : null}
-            </div>
-          </div>
-
-          <DataTable
-            columns={userColumns}
-            data={users}
-            isLoading={usersQuery.isLoading}
-            page={page}
-            totalPages={userMeta?.totalPages ?? 1}
-            total={userMeta?.total ?? users.length}
-            onPageChange={setPage}
-            emptyMessage="No users found."
-            onRowClick={(row) => navigateToDashboard(row.id)}
-          />
+          <ListingTableCard>
+            <ListingToolbar
+              searchValue={userListing.search}
+              onSearchChange={userListing.setSearch}
+              searchPlaceholder="Search by name, email, phone, organization, or team member"
+              filters={[
+                {
+                  id: 'status',
+                  value: userListing.filters.status,
+                  placeholder: 'Status',
+                  onChange: (value) => userListing.setFilter('status', value),
+                  allLabel: 'All statuses',
+                  options: [
+                    { value: 'active', label: 'Active' },
+                    { value: 'inactive', label: 'Inactive' },
+                    { value: 'suspended', label: 'Suspended' },
+                  ],
+                },
+                {
+                  id: 'plan',
+                  value: userListing.filters.plan,
+                  placeholder: 'Plan',
+                  onChange: (value) => userListing.setFilter('plan', value),
+                  allLabel: 'All plans',
+                  options: plans.map((plan) => ({
+                    value: plan.id,
+                    label: plan.name,
+                  })),
+                },
+              ]}
+              dateRange={userListing.dateRange}
+              onDateRangeChange={userListing.setDateRange}
+              dateRangePlaceholder="Joined date range"
+              hasActiveFilters={userListing.hasActiveFilters}
+              onReset={userListing.resetAll}
+            />
+            <DataTable
+              columns={userColumns}
+              data={users}
+              isLoading={usersQuery.isLoading}
+              page={userMeta?.page ?? userListing.page}
+              totalPages={userMeta?.totalPages ?? 1}
+              total={userMeta?.total ?? users.length}
+              onPageChange={userListing.setPage}
+              emptyMessage={(
+                <ListingEmptyState
+                  title="No users found"
+                  description="Adjust the current filters or create a new user."
+                />
+              )}
+              onRowClick={(row) => navigateToDashboard(row.id)}
+            />
+          </ListingTableCard>
         </TabsContent>
 
         <TabsContent value="invitations" className="space-y-4">
-          <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
-            Pending invitations can be resent or revoked. Accepted and expired records are kept for audit visibility.
-          </div>
-          <DataTable
-            columns={invitationColumns}
-            data={invitations}
-            isLoading={invitationsQuery.isLoading}
-            page={invitationPage}
-            totalPages={invitationMeta?.totalPages ?? 1}
-            total={invitationMeta?.total ?? invitations.length}
-            onPageChange={setInvitationPage}
-            emptyMessage="No user invitations found."
-          />
+
+          <ListingTableCard>
+            <ListingToolbar
+              searchValue={invitationListing.search}
+              onSearchChange={invitationListing.setSearch}
+              searchPlaceholder="Search invited users..."
+              filters={[
+                {
+                  id: 'status',
+                  value: invitationListing.filters.status,
+                  placeholder: 'Status',
+                  onChange: (value) => invitationListing.setFilter('status', value),
+                  allLabel: 'All statuses',
+                  options: [
+                    { value: 'pending', label: 'Pending' },
+                    { value: 'accepted', label: 'Accepted' },
+                    { value: 'revoked', label: 'Revoked' },
+                    { value: 'expired', label: 'Expired' },
+                  ],
+                },
+              ]}
+              dateRange={invitationListing.dateRange}
+              onDateRangeChange={invitationListing.setDateRange}
+              dateRangePlaceholder="Invitation date range"
+              hasActiveFilters={invitationListing.hasActiveFilters}
+              onReset={invitationListing.resetAll}
+            />
+            <DataTable
+              columns={invitationColumns}
+              data={invitations}
+              isLoading={invitationsQuery.isLoading}
+              page={invitationMeta?.page ?? invitationListing.page}
+              totalPages={invitationMeta?.totalPages ?? 1}
+              total={invitationMeta?.total ?? invitations.length}
+              onPageChange={invitationListing.setPage}
+              emptyMessage={(
+                <ListingEmptyState
+                  title="No user invitations found"
+                  description="New invitations will appear here after you invite users."
+                />
+              )}
+            />
+          </ListingTableCard>
         </TabsContent>
-      </Tabs>
+      </ListingTabsShell>
 
       <AlertDialog open={Boolean(deleteId)} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>

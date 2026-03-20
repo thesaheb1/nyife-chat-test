@@ -21,6 +21,7 @@ import type {
   UpdateContactFormData,
 } from './validations';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import { buildListQuery } from '@/shared/utils/listing';
 
 interface ListContactsParams {
   page?: number;
@@ -29,6 +30,8 @@ interface ListContactsParams {
   tag_id?: string;
   group_id?: string;
   source?: string;
+  date_from?: string;
+  date_to?: string;
   enabled?: boolean;
 }
 
@@ -36,24 +39,14 @@ interface ListGroupsParams {
   page?: number;
   limit?: number;
   search?: string;
+  type?: Group['type'];
+  date_from?: string;
+  date_to?: string;
 }
 
 interface GroupDetailParams {
   page?: number;
   limit?: number;
-}
-
-function buildQuery(params: Record<string, string | number | undefined>) {
-  const searchParams = new URLSearchParams();
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== '') {
-      searchParams.set(key, String(value));
-    }
-  });
-
-  const query = searchParams.toString();
-  return query ? `?${query}` : '';
 }
 
 async function downloadCsvSample(url: string, filename: string) {
@@ -72,13 +65,15 @@ async function downloadCsvSample(url: string, filename: string) {
 export function useContacts(params: ListContactsParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const query = buildQuery({
+  const query = buildListQuery({
     page: params.page,
     limit: params.limit,
     search: params.search,
     tag_id: params.tag_id,
     group_id: params.group_id,
     source: params.source,
+    date_from: params.date_from,
+    date_to: params.date_to,
   });
 
   return useQuery({
@@ -325,10 +320,13 @@ export function useBulkRemoveTagsFromContacts() {
 export function useGroups(params: ListGroupsParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const query = buildQuery({
+  const query = buildListQuery({
     page: params.page,
     limit: params.limit,
     search: params.search,
+    type: params.type,
+    date_from: params.date_from,
+    date_to: params.date_to,
   });
 
   return useQuery({
@@ -344,7 +342,7 @@ export function useGroups(params: ListGroupsParams = {}) {
 export function useGroup(id: string | undefined, params: GroupDetailParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const query = buildQuery({
+  const query = buildListQuery({
     page: params.page,
     limit: params.limit,
   });

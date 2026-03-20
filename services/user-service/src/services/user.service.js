@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
-const { QueryTypes } = require('sequelize');
+const { Op, QueryTypes } = require('sequelize');
 const {
   AppError,
   assertAuthUserPhoneAvailable,
@@ -303,11 +303,40 @@ const createApiToken = async (userId, name, permissions = null, expiresAt = null
  * @param {number} limit - Records per page
  * @returns {Promise<{ tokens: object[], meta: object }>}
  */
-const listApiTokens = async (userId, page, limit) => {
+const listApiTokens = async (userId, filtersOrPage, maybeLimit) => {
+  const filters =
+    typeof filtersOrPage === 'object' && filtersOrPage !== null
+      ? filtersOrPage
+      : { page: filtersOrPage, limit: maybeLimit };
+  const { page = 1, limit = 20, search, status, date_from, date_to } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
+  const where = { user_id: userId };
+
+  if (status) {
+    where.is_active = status === 'active';
+  }
+
+  if (search) {
+    where[Op.or] = [
+      { name: { [Op.like]: `%${search}%` } },
+      { token_prefix: { [Op.like]: `%${search}%` } },
+    ];
+  }
+
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) {
+      where.created_at[Op.gte] = new Date(date_from);
+    }
+    if (date_to) {
+      const endDate = new Date(date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
+    }
+  }
 
   const { count, rows } = await UserApiToken.findAndCountAll({
-    where: { user_id: userId },
+    where,
     attributes: [
       'id',
       'name',

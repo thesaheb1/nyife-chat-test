@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
 import { Loader2, Mail, RefreshCcw, Trash2, UserPlus, Users } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,9 +14,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingTabsShell,
+  ListingToolbar,
+} from '@/shared/components';
+import { useListingState } from '@/shared/hooks/useListingState';
 import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
 import { PermissionMatrix } from '@/shared/components/PermissionMatrix';
 import { PASSWORD_POLICY_MESSAGE, isStrongPassword } from '@/shared/utils/password';
+import { buildListQuery } from '@/shared/utils';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { organizationQueryKey } from '@/core/queryKeys';
@@ -60,26 +69,58 @@ const EMPTY_INVITE_FORM = (): InviteFormState => ({
   permissions: createEmptyPermissions(),
 });
 
-function useTeamMembers(orgId: string | undefined, page = 1, userId?: string | null, enabled = true) {
+interface TeamMemberListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: TeamMember['status'];
+  date_from?: string;
+  date_to?: string;
+}
+
+interface TeamInvitationListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: OrganizationInvitation['status'];
+  date_from?: string;
+  date_to?: string;
+}
+
+function useTeamMembers(orgId: string | undefined, params: TeamMemberListParams = {}, userId?: string | null, enabled = true) {
   return useQuery<{ data: TeamMember[]; meta: PaginationMeta }>({
-    queryKey: organizationQueryKey(['team-members', orgId, page] as const, userId, orgId),
+    queryKey: organizationQueryKey(['team-members', orgId, params] as const, userId, orgId),
     enabled: Boolean(userId && orgId) && enabled,
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<TeamMember[]>>(
-        `${ENDPOINTS.ORGANIZATIONS.MEMBERS(orgId!)}?page=${page}&limit=20`
+        `${ENDPOINTS.ORGANIZATIONS.MEMBERS(orgId!)}${buildListQuery({
+          page: params.page ?? 1,
+          limit: params.limit ?? 20,
+          search: params.search,
+          status: params.status,
+          date_from: params.date_from,
+          date_to: params.date_to,
+        })}`
       );
       return { data: data.data, meta: data.meta! };
     },
   });
 }
 
-function useInvitations(orgId: string | undefined, page = 1, userId?: string | null, enabled = true) {
+function useInvitations(orgId: string | undefined, params: TeamInvitationListParams = {}, userId?: string | null, enabled = true) {
   return useQuery<{ data: OrganizationInvitation[]; meta: PaginationMeta }>({
-    queryKey: organizationQueryKey(['team-invitations', orgId, page] as const, userId, orgId),
+    queryKey: organizationQueryKey(['team-invitations', orgId, params] as const, userId, orgId),
     enabled: Boolean(userId && orgId) && enabled,
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<OrganizationInvitation[]>>(
-        `${ENDPOINTS.ORGANIZATIONS.INVITATIONS(orgId!)}?page=${page}&limit=20`
+        `${ENDPOINTS.ORGANIZATIONS.INVITATIONS(orgId!)}${buildListQuery({
+          page: params.page ?? 1,
+          limit: params.limit ?? 20,
+          search: params.search,
+          status: params.status,
+          date_from: params.date_from,
+          date_to: params.date_to,
+        })}`
       );
       return { data: data.data, meta: data.meta! };
     },
@@ -111,8 +152,20 @@ export function TeamMembersPage() {
   const canDelete = canOrganization('team_members', 'delete');
   const activeTab = searchParams.get('tab') === 'invitations' ? 'invitations' : 'members';
   const inviteRequested = searchParams.get('invite') === '1';
-  const [memberPage, setMemberPage] = useState(1);
-  const [invitePage, setInvitePage] = useState(1);
+  const memberListing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+    syncToUrl: true,
+    namespace: 'members',
+  });
+  const invitationListing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+    syncToUrl: true,
+    namespace: 'team_invitations',
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(() => inviteRequested && canCreate);
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
@@ -125,8 +178,22 @@ export function TeamMembersPage() {
   const [editPermissions, setEditPermissions] = useState<Permissions>(createEmptyPermissions());
   const inviteOpen = inviteDialogOpen || (inviteRequested && canCreate);
 
-  const membersQuery = useTeamMembers(organizationId, memberPage, userId, canRead);
-  const invitationsQuery = useInvitations(organizationId, invitePage, userId, canRead);
+  const membersQuery = useTeamMembers(organizationId, {
+    page: memberListing.page,
+    limit: 20,
+    search: memberListing.debouncedSearch || undefined,
+    status: (memberListing.filters.status || undefined) as TeamMember['status'] | undefined,
+    date_from: memberListing.dateRange.from,
+    date_to: memberListing.dateRange.to,
+  }, userId, canRead);
+  const invitationsQuery = useInvitations(organizationId, {
+    page: invitationListing.page,
+    limit: 20,
+    search: invitationListing.debouncedSearch || undefined,
+    status: (invitationListing.filters.status || undefined) as OrganizationInvitation['status'] | undefined,
+    date_from: invitationListing.dateRange.from,
+    date_to: invitationListing.dateRange.to,
+  }, userId, canRead);
   const subscriptionQuery = useCurrentSubscription(organizationId, userId, canRead);
 
   const members = membersQuery.data?.data || [];
@@ -485,66 +552,66 @@ export function TeamMembersPage() {
     {
       id: 'actions',
       header: 'Actions',
-        cell: ({ row }) => (
-          <div className="flex items-center justify-end gap-2">
-            {['pending', 'revoked', 'expired'].includes(row.original.status) ? (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!canCreate || isResendingInvitation}
-                onClick={() => void handleResendInvitation(row.original.id)}
-              >
-                <RefreshCcw className="mr-2 h-4 w-4" />
-                Resend
-              </Button>
-            ) : null}
-            {row.original.status === 'pending' ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={!canDelete}
-                onClick={() => setInvitationAction({ id: row.original.id, mode: 'revoke' })}
-              >
-                Revoke
-              </Button>
-            ) : null}
+      cell: ({ row }) => (
+        <div className="flex items-center justify-end gap-2">
+          {['pending', 'revoked', 'expired'].includes(row.original.status) ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!canCreate || isResendingInvitation}
+              onClick={() => void handleResendInvitation(row.original.id)}
+            >
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              Resend
+            </Button>
+          ) : null}
+          {row.original.status === 'pending' ? (
             <Button
               size="sm"
               variant="ghost"
               disabled={!canDelete}
-              onClick={() => setInvitationAction({ id: row.original.id, mode: 'delete' })}
+              onClick={() => setInvitationAction({ id: row.original.id, mode: 'revoke' })}
             >
-              <Trash2 className="h-4 w-4" />
+              Revoke
             </Button>
-          </div>
-        ),
-      },
+          ) : null}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!canDelete}
+            onClick={() => setInvitationAction({ id: row.original.id, mode: 'delete' })}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
   ], [canCreate, canDelete, handleResendInvitation, isResendingInvitation]);
 
   if (!canRead) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-bold tracking-tight">Team Members</h1>
-        <Card>
-          <CardContent className="py-10 text-sm text-muted-foreground">
-            You do not have permission to view team members in this organization.
-          </CardContent>
-        </Card>
+      <div className="space-y-6">
+        <ListingPageHeader
+          title="Team Members"
+          description="Manage organization members, invitations, and resource access."
+        />
+        <ListingTableCard>
+          <ListingEmptyState
+            title="Access unavailable"
+            description="You do not have permission to view team members in this organization."
+          />
+        </ListingTableCard>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Team Members</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage organization members, reserved seats, invitations, and resource access.
-          </p>
-        </div>
-        {canCreate ? (
-          <div className="flex flex-wrap gap-2">
+      <ListingPageHeader
+        title="Team Members"
+        description="Manage organization members, reserved seats, invitations, and resource access."
+        actions={canCreate ? (
+          <>
             <Button variant="outline" onClick={openInviteDialog}>
               <Mail className="mr-2 h-4 w-4" />
               Invite by Email
@@ -553,9 +620,9 @@ export function TeamMembersPage() {
               <UserPlus className="mr-2 h-4 w-4" />
               Create Team Account
             </Button>
-          </div>
+          </>
         ) : null}
-      </div>
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
@@ -589,60 +656,111 @@ export function TeamMembersPage() {
         </Card>
       </div>
 
-      <Tabs
+      <ListingTabsShell
         value={activeTab}
         onValueChange={(value) => updateTeamView(value === 'invitations' ? 'invitations' : 'members')}
-        className="space-y-4"
+        tabs={[
+          { value: 'members', label: 'Members', icon: Users },
+          ...(canRead ? [{ value: 'invitations', label: 'Invitations', icon: Mail }] : []),
+        ]}
       >
-        <TabsList>
-          <TabsTrigger value="members">
-            <Users className="mr-2 h-4 w-4" />
-            Members
-          </TabsTrigger>
-          {canRead ? (
-            <TabsTrigger value="invitations">
-              <Mail className="mr-2 h-4 w-4" />
-              Invitations
-            </TabsTrigger>
-          ) : null}
-        </TabsList>
-
         <TabsContent value="members">
-          <Card>
-            <CardContent className="pt-6">
+          <div className="space-y-4">
+
+            <ListingTableCard>
+              <ListingToolbar
+                searchValue={memberListing.search}
+                onSearchChange={memberListing.setSearch}
+                searchPlaceholder="Search by name, email, or role title..."
+                filters={[
+                  {
+                    id: 'status',
+                    value: memberListing.filters.status,
+                    placeholder: 'Status',
+                    onChange: (value) => memberListing.setFilter('status', value),
+                    allLabel: 'All statuses',
+                    options: [
+                      { value: 'active', label: 'Active' },
+                      { value: 'inactive', label: 'Inactive' },
+                      { value: 'invited', label: 'Invited' },
+                    ],
+                  },
+                ]}
+                dateRange={memberListing.dateRange}
+                onDateRangeChange={memberListing.setDateRange}
+                dateRangePlaceholder="Created date range"
+                hasActiveFilters={memberListing.hasActiveFilters}
+                onReset={memberListing.resetAll}
+              />
               <DataTable
                 columns={memberColumns}
                 data={members}
                 isLoading={membersQuery.isLoading}
-                page={memberMeta?.page ?? 1}
+                page={memberMeta?.page ?? memberListing.page}
                 totalPages={memberMeta?.totalPages ?? 1}
                 total={memberMeta?.total}
-                onPageChange={setMemberPage}
-                emptyMessage="No team members found for this organization."
+                onPageChange={memberListing.setPage}
+                emptyMessage={(
+                  <ListingEmptyState
+                    title="No team members found"
+                    description="Invite a teammate or create a team account to get started."
+                  />
+                )}
               />
-            </CardContent>
-          </Card>
+            </ListingTableCard>
+          </div>
         </TabsContent>
 
         {canRead ? (
           <TabsContent value="invitations">
-            <Card>
-              <CardContent className="pt-6">
+            <div className="space-y-4">
+
+              <ListingTableCard>
+                <ListingToolbar
+                  searchValue={invitationListing.search}
+                  onSearchChange={invitationListing.setSearch}
+                  searchPlaceholder="Search invited teammates..."
+                  filters={[
+                    {
+                      id: 'status',
+                      value: invitationListing.filters.status,
+                      placeholder: 'Status',
+                      onChange: (value) => invitationListing.setFilter('status', value),
+                      allLabel: 'All statuses',
+                      options: [
+                        { value: 'pending', label: 'Pending' },
+                        { value: 'accepted', label: 'Accepted' },
+                        { value: 'revoked', label: 'Revoked' },
+                        { value: 'expired', label: 'Expired' },
+                      ],
+                    },
+                  ]}
+                  dateRange={invitationListing.dateRange}
+                  onDateRangeChange={invitationListing.setDateRange}
+                  dateRangePlaceholder="Invitation date range"
+                  hasActiveFilters={invitationListing.hasActiveFilters}
+                  onReset={invitationListing.resetAll}
+                />
                 <DataTable
                   columns={invitationColumns}
                   data={invitations}
                   isLoading={invitationsQuery.isLoading}
-                  page={invitationMeta?.page ?? 1}
+                  page={invitationMeta?.page ?? invitationListing.page}
                   totalPages={invitationMeta?.totalPages ?? 1}
                   total={invitationMeta?.total}
-                  onPageChange={setInvitePage}
-                  emptyMessage="No invitations have been sent yet."
+                  onPageChange={invitationListing.setPage}
+                  emptyMessage={(
+                    <ListingEmptyState
+                      title="No invitations found"
+                      description="Team invitations will appear here after they are sent."
+                    />
+                  )}
                 />
-              </CardContent>
-            </Card>
+              </ListingTableCard>
+            </div>
           </TabsContent>
         ) : null}
-      </Tabs>
+      </ListingTabsShell>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">

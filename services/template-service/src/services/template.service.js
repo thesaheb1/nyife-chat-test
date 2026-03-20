@@ -759,7 +759,7 @@ async function createTemplate(userId, data) {
  * @returns {Promise<{ templates: Array, meta: object }>}
  */
 async function listTemplates(userId, filters) {
-  const { page, limit, status, category, type, search, waba_id, wa_account_id } = filters;
+  const { page, limit, status, category, type, search, waba_id, wa_account_id, date_from, date_to } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
 
   const where = { user_id: userId };
@@ -784,6 +784,17 @@ async function listTemplates(userId, filters) {
       { name: { [Op.like]: `%${search}%` } },
       { display_name: { [Op.like]: `%${search}%` } },
     ];
+  }
+  if (date_from || date_to) {
+    where.updated_at = {};
+    if (date_from) {
+      where.updated_at[Op.gte] = new Date(date_from);
+    }
+    if (date_to) {
+      const endDate = new Date(date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.updated_at[Op.lt] = endDate;
+    }
   }
 
   const { count, rows } = await Template.findAndCountAll({

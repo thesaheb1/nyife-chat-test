@@ -506,13 +506,44 @@ async function createOrganization(userId, currentOrganizationId, data, actorRole
   return Organization.findByPk(organizationId);
 }
 
-async function listOrganizations(userId, page, limit) {
+async function listOrganizations(userId, filters = {}) {
+  const { page = 1, limit = 20, search, status, date_from, date_to } = filters;
   const accessibleOrganizations = await getAccessibleOrganizations(userId);
-  const serialized = accessibleOrganizations.map((entry) => ({
+  let serialized = accessibleOrganizations.map((entry) => ({
     ...entry.organization.toJSON(),
     organization_role: entry.role,
     permissions: entry.permissions,
   }));
+
+  if (search) {
+    const needle = String(search).trim().toLowerCase();
+    serialized = serialized.filter((organization) => {
+      return [organization.name, organization.description, organization.slug]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle));
+    });
+  }
+
+  if (status) {
+    serialized = serialized.filter((organization) => organization.status === status);
+  }
+
+  if (date_from || date_to) {
+    serialized = serialized.filter((organization) => {
+      const createdAt = new Date(organization.created_at);
+      if (date_from && createdAt < new Date(date_from)) {
+        return false;
+      }
+      if (date_to) {
+        const endDate = new Date(date_to);
+        endDate.setDate(endDate.getDate() + 1);
+        if (createdAt >= endDate) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
 
   const { rows, meta } = paginateArray(serialized, page, limit);
   return { organizations: rows, meta };
@@ -768,8 +799,18 @@ async function createTeamMemberAccount(userId, orgId, memberData) {
 }
 
 async function listInvitations(userId, orgId, page, limit) {
+  let filters = {};
+  let resolvedPage = page;
+  let resolvedLimit = limit;
+
+  if (typeof page === 'object' && page !== null) {
+    filters = page;
+    resolvedPage = page.page || 1;
+    resolvedLimit = page.limit || 20;
+  }
+
   await ensureOwnerOrganization(userId, orgId);
-  const { offset, limit: sanitizedLimit } = getPagination(page, limit);
+  const { offset, limit: sanitizedLimit } = getPagination(resolvedPage, resolvedLimit);
 
   await Invitation.update(
     { status: 'expired' },
@@ -782,8 +823,35 @@ async function listInvitations(userId, orgId, page, limit) {
     }
   );
 
+  const where = { organization_id: orgId };
+
+  if (filters.status) {
+    where.status = filters.status;
+  }
+
+  if (filters.search) {
+    where[Op.or] = [
+      { email: { [Op.like]: `%${filters.search}%` } },
+      { first_name: { [Op.like]: `%${filters.search}%` } },
+      { last_name: { [Op.like]: `%${filters.search}%` } },
+      { role_title: { [Op.like]: `%${filters.search}%` } },
+    ];
+  }
+
+  if (filters.date_from || filters.date_to) {
+    where.created_at = {};
+    if (filters.date_from) {
+      where.created_at[Op.gte] = new Date(filters.date_from);
+    }
+    if (filters.date_to) {
+      const endDate = new Date(filters.date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
+    }
+  }
+
   const { count, rows } = await Invitation.findAndCountAll({
-    where: { organization_id: orgId },
+    where,
     order: [['created_at', 'DESC']],
     offset,
     limit: sanitizedLimit,
@@ -793,7 +861,7 @@ async function listInvitations(userId, orgId, page, limit) {
 
   return {
     invitations: rows,
-    meta: getPaginationMeta(count, page, limit),
+    meta: getPaginationMeta(count, resolvedPage, resolvedLimit),
   };
 }
 
@@ -1018,12 +1086,34 @@ async function listTeamMembers(userId, orgId, page, limit, filters = {}) {
   if (filters.status) {
     where.status = filters.status;
   }
+  if (filters.date_from || filters.date_to) {
+    where.created_at = {};
+    if (filters.date_from) {
+      where.created_at[Op.gte] = new Date(filters.date_from);
+    }
+    if (filters.date_to) {
+      const endDate = new Date(filters.date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
+    }
+  }
 
   const include = [
     {
       model: User,
       as: 'member',
       attributes: ['id', 'email', 'first_name', 'last_name', 'status'],
+      ...(filters.search
+        ? {
+            where: {
+              [Op.or]: [
+                { first_name: { [Op.like]: `%${filters.search}%` } },
+                { last_name: { [Op.like]: `%${filters.search}%` } },
+                { email: { [Op.like]: `%${filters.search}%` } },
+              ],
+            },
+          }
+        : {}),
     },
   ];
 

@@ -35,6 +35,10 @@ interface HistoryParams {
 interface InvitationParams {
   page?: number;
   limit?: number;
+  search?: string;
+  status?: string;
+  date_from?: string;
+  date_to?: string;
   enabled?: boolean;
 }
 
@@ -119,14 +123,14 @@ export function useAdminUserDashboard(userId: string | undefined, organizationId
 }
 
 export function useAdminUserInvitations(params: InvitationParams = {}) {
-  const { enabled = true, page = 1, limit = 20 } = params;
+  const { enabled = true, page = 1, limit = 20, search, status, date_from, date_to } = params;
 
   return useQuery({
-    queryKey: ['admin', 'user-invitations', page, limit],
+    queryKey: ['admin', 'user-invitations', params],
     enabled,
     queryFn: async () => {
       const { data } = await apiClient.get(
-        `${ADMIN_ENDPOINTS.USERS.INVITATIONS.BASE}${buildQuery({ page, limit })}`
+        `${ADMIN_ENDPOINTS.USERS.INVITATIONS.BASE}${buildQuery({ page, limit, search, status, date_from, date_to })}`
       );
 
       return data as ApiResponse<{ invitations: AdminUserInvitation[] }> & { meta: PaginationMeta };

@@ -66,8 +66,8 @@ async function listTransactions(req, res) {
  * Lists the authenticated user's invoices with pagination.
  */
 async function listInvoices(req, res) {
-  const { page, limit } = invoiceListSchema.parse(req.query);
-  const result = await walletService.listInvoices(req.organizationId || req.user.id, page, limit);
+  const filters = invoiceListSchema.parse(req.query);
+  const result = await walletService.listInvoices(req.organizationId || req.user.id, filters);
   return successResponse(res, result.invoices, 'Invoices retrieved', 200, result.meta);
 }
 

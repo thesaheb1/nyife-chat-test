@@ -81,6 +81,8 @@ export interface AdminCouponFilters {
   search?: string;
   status?: 'active' | 'inactive' | 'scheduled' | 'expired';
   discount_type?: 'percentage' | 'fixed';
+  date_from?: string;
+  date_to?: string;
 }
 
 export function useAdminCoupons(filters: AdminCouponFilters = {}) {
@@ -93,6 +95,8 @@ export function useAdminCoupons(filters: AdminCouponFilters = {}) {
         search: filters.search || undefined,
         status: filters.status || undefined,
         discount_type: filters.discount_type || undefined,
+        date_from: filters.date_from || undefined,
+        date_to: filters.date_to || undefined,
       };
       const { data } = await apiClient.get<ApiResponse<{ coupons: Coupon[] }>>(
         ADMIN_ENDPOINTS.COUPONS.BASE,

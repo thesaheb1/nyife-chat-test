@@ -1198,7 +1198,7 @@ async function createGroup(userId, data) {
 }
 
 async function listGroups(userId, filters = {}) {
-  const { page = 1, limit = 20, search } = filters;
+  const { page = 1, limit = 20, search, type, date_from, date_to } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
   const where = { user_id: userId };
 
@@ -1207,6 +1207,20 @@ async function listGroups(userId, filters = {}) {
       { name: { [Op.like]: `%${search}%` } },
       { description: { [Op.like]: `%${search}%` } },
     ];
+  }
+  if (type) {
+    where.type = type;
+  }
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) {
+      where.created_at[Op.gte] = new Date(date_from);
+    }
+    if (date_to) {
+      const endDate = new Date(date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
+    }
   }
 
   const { count, rows } = await Group.findAndCountAll({

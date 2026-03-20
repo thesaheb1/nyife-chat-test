@@ -68,6 +68,13 @@ const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+const subscriptionHistoryQuerySchema = paginationSchema.extend({
+  search: z.string().trim().max(255).optional(),
+  status: z.string().trim().max(100).optional(),
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
+});
+
 module.exports = {
   subscribeSchema,
   changePlanSchema,
@@ -79,4 +86,5 @@ module.exports = {
   internalSubscriptionParamsSchema,
   incrementUsageSchema,
   paginationSchema,
+  subscriptionHistoryQuerySchema,
 };

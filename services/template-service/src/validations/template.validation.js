@@ -156,6 +156,8 @@ const listTemplatesSchema = z.object({
   search: z.string().max(255).optional(),
   waba_id: metaWabaIdSchema.optional(),
   wa_account_id: uuidSchema.optional(),
+  date_from: z.coerce.date().optional(),
+  date_to: z.coerce.date().optional(),
 });
 
 const publishTemplateSchema = z.object({

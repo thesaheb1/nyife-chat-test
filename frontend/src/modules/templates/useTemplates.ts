@@ -7,6 +7,7 @@ import type { RootState } from '@/core/store';
 import type { Template, ApiResponse, MediaFile, PaginationMeta } from '@/core/types';
 import type { CreateTemplateFormData, UpdateTemplateFormData } from './validations';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import { buildListQuery } from '@/shared/utils/listing';
 
 interface TemplateListParams {
   page?: number;
@@ -17,6 +18,8 @@ interface TemplateListParams {
   search?: string;
   waba_id?: string;
   wa_account_id?: string;
+  date_from?: string;
+  date_to?: string;
 }
 
 interface TemplateListResponse {
@@ -28,18 +31,7 @@ interface TemplateListResponse {
 export function useTemplates(params: TemplateListParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.status) query.set('status', params.status);
-  if (params.category) query.set('category', params.category);
-  if (params.type) query.set('type', params.type);
-  if (params.search) query.set('search', params.search);
-  if (params.waba_id) query.set('waba_id', params.waba_id);
-  if (params.wa_account_id) query.set('wa_account_id', params.wa_account_id);
-
-  const qs = query.toString();
-  const url = `${ENDPOINTS.TEMPLATES.BASE}${qs ? `?${qs}` : ''}`;
+  const url = `${ENDPOINTS.TEMPLATES.BASE}${buildListQuery(params)}`;
 
   return useQuery<TemplateListResponse>({
     queryKey: organizationQueryKey(['templates', params] as const, userId, activeOrganization?.id),

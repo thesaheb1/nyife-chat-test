@@ -11,6 +11,7 @@ import type {
   WhatsAppFlow,
 } from '@/core/types';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import { buildListQuery } from '@/shared/utils/listing';
 
 interface FlowListParams {
   page?: number;
@@ -19,6 +20,8 @@ interface FlowListParams {
   search?: string;
   waba_id?: string;
   category?: string;
+  date_from?: string;
+  date_to?: string;
 }
 
 interface FlowSubmissionParams {
@@ -42,28 +45,10 @@ export const flowQueryKeys = {
   ) => organizationQueryKey(['flows', 'submissions', id, params] as const, userId, organizationId),
 };
 
-function buildQueryString(params: Record<string, string | number | undefined>) {
-  const query = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== '') {
-      query.set(key, String(value));
-    }
-  });
-  const value = query.toString();
-  return value ? `?${value}` : '';
-}
-
 export function useFlows(params: FlowListParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const queryString = buildQueryString({
-    page: params.page,
-    limit: params.limit,
-    status: params.status,
-    search: params.search,
-    waba_id: params.waba_id,
-    category: params.category,
-  });
+  const queryString = buildListQuery(params);
 
   return useQuery({
     queryKey: flowQueryKeys.list(params, userId, activeOrganization?.id),
@@ -98,7 +83,7 @@ export function useFlow(id: string | undefined) {
 export function useFlowSubmissions(id: string | undefined, params: FlowSubmissionParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const queryString = buildQueryString({
+  const queryString = buildListQuery({
     page: params.page,
     limit: params.limit,
     screen_id: params.screen_id,

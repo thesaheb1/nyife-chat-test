@@ -12,7 +12,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useDebounce } from '@/core/hooks/useDebounce';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import { useCan } from '@/core/hooks/usePermissions';
 import { Button } from '@/components/ui/button';
@@ -51,6 +50,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingToolbar,
+} from '@/shared/components';
+import { useListingState } from '@/shared/hooks/useListingState';
 import { formatCurrency } from '@/shared/utils/formatters';
 import { paiseToRupees } from '@/shared/utils';
 import type { Coupon } from '../types';
@@ -352,25 +358,30 @@ function CouponFormDialog({
 
 export function CouponsPage() {
   const navigate = useNavigate();
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | Coupon['status']>('all');
-  const [discountTypeFilter, setDiscountTypeFilter] = useState<'all' | Coupon['discount_type']>('all');
+  const listing = useListingState({
+    initialFilters: {
+      status: '',
+      discount_type: '',
+    },
+    syncToUrl: true,
+    namespace: 'coupons',
+  });
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [deleteCouponId, setDeleteCouponId] = useState<string | null>(null);
-  const debouncedSearch = useDebounce(search, 300);
 
   const canCreate = useCan('admin', 'plans', 'create');
   const canUpdate = useCan('admin', 'plans', 'update');
   const canDelete = useCan('admin', 'plans', 'delete');
 
   const couponsQuery = useAdminCoupons({
-    page,
+    page: listing.page,
     limit: 20,
-    search: debouncedSearch || undefined,
-    status: statusFilter !== 'all' ? statusFilter : undefined,
-    discount_type: discountTypeFilter !== 'all' ? discountTypeFilter : undefined,
+    search: listing.debouncedSearch || undefined,
+    status: (listing.filters.status || undefined) as Coupon['status'] | undefined,
+    discount_type: (listing.filters.discount_type || undefined) as Coupon['discount_type'] | undefined,
+    date_from: listing.dateRange.from,
+    date_to: listing.dateRange.to,
   });
   const updateStatus = useUpdateCouponStatus();
   const deleteCoupon = useDeleteCoupon();
@@ -505,109 +516,83 @@ export function CouponsPage() {
         ),
       },
     ],
-    [canDelete, canUpdate, handleToggleStatus, updateStatus.isPending]
+    [canDelete, canUpdate, handleToggleStatus]
   );
-
-  const filtersActive =
-    search.trim().length > 0 ||
-    statusFilter !== 'all' ||
-    discountTypeFilter !== 'all';
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/admin/plans')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Coupon Management</h1>
-            <p className="text-sm text-muted-foreground">
-              Search, filter, create, update, and retire coupons used in subscription checkout.
-            </p>
-          </div>
+      <div className="flex items-start gap-3">
+        <Button variant="ghost" size="icon" onClick={() => navigate('/admin/plans')}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <ListingPageHeader
+            title="Coupon Management"
+            description="Search, filter, create, update, and retire coupons used in subscription checkout."
+            actions={canCreate ? (
+              <Button onClick={() => setShowCreate(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Coupon
+              </Button>
+            ) : null}
+          />
         </div>
-
-        {canCreate ? (
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Coupon
-          </Button>
-        ) : null}
       </div>
 
-      <div className="flex flex-wrap gap-3 rounded-lg border bg-card p-4">
-        <Input
-          placeholder="Search by code or description"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(1);
-          }}
-          className="w-full xl:max-w-md"
+
+      <ListingTableCard>
+        <ListingToolbar
+          searchValue={listing.search}
+          onSearchChange={listing.setSearch}
+          searchPlaceholder="Search by code or description"
+          filters={[
+            {
+              id: 'status',
+              value: listing.filters.status,
+              placeholder: 'Status',
+              onChange: (value) => listing.setFilter('status', value),
+              allLabel: 'All statuses',
+              options: [
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+                { value: 'scheduled', label: 'Scheduled' },
+                { value: 'expired', label: 'Expired' },
+              ],
+            },
+            {
+              id: 'discount_type',
+              value: listing.filters.discount_type,
+              placeholder: 'Discount Type',
+              onChange: (value) => listing.setFilter('discount_type', value),
+              allLabel: 'All discount types',
+              options: [
+                { value: 'percentage', label: 'Percentage' },
+                { value: 'fixed', label: 'Fixed amount' },
+              ],
+            },
+          ]}
+          dateRange={listing.dateRange}
+          onDateRangeChange={listing.setDateRange}
+          dateRangePlaceholder="Created date range"
+          hasActiveFilters={listing.hasActiveFilters}
+          onReset={listing.resetAll}
         />
-
-        <Select
-          value={statusFilter}
-          onValueChange={(value) => {
-            setStatusFilter(value as 'all' | Coupon['status']);
-            setPage(1);
-          }}
-        >
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="All statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem>
-            <SelectItem value="scheduled">Scheduled</SelectItem>
-            <SelectItem value="expired">Expired</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={discountTypeFilter}
-          onValueChange={(value) => {
-            setDiscountTypeFilter(value as 'all' | Coupon['discount_type']);
-            setPage(1);
-          }}
-        >
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="All discount types" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All discount types</SelectItem>
-            <SelectItem value="percentage">Percentage</SelectItem>
-            <SelectItem value="fixed">Fixed amount</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {filtersActive ? (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setSearch('');
-              setStatusFilter('all');
-              setDiscountTypeFilter('all');
-              setPage(1);
-            }}
-          >
-            Reset Filters
-          </Button>
-        ) : null}
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={coupons}
-        isLoading={couponsQuery.isLoading}
-        page={page}
-        totalPages={meta?.totalPages ?? 1}
-        total={meta?.total ?? coupons.length}
-        onPageChange={setPage}
-        emptyMessage="No coupons found."
-      />
+        <DataTable
+          columns={columns}
+          data={coupons}
+          isLoading={couponsQuery.isLoading}
+          page={meta?.page ?? listing.page}
+          totalPages={meta?.totalPages ?? 1}
+          total={meta?.total ?? coupons.length}
+          onPageChange={listing.setPage}
+          emptyMessage={(
+            <ListingEmptyState
+              title="No coupons found"
+              description="Create a coupon or adjust the current filters."
+            />
+          )}
+        />
+      </ListingTableCard>
 
       {(showCreate || editingCoupon) ? (
         <CouponFormDialog

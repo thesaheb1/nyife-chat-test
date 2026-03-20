@@ -9,6 +9,7 @@ const {
   updateMemberSchema,
   createMemberAccountSchema,
   orgIdParamSchema,
+  listOrganizationsQuerySchema,
   memberIdParamSchema,
   invitationIdParamSchema,
   listMembersQuerySchema,
@@ -42,10 +43,9 @@ async function createOrganization(req, res) {
  */
 async function listOrganizations(req, res) {
   const userId = req.user.id;
-  const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 20;
+  const filters = listOrganizationsQuerySchema.parse(req.query || {});
 
-  const { organizations, meta } = await organizationService.listOrganizations(userId, page, limit);
+  const { organizations, meta } = await organizationService.listOrganizations(userId, filters);
 
   return successResponse(res, organizations, 'Organizations retrieved successfully', 200, meta);
 }
@@ -131,9 +131,11 @@ async function acceptInvitation(req, res) {
 }
 
 async function getMyOrganizations(req, res) {
-  const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 50;
-  const { organizations, meta } = await organizationService.listOrganizations(req.user.id, page, limit);
+  const filters = listOrganizationsQuerySchema.parse(req.query || {});
+  const { organizations, meta } = await organizationService.listOrganizations(req.user.id, {
+    ...filters,
+    limit: filters.limit || 50,
+  });
   return successResponse(res, organizations, 'Organizations retrieved successfully', 200, meta);
 }
 
@@ -159,8 +161,8 @@ async function listTeamMembers(req, res) {
 
 async function listInvitations(req, res) {
   const { id } = orgIdParamSchema.parse(req.params);
-  const { page, limit } = listInvitationsQuerySchema.parse(req.query);
-  const invitations = await organizationService.listInvitations(req.user.id, id, page, limit);
+  const filters = listInvitationsQuerySchema.parse(req.query || {});
+  const invitations = await organizationService.listInvitations(req.user.id, id, filters);
   return successResponse(res, invitations.invitations, 'Invitations retrieved successfully', 200, invitations.meta);
 }
 

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -29,7 +30,7 @@ interface DataTableProps<TData> {
   onPageChange?: (page: number) => void;
   enableSelection?: boolean;
   onSelectionChange?: (rows: TData[]) => void;
-  emptyMessage?: string;
+  emptyMessage?: ReactNode;
   onRowClick?: (row: TData) => void;
 }
 
@@ -53,29 +54,29 @@ export function DataTable<TData>({
 
   const allColumns: ColumnDef<TData, unknown>[] = enableSelection
     ? [
-        {
-          id: 'select',
-          header: ({ table }) => (
-            <Checkbox
-              checked={table.getIsAllPageRowsSelected()}
-              onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-              aria-label="Select all"
-              onClick={(event) => event.stopPropagation()}
-            />
-          ),
-          cell: ({ row }) => (
-            <Checkbox
-              checked={row.getIsSelected()}
-              onCheckedChange={(value) => row.toggleSelected(!!value)}
-              aria-label="Select row"
-              onClick={(event) => event.stopPropagation()}
-            />
-          ),
-          size: 40,
-          enableSorting: false,
-        },
-        ...columns,
-      ]
+      {
+        id: 'select',
+        header: ({ table }) => (
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected()}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+            onClick={(event) => event.stopPropagation()}
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+            onClick={(event) => event.stopPropagation()}
+          />
+        ),
+        size: 40,
+        enableSorting: false,
+      },
+      ...columns,
+    ]
     : columns;
 
   // TanStack Table is intentionally isolated inside this shared adapter.
@@ -117,7 +118,7 @@ export function DataTable<TData>({
     <div>
       <div className="overflow-x-auto rounded-md border">
         <Table>
-          <TableHeader>
+          <TableHeader className='bg-secondary'>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (

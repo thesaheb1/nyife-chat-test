@@ -13,6 +13,7 @@ const {
   internalSubscriptionParamsSchema,
   incrementUsageSchema,
   paginationSchema,
+  subscriptionHistoryQuerySchema,
 } = require('../validations/subscription.validation');
 
 async function listPlans(_req, res) {
@@ -86,8 +87,8 @@ async function validateCoupon(req, res) {
 }
 
 async function getHistory(req, res) {
-  const { page, limit } = paginationSchema.parse(req.query);
-  const result = await subscriptionService.getHistory(req.organizationId || req.user.id, page, limit);
+  const filters = subscriptionHistoryQuerySchema.parse(req.query || {});
+  const result = await subscriptionService.getHistory(req.organizationId || req.user.id, filters);
   return successResponse(res, { subscriptions: result.subscriptions }, 'Subscription history retrieved', 200, result.meta);
 }
 

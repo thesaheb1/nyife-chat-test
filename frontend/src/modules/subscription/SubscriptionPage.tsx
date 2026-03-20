@@ -45,6 +45,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import type { CouponValidationResult, Plan, Subscription } from '@/core/types';
+import {
+  ListingEmptyState,
+  ListingTableCard,
+  ListingToolbar,
+} from '@/shared/components';
+import { useListingState } from '@/shared/hooks/useListingState';
 import { formatCurrency, formatDate } from '@/shared/utils/formatters';
 import { DataTable } from '@/shared/components/DataTable';
 import { loadRazorpayCheckout, unloadRazorpayCheckout } from '@/shared/utils/loadRazorpayCheckout';
@@ -82,8 +88,21 @@ export function SubscriptionPage() {
   const { data: current, isLoading: currentLoading } = useCurrentSubscription();
   const { data: wallet } = useSubscriptionWalletBalance();
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
-  const [historyPage, setHistoryPage] = useState(1);
-  const { data: historyData, isLoading: historyLoading } = useSubscriptionHistory(historyPage);
+  const historyListing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+    syncToUrl: true,
+    namespace: 'subscription_history',
+  });
+  const { data: historyData, isLoading: historyLoading } = useSubscriptionHistory({
+    page: historyListing.page,
+    limit: 10,
+    search: historyListing.debouncedSearch || undefined,
+    status: historyListing.filters.status || undefined,
+    date_from: historyListing.dateRange.from,
+    date_to: historyListing.dateRange.to,
+  });
   const [detailSlug, setDetailSlug] = useState<string | null>(null);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
   const [checkoutMode, setCheckoutMode] = useState<CheckoutMode>('subscribe');
@@ -380,93 +399,93 @@ export function SubscriptionPage() {
                 )}
 
                 <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-                <Card>
-                  <CardHeader className="space-y-4">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <CardTitle className="text-2xl">{current.plan?.name || 'Active plan'}</CardTitle>
-                        <CardDescription className="mt-2">
-                          Current subscription details, billing totals, and plan-change actions.
-                        </CardDescription>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant={getStatusVariant(current.status)} className="capitalize">{current.status}</Badge>
-                        <Badge variant="outline">{current.plan ? humanizeKey(current.plan.type) : 'Plan'}</Badge>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm md:grid-cols-2 xl:grid-cols-5">
-                      <div><p className="text-muted-foreground">Started</p><p className="mt-1 font-medium">{formatDate(current.starts_at, { dateStyle: 'medium' })}</p></div>
-                      <div><p className="text-muted-foreground">Next billing</p><p className="mt-1 font-medium">{current.next_billing_at ? formatDate(current.next_billing_at, { dateStyle: 'medium' }) : 'Lifetime'}</p></div>
-                      <div><p className="text-muted-foreground">Amount paid</p><p className="mt-1 font-medium">{formatCurrency(current.amount_paid, current.plan?.currency || 'INR')}</p></div>
-                      <div><p className="text-muted-foreground">Paid via</p><p className="mt-1 font-medium">{current.payment_method ? humanizeKey(current.payment_method) : 'Razorpay'}</p></div>
-                      <div><p className="text-muted-foreground">Renewal state</p><p className="mt-1 font-medium">{humanizeKey(current.renewal_state || 'disabled')}</p></div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <MetricCard title="Discount" value={current.discount_amount ? formatCurrency(current.discount_amount, current.plan?.currency || 'INR') : '-'} />
-                      <MetricCard title="Tax" value={formatCurrency(current.tax_amount, current.plan?.currency || 'INR')} />
-                      <MetricCard title="Coupon" value={current.coupon_id ? 'Applied' : 'None'} />
-                    </div>
-                    <Card className="border-dashed bg-muted/20 shadow-none">
-                      <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium">Wallet auto-pay</p>
-                          <p className="text-sm text-muted-foreground">
-                            {current.auto_renew_eligible
-                              ? current.auto_renew
-                                ? 'Enabled. Renewals will use wallet balance when due.'
-                                : 'Disabled. Enable it if you want renewals to debit your wallet automatically.'
-                              : 'Auto-pay is not available for lifetime plans.'}
-                          </p>
+                  <Card>
+                    <CardHeader className="space-y-4">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <CardTitle className="text-2xl">{current.plan?.name || 'Active plan'}</CardTitle>
+                          <CardDescription className="mt-2">
+                            Current subscription details, billing totals, and plan-change actions.
+                          </CardDescription>
                         </div>
-                        {current.auto_renew_eligible ? (
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm text-muted-foreground">{current.auto_renew ? 'On' : 'Off'}</span>
-                            <Switch
-                              checked={current.auto_renew}
-                              onCheckedChange={handleAutoRenewChange}
-                              disabled={updateAutoRenew.isPending}
-                            />
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant={getStatusVariant(current.status)} className="capitalize">{current.status}</Badge>
+                          <Badge variant="outline">{current.plan ? humanizeKey(current.plan.type) : 'Plan'}</Badge>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm md:grid-cols-2 xl:grid-cols-5">
+                        <div><p className="text-muted-foreground">Started</p><p className="mt-1 font-medium">{formatDate(current.starts_at, { dateStyle: 'medium' })}</p></div>
+                        <div><p className="text-muted-foreground">Next billing</p><p className="mt-1 font-medium">{current.next_billing_at ? formatDate(current.next_billing_at, { dateStyle: 'medium' }) : 'Lifetime'}</p></div>
+                        <div><p className="text-muted-foreground">Amount paid</p><p className="mt-1 font-medium">{formatCurrency(current.amount_paid, current.plan?.currency || 'INR')}</p></div>
+                        <div><p className="text-muted-foreground">Paid via</p><p className="mt-1 font-medium">{current.payment_method ? humanizeKey(current.payment_method) : 'Razorpay'}</p></div>
+                        <div><p className="text-muted-foreground">Renewal state</p><p className="mt-1 font-medium">{humanizeKey(current.renewal_state || 'disabled')}</p></div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-5">
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <MetricCard title="Discount" value={current.discount_amount ? formatCurrency(current.discount_amount, current.plan?.currency || 'INR') : '-'} />
+                        <MetricCard title="Tax" value={formatCurrency(current.tax_amount, current.plan?.currency || 'INR')} />
+                        <MetricCard title="Coupon" value={current.coupon_id ? 'Applied' : 'None'} />
+                      </div>
+                      <Card className="border-dashed bg-muted/20 shadow-none">
+                        <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium">Wallet auto-pay</p>
+                            <p className="text-sm text-muted-foreground">
+                              {current.auto_renew_eligible
+                                ? current.auto_renew
+                                  ? 'Enabled. Renewals will use wallet balance when due.'
+                                  : 'Disabled. Enable it if you want renewals to debit your wallet automatically.'
+                                : 'Auto-pay is not available for lifetime plans.'}
+                            </p>
                           </div>
-                        ) : (
-                          <Badge variant="outline">Unavailable</Badge>
-                        )}
-                      </CardContent>
-                    </Card>
-                    <div className="flex flex-wrap gap-3">
-                      <Button onClick={() => setActiveTab('plans')}>Change plan</Button>
-                      <Button variant="outline" onClick={() => setCancelOpen(true)}>Cancel subscription</Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                          {current.auto_renew_eligible ? (
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm text-muted-foreground">{current.auto_renew ? 'On' : 'Off'}</span>
+                              <Switch
+                                checked={current.auto_renew}
+                                onCheckedChange={handleAutoRenewChange}
+                                disabled={updateAutoRenew.isPending}
+                              />
+                            </div>
+                          ) : (
+                            <Badge variant="outline">Unavailable</Badge>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <div className="flex flex-wrap gap-3">
+                        <Button onClick={() => setActiveTab('plans')}>Change plan</Button>
+                        <Button variant="outline" onClick={() => setCancelOpen(true)}>Cancel subscription</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      <Info className="h-4 w-4 text-primary" />
-                      Usage against plan limits
-                    </CardTitle>
-                    <CardDescription>
-                      These values are computed from the active plan and current usage counters from the subscription service.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {getUsageMetrics(current).map((item) => {
-                      const percentage = item.limit === 0 ? 0 : Math.min(100, Math.round((item.used / item.limit) * 100));
-                      return (
-                        <div key={item.key} className="space-y-2">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="font-medium">{item.label}</span>
-                            <span className="text-muted-foreground">{item.used.toLocaleString('en-IN')} / {formatLimit(item.limit)}</span>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <Info className="h-4 w-4 text-primary" />
+                        Usage against plan limits
+                      </CardTitle>
+                      <CardDescription>
+                        These values are computed from the active plan and current usage counters from the subscription service.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {getUsageMetrics(current).map((item) => {
+                        const percentage = item.limit === 0 ? 0 : Math.min(100, Math.round((item.used / item.limit) * 100));
+                        return (
+                          <div key={item.key} className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-medium">{item.label}</span>
+                              <span className="text-muted-foreground">{item.used.toLocaleString('en-IN')} / {formatLimit(item.limit)}</span>
+                            </div>
+                            <Progress value={percentage} className="h-2" />
                           </div>
-                          <Progress value={percentage} className="h-2" />
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
             )}
           </TabsContent>
@@ -509,29 +528,60 @@ export function SubscriptionPage() {
           </TabsContent>
 
           <TabsContent value="history" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+
+            <ListingTableCard>
+              <ListingToolbar
+                searchValue={historyListing.search}
+                onSearchChange={historyListing.setSearch}
+                searchPlaceholder="Search by plan name or slug..."
+                filters={[
+                  {
+                    id: 'status',
+                    value: historyListing.filters.status,
+                    placeholder: 'Status',
+                    onChange: (value) => historyListing.setFilter('status', value),
+                    allLabel: 'All statuses',
+                    options: [
+                      { value: 'active', label: 'Active' },
+                      { value: 'expired', label: 'Expired' },
+                      { value: 'cancelled', label: 'Cancelled' },
+                      { value: 'pending', label: 'Pending' },
+                    ],
+                  },
+                ]}
+                dateRange={historyListing.dateRange}
+                onDateRangeChange={historyListing.setDateRange}
+                dateRangePlaceholder="Purchase date range"
+                hasActiveFilters={historyListing.hasActiveFilters}
+                onReset={historyListing.resetAll}
+              />
+              <div className="px-6 pt-6">
+                <div className="mb-1 flex items-center gap-2">
                   <History className="h-4 w-4 text-primary" />
-                  Subscription history
-                </CardTitle>
-                <CardDescription>
-                  Review previous plan purchases, changes, and cancellations without using Postman.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+                  <h2 className="text-lg font-semibold">Subscription history</h2>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Review previous plan purchases, changes, and cancellations without leaving the app.
+                </p>
+              </div>
+              <div className="p-6 pt-4">
                 <DataTable
                   columns={historyColumns}
                   data={historyData?.subscriptions || []}
                   isLoading={historyLoading}
-                  page={historyData?.meta.page ?? historyPage}
+                  page={historyData?.meta.page ?? historyListing.page}
                   totalPages={historyData?.meta.totalPages ?? 1}
                   total={historyData?.meta.total ?? 0}
-                  onPageChange={setHistoryPage}
-                  emptyMessage="No subscription history found yet."
+                  onPageChange={historyListing.setPage}
+                  emptyMessage={(
+                    <ListingEmptyState
+                      title="No subscription history found"
+                      description="Subscription purchases, renewals, and cancellations will appear here."
+                    />
+                  )}
                 />
-              </CardContent>
-            </Card>
+              </div>
+            </ListingTableCard>
           </TabsContent>
         </Tabs>
       )}

@@ -12,16 +12,42 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DataTable } from '@/shared/components/DataTable';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingToolbar,
+} from '@/shared/components';
+import { useListingState } from '@/shared/hooks/useListingState';
+import { buildListQuery } from '@/shared/utils';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { ApiToken, ApiResponse, PaginationMeta } from '@/core/types';
 
-function useApiTokens(page = 1) {
+interface ApiTokenListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: 'active' | 'revoked';
+  date_from?: string;
+  date_to?: string;
+}
+
+function useApiTokens(params: ApiTokenListParams = {}) {
   return useQuery<{ data: ApiToken[]; meta: PaginationMeta }>({
-    queryKey: ['api-tokens', page],
+    queryKey: ['api-tokens', params],
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<ApiToken[]>>(`${ENDPOINTS.USERS.API_TOKENS}?page=${page}&limit=20`);
+      const { data } = await apiClient.get<ApiResponse<ApiToken[]>>(
+        `${ENDPOINTS.USERS.API_TOKENS}${buildListQuery({
+          page: params.page ?? 1,
+          limit: params.limit ?? 20,
+          search: params.search,
+          status: params.status,
+          date_from: params.date_from,
+          date_to: params.date_to,
+        })}`
+      );
       return { data: data.data, meta: data.meta! };
     },
   });
@@ -30,8 +56,21 @@ function useApiTokens(page = 1) {
 export function DeveloperPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [page, setPage] = useState(1);
-  const { data, isLoading } = useApiTokens(page);
+  const listing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+    syncToUrl: true,
+    namespace: 'tokens',
+  });
+  const { data, isLoading } = useApiTokens({
+    page: listing.page,
+    limit: 20,
+    search: listing.debouncedSearch || undefined,
+    status: (listing.filters.status || undefined) as 'active' | 'revoked' | undefined,
+    date_from: listing.dateRange.from,
+    date_to: listing.dateRange.to,
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [tokenName, setTokenName] = useState('');
   const [newToken, setNewToken] = useState('');
@@ -77,11 +116,14 @@ export function DeveloperPage() {
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => revokeToken.mutate(row.original.id)}><Trash2 className="h-3 w-3" /></Button>
       ) : null,
     },
-  ], []); // eslint-disable-line react-hooks/exhaustive-deps
+  ], [revokeToken]);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">{t('developer.title')}</h1>
+      <ListingPageHeader
+        title={t('developer.title')}
+        description={meta?.total !== undefined ? `${meta.total} API tokens` : 'Manage API tokens and integration references'}
+      />
 
       <Tabs defaultValue="tokens">
         <TabsList>
@@ -90,12 +132,53 @@ export function DeveloperPage() {
         </TabsList>
 
         <TabsContent value="tokens" className="space-y-4">
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => { setCreateOpen(true); setNewToken(''); }}>
-              <Plus className="mr-2 h-4 w-4" />Create Token
-            </Button>
-          </div>
-          <DataTable columns={columns} data={tokens} isLoading={isLoading} page={meta?.page ?? 1} totalPages={meta?.totalPages ?? 1} total={meta?.total} onPageChange={setPage} emptyMessage="No API tokens." />
+
+          <ListingTableCard>
+            <ListingToolbar
+              searchValue={listing.search}
+              onSearchChange={listing.setSearch}
+              searchPlaceholder="Search tokens..."
+              filters={[
+                {
+                  id: 'status',
+                  value: listing.filters.status,
+                  placeholder: 'Status',
+                  onChange: (value) => listing.setFilter('status', value),
+                  allLabel: 'All statuses',
+                  options: [
+                    { value: 'active', label: 'Active' },
+                    { value: 'revoked', label: 'Revoked' },
+                  ],
+                },
+              ]}
+              dateRange={listing.dateRange}
+              onDateRangeChange={listing.setDateRange}
+              dateRangePlaceholder="Created date range"
+              hasActiveFilters={listing.hasActiveFilters}
+              onReset={listing.resetAll}
+              actions={(
+                <Button size="sm" onClick={() => { setCreateOpen(true); setNewToken(''); }}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Token
+                </Button>
+              )}
+            />
+            <DataTable
+              columns={columns}
+              data={tokens}
+              isLoading={isLoading}
+              page={meta?.page ?? 1}
+              totalPages={meta?.totalPages ?? 1}
+              total={meta?.total}
+              onPageChange={listing.setPage}
+              emptyMessage={(
+                <ListingEmptyState
+                  title="No API tokens found"
+                  description="Create a token to start authenticating API requests."
+                />
+              )}
+            />
+          </ListingTableCard>
         </TabsContent>
 
         <TabsContent value="docs">

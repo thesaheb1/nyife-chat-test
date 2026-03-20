@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Mail, Plus, RefreshCcw, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { type ColumnDef } from '@tanstack/react-table';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TabsContent } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -26,14 +26,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTable } from '@/shared/components/DataTable';
+import {
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingTabsShell,
+  ListingToolbar,
+} from '@/shared/components';
+import { useListingState } from '@/shared/hooks/useListingState';
 import { PasswordStrengthMeter } from '@/shared/components/PasswordStrengthMeter';
 import { PASSWORD_POLICY_MESSAGE, isStrongPassword } from '@/shared/utils/password';
 import {
@@ -87,11 +89,43 @@ const EMPTY_INVITE_FORM: InviteFormState = {
   role_id: '',
 };
 
+type SubAdminTab = 'accounts' | 'invitations';
+
 export function SubAdminListPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: subAdmins = [], isLoading } = useSubAdmins();
-  const { data: invitations = [], isLoading: invitationsLoading } = useSubAdminInvitations();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') === 'invitations' ? 'invitations' : 'accounts';
+  const accountListing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+    syncToUrl: true,
+    namespace: 'sub_admin_accounts',
+  });
+  const invitationListing = useListingState({
+    initialFilters: {
+      status: '',
+    },
+    syncToUrl: true,
+    namespace: 'sub_admin_invitations',
+  });
+  const { data: subAdminsResult, isLoading } = useSubAdmins({
+    page: accountListing.page,
+    limit: 20,
+    search: accountListing.debouncedSearch || undefined,
+    status: (accountListing.filters.status || undefined) as 'active' | 'inactive' | undefined,
+    date_from: accountListing.dateRange.from,
+    date_to: accountListing.dateRange.to,
+  });
+  const { data: invitationsResult, isLoading: invitationsLoading } = useSubAdminInvitations({
+    page: invitationListing.page,
+    limit: 20,
+    search: invitationListing.debouncedSearch || undefined,
+    status: (invitationListing.filters.status || undefined) as 'pending' | 'accepted' | 'revoked' | 'expired' | undefined,
+    date_from: invitationListing.dateRange.from,
+    date_to: invitationListing.dateRange.to,
+  });
   const { data: roles = [] } = useRoles();
   const createSubAdmin = useCreateSubAdmin();
   const inviteSubAdmin = useInviteSubAdmin();
@@ -108,6 +142,21 @@ export function SubAdminListPage() {
   const [createForm, setCreateForm] = useState<CreateFormState>(EMPTY_CREATE_FORM);
   const [inviteForm, setInviteForm] = useState<InviteFormState>(EMPTY_INVITE_FORM);
   const isResendingInvitation = resendInvitation.isPending;
+  const subAdmins = subAdminsResult?.data ?? [];
+  const subAdminMeta = subAdminsResult?.meta;
+  const invitations = invitationsResult?.data ?? [];
+  const invitationMeta = invitationsResult?.meta;
+  const setActiveTab = (value: SubAdminTab) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (value === 'accounts') {
+        next.delete('tab');
+      } else {
+        next.set('tab', value);
+      }
+      return next;
+    }, { replace: true });
+  };
 
   const handleCreate = async () => {
     if (!isStrongPassword(createForm.password)) {
@@ -380,38 +429,130 @@ export function SubAdminListPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">{t('admin.subAdmins.title')}</h1>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => navigate('/admin/sub-admins/roles')}>
-            <ShieldCheck className="mr-2 h-4 w-4" />
-            {t('admin.roles.title')}
-          </Button>
-          <Button variant="outline" onClick={() => setShowInvite(true)}>
-            <Mail className="mr-2 h-4 w-4" />
-            Invite Sub-Admin
-          </Button>
-          <Button onClick={() => setShowCreate(true)}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            {t('admin.subAdmins.createSubAdmin')}
-          </Button>
-        </div>
-      </div>
+      <ListingPageHeader
+        title={t('admin.subAdmins.title')}
+        description="Manage sub-admin accounts, roles, and invitations from one standardized admin view."
+        actions={(
+          <>
+            <Button variant="outline" onClick={() => navigate('/admin/sub-admins/roles')}>
+              <ShieldCheck className="mr-2 h-4 w-4" />
+              {t('admin.roles.title')}
+            </Button>
+            <Button variant="outline" onClick={() => setShowInvite(true)}>
+              <Mail className="mr-2 h-4 w-4" />
+              Invite Sub-Admin
+            </Button>
+            <Button onClick={() => setShowCreate(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              {t('admin.subAdmins.createSubAdmin')}
+            </Button>
+          </>
+        )}
+      />
 
-      <Tabs defaultValue="accounts" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="accounts">Accounts</TabsTrigger>
-          <TabsTrigger value="invitations">Invitations</TabsTrigger>
-        </TabsList>
+      <ListingTabsShell
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value === 'invitations' ? 'invitations' : 'accounts')}
+        tabs={[
+          { value: 'accounts', label: 'Accounts' },
+          { value: 'invitations', label: 'Invitations' },
+        ]}
+      >
 
         <TabsContent value="accounts">
-          <DataTable columns={subAdminColumns} data={subAdmins} isLoading={isLoading} />
+          <div className="space-y-4">
+
+            <ListingTableCard>
+              <ListingToolbar
+                searchValue={accountListing.search}
+                onSearchChange={accountListing.setSearch}
+                searchPlaceholder="Search sub-admins..."
+                filters={[
+                  {
+                    id: 'status',
+                    value: accountListing.filters.status,
+                    placeholder: 'Status',
+                    onChange: (value) => accountListing.setFilter('status', value),
+                    allLabel: 'All statuses',
+                    options: [
+                      { value: 'active', label: 'Active' },
+                      { value: 'inactive', label: 'Inactive' },
+                    ],
+                  },
+                ]}
+                dateRange={accountListing.dateRange}
+                onDateRangeChange={accountListing.setDateRange}
+                dateRangePlaceholder="Created date range"
+                hasActiveFilters={accountListing.hasActiveFilters}
+                onReset={accountListing.resetAll}
+              />
+              <DataTable
+                columns={subAdminColumns}
+                data={subAdmins}
+                isLoading={isLoading}
+                page={subAdminMeta?.page ?? accountListing.page}
+                totalPages={subAdminMeta?.totalPages ?? 1}
+                total={subAdminMeta?.total ?? subAdmins.length}
+                onPageChange={accountListing.setPage}
+                emptyMessage={(
+                  <ListingEmptyState
+                    title="No sub-admin accounts found"
+                    description="Create a sub-admin account or adjust the current filters."
+                  />
+                )}
+              />
+            </ListingTableCard>
+          </div>
         </TabsContent>
 
         <TabsContent value="invitations">
-          <DataTable columns={invitationColumns} data={invitations} isLoading={invitationsLoading} />
+          <div className="space-y-4">
+
+            <ListingTableCard>
+              <ListingToolbar
+                searchValue={invitationListing.search}
+                onSearchChange={invitationListing.setSearch}
+                searchPlaceholder="Search invited sub-admins..."
+                filters={[
+                  {
+                    id: 'status',
+                    value: invitationListing.filters.status,
+                    placeholder: 'Status',
+                    onChange: (value) => invitationListing.setFilter('status', value),
+                    allLabel: 'All statuses',
+                    options: [
+                      { value: 'pending', label: 'Pending' },
+                      { value: 'accepted', label: 'Accepted' },
+                      { value: 'revoked', label: 'Revoked' },
+                      { value: 'expired', label: 'Expired' },
+                    ],
+                  },
+                ]}
+                dateRange={invitationListing.dateRange}
+                onDateRangeChange={invitationListing.setDateRange}
+                dateRangePlaceholder="Invitation date range"
+                hasActiveFilters={invitationListing.hasActiveFilters}
+                onReset={invitationListing.resetAll}
+              />
+              <DataTable
+                columns={invitationColumns}
+                data={invitations}
+                isLoading={invitationsLoading}
+                page={invitationMeta?.page ?? invitationListing.page}
+                totalPages={invitationMeta?.totalPages ?? 1}
+                total={invitationMeta?.total ?? invitations.length}
+                onPageChange={invitationListing.setPage}
+                emptyMessage={(
+                  <ListingEmptyState
+                    title="No sub-admin invitations found"
+                    description="New invitations will appear here once they are sent."
+                  />
+                )}
+              />
+            </ListingTableCard>
+          </div>
         </TabsContent>
-      </Tabs>
+      </ListingTabsShell>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>

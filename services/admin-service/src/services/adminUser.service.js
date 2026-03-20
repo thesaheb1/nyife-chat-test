@@ -804,12 +804,40 @@ async function inviteUser(data, invitedBy, appLocals = {}) {
 }
 
 async function listUserInvitations(filters) {
-  const { page = 1, limit = 20 } = filters;
+  const { page = 1, limit = 20, search, status, date_from, date_to } = filters;
   const { offset, limit: safeLimit } = getPagination(page, limit);
 
   await expirePendingUserInvitations();
 
+  const where = {};
+
+  if (status) {
+    where.status = status;
+  }
+
+  if (search) {
+    where[Op.or] = [
+      { email: { [Op.like]: `%${search}%` } },
+      { first_name: { [Op.like]: `%${search}%` } },
+      { last_name: { [Op.like]: `%${search}%` } },
+      { phone: { [Op.like]: `%${search}%` } },
+    ];
+  }
+
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) {
+      where.created_at[Op.gte] = new Date(date_from);
+    }
+    if (date_to) {
+      const endDate = new Date(date_to);
+      endDate.setDate(endDate.getDate() + 1);
+      where.created_at[Op.lt] = endDate;
+    }
+  }
+
   const { count, rows } = await AdminUserInvitation.findAndCountAll({
+    where,
     order: [['created_at', 'DESC']],
     offset,
     limit: safeLimit,

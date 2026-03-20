@@ -7,7 +7,10 @@ const {
   createSubAdminSchema,
   inviteSubAdminSchema,
   updateSubAdminSchema,
+  listSubAdminsSchema,
+  listSubAdminInvitationsSchema,
   listUsersSchema,
+  listUserInvitationsSchema,
   createUserSchema,
   inviteUserSchema,
   updateUserSchema,
@@ -106,13 +109,13 @@ async function inviteSubAdmin(req, res) {
  * Lists all sub-admins with pagination.
  */
 async function listSubAdmins(req, res) {
-  const filters = paginationSchema.parse(req.query);
+  const filters = listSubAdminsSchema.parse(req.query || {});
   const { data, meta } = await adminService.listSubAdmins(filters);
   return successResponse(res, { sub_admins: data }, 'Sub-admins retrieved successfully', 200, meta);
 }
 
 async function listSubAdminInvitations(req, res) {
-  const filters = paginationSchema.parse(req.query);
+  const filters = listSubAdminInvitationsSchema.parse(req.query || {});
   const { data, meta } = await adminService.listSubAdminInvitations(filters);
   return successResponse(res, { invitations: data }, 'Sub-admin invitations retrieved successfully', 200, meta);
 }
@@ -248,7 +251,7 @@ async function getUserDashboard(req, res) {
 }
 
 async function listUserInvitations(req, res) {
-  const filters = paginationSchema.parse(req.query);
+  const filters = listUserInvitationsSchema.parse(req.query || {});
   const { data, meta } = await adminUserService.listUserInvitations(filters);
   return successResponse(res, { invitations: data }, 'User invitations retrieved successfully', 200, meta);
 }

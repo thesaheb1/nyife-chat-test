@@ -6,6 +6,7 @@ import { organizationQueryKey } from '@/core/queryKeys';
 import type { RootState } from '@/core/store';
 import type { Automation, AutomationLog, ApiResponse, PaginationMeta } from '@/core/types';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
+import { buildListQuery } from '@/shared/utils/listing';
 
 interface AutomationListParams {
   page?: number;
@@ -13,23 +14,19 @@ interface AutomationListParams {
   status?: string;
   type?: string;
   search?: string;
+  date_from?: string;
+  date_to?: string;
 }
 
 export function useAutomations(params: AutomationListParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
-  const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.limit) query.set('limit', String(params.limit));
-  if (params.status) query.set('status', params.status);
-  if (params.type) query.set('type', params.type);
-  if (params.search) query.set('search', params.search);
-  const qs = query.toString();
+  const qs = buildListQuery(params);
 
   return useQuery<{ data: { automations: Automation[] }; meta: PaginationMeta }>({
     queryKey: organizationQueryKey(['automations', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<{ automations: Automation[] }>>(`${ENDPOINTS.AUTOMATIONS.BASE}${qs ? `?${qs}` : ''}`);
+      const { data } = await apiClient.get<ApiResponse<{ automations: Automation[] }>>(`${ENDPOINTS.AUTOMATIONS.BASE}${qs}`);
       return { data: data.data, meta: data.meta! };
     },
     enabled: Boolean(userId && activeOrganization?.id),

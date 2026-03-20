@@ -40,6 +40,8 @@ const listFlowsSchema = z.object({
   search: z.string().max(255).optional(),
   waba_id: z.string().max(100).optional(),
   category: z.enum(FLOW_CATEGORIES).optional(),
+  date_from: z.coerce.date().optional(),
+  date_to: z.coerce.date().optional(),
 });
 
 const flowMetaActionSchema = z.object({

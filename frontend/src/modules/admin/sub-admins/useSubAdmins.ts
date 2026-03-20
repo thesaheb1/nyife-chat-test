@@ -2,18 +2,40 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/core/api/client';
 import { ADMIN_ENDPOINTS } from '../api';
 import type { SubAdmin, AdminRole, SubAdminInvitation } from '../types';
-import type { ApiResponse, Permissions } from '@/core/types';
+import type { ApiResponse, PaginationMeta, Permissions } from '@/core/types';
+import { buildListQuery } from '@/shared/utils/listing';
 
 // ── Sub-Admins ──
 
-export function useSubAdmins() {
+export interface SubAdminListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: 'active' | 'inactive';
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface SubAdminInvitationListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: 'pending' | 'accepted' | 'revoked' | 'expired';
+  date_from?: string;
+  date_to?: string;
+}
+
+export function useSubAdmins(params: SubAdminListParams = {}) {
   return useQuery({
-    queryKey: ['admin', 'sub-admins'],
+    queryKey: ['admin', 'sub-admins', params],
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ sub_admins: SubAdmin[] }>>(
-        ADMIN_ENDPOINTS.SUB_ADMINS.BASE
+        `${ADMIN_ENDPOINTS.SUB_ADMINS.BASE}${buildListQuery(params)}`
       );
-      return data.data.sub_admins;
+      return {
+        data: data.data.sub_admins,
+        meta: data.meta as PaginationMeta,
+      };
     },
   });
 }
@@ -55,14 +77,17 @@ export function useInviteSubAdmin() {
   });
 }
 
-export function useSubAdminInvitations() {
+export function useSubAdminInvitations(params: SubAdminInvitationListParams = {}) {
   return useQuery({
-    queryKey: ['admin', 'sub-admin-invitations'],
+    queryKey: ['admin', 'sub-admin-invitations', params],
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<{ invitations: SubAdminInvitation[] }>>(
-        ADMIN_ENDPOINTS.INVITATIONS.BASE
+        `${ADMIN_ENDPOINTS.INVITATIONS.BASE}${buildListQuery(params)}`
       );
-      return data.data.invitations;
+      return {
+        data: data.data.invitations,
+        meta: data.meta as PaginationMeta,
+      };
     },
   });
 }

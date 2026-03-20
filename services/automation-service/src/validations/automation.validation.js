@@ -116,6 +116,8 @@ const listAutomationsSchema = z.object({
     .optional(),
   search: z.string().max(255).optional(),
   wa_account_id: z.string().uuid('Invalid WhatsApp account ID').optional(),
+  date_from: z.coerce.date().optional(),
+  date_to: z.coerce.date().optional(),
 });
 
 /**

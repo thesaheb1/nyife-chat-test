@@ -125,6 +125,9 @@ const listGroupsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().max(200).optional(),
+  type: z.enum(['static', 'dynamic']).optional(),
+  date_from: z.coerce.date().optional(),
+  date_to: z.coerce.date().optional(),
 });
 
 const bulkGroupMembershipSchema = z.object({

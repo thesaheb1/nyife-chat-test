@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,18 +31,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { getApiErrorMessage } from '@/core/errors/apiError';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TabsContent } from '@/components/ui/tabs';
 import { DataTable } from '@/shared/components/DataTable';
 import { useDebounce } from '@/core/hooks';
+import {
+  BulkActionsBar,
+  ListingEmptyState,
+  ListingPageHeader,
+  ListingTableCard,
+  ListingTabsShell,
+  ListingToolbar,
+} from '@/shared/components';
+import { useListingState } from '@/shared/hooks/useListingState';
 import type { Contact, Group } from '@/core/types';
 import {
   downloadContactCsvSample,
@@ -108,14 +108,23 @@ export function ContactListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') === 'groups' ? 'groups' : 'contacts') as TabKey;
-  const [contactSearch, setContactSearch] = useState('');
-  const [groupSearch, setGroupSearch] = useState('');
+  const contactListing = useListingState({
+    initialFilters: {
+      tag_id: '',
+      group_id: '',
+    },
+    syncToUrl: true,
+    namespace: 'contacts',
+  });
+  const groupListing = useListingState({
+    initialFilters: {
+      type: '',
+    },
+    syncToUrl: true,
+    namespace: 'groups',
+  });
   const [groupEditorSearch, setGroupEditorSearch] = useState('');
   const [groupMemberSearch, setGroupMemberSearch] = useState('');
-  const [tagFilter, setTagFilter] = useState('');
-  const [groupFilter, setGroupFilter] = useState('');
-  const [contactPage, setContactPage] = useState(1);
-  const [groupPage, setGroupPage] = useState(1);
   const [memberPage, setMemberPage] = useState(1);
   const [groupEditorContactPage, setGroupEditorContactPage] = useState(1);
   const [groupMemberContactPage, setGroupMemberContactPage] = useState(1);
@@ -145,22 +154,25 @@ export function ContactListPage() {
   const [selectedDialogGroupIds, setSelectedDialogGroupIds] = useState<string[]>([]);
   const [selectedDialogContactIds, setSelectedDialogContactIds] = useState<string[]>([]);
 
-  const debouncedContactSearch = useDebounce(contactSearch, 300);
-  const debouncedGroupSearch = useDebounce(groupSearch, 300);
   const debouncedGroupEditorSearch = useDebounce(groupEditorSearch, 300);
   const debouncedGroupMemberSearch = useDebounce(groupMemberSearch, 300);
 
   const contactsQuery = useContacts({
-    page: contactPage,
+    page: contactListing.page,
     limit: 20,
-    search: debouncedContactSearch || undefined,
-    tag_id: tagFilter || undefined,
-    group_id: groupFilter || undefined,
+    search: contactListing.debouncedSearch || undefined,
+    tag_id: contactListing.filters.tag_id || undefined,
+    group_id: contactListing.filters.group_id || undefined,
+    date_from: contactListing.dateRange.from,
+    date_to: contactListing.dateRange.to,
   });
   const groupsQuery = useGroups({
-    page: groupPage,
+    page: groupListing.page,
     limit: 20,
-    search: debouncedGroupSearch || undefined,
+    search: groupListing.debouncedSearch || undefined,
+    type: (groupListing.filters.type || undefined) as Group['type'] | undefined,
+    date_from: groupListing.dateRange.from,
+    date_to: groupListing.dateRange.to,
   });
   const groupEditorContactsQuery = useContacts({
     page: groupEditorContactPage,
@@ -660,190 +672,196 @@ export function ContactListPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Contacts and Groups</h1>
-          <p className="text-sm text-muted-foreground">
-            {activeTab === 'contacts' ? `${summary.contacts} contacts` : `${summary.groups} groups`}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={openTagsDialog}>
-            <Tags className="mr-2 h-4 w-4" />
-            Manage Tags
-          </Button>
-          <Button variant="outline" size="sm" onClick={openImportDialog}>
-            <Upload className="mr-2 h-4 w-4" />
-            CSV Import
-          </Button>
-        </div>
-      </div>
+      <ListingPageHeader
+        title="Contacts and Groups"
+        description={activeTab === 'contacts' ? `${summary.contacts} contacts` : `${summary.groups} groups`}
+        actions={(
+          <>
+            <Button variant="outline" size="sm" onClick={openTagsDialog}>
+              <Tags className="mr-2 h-4 w-4" />
+              Manage Tags
+            </Button>
+            <Button variant="outline" size="sm" onClick={openImportDialog}>
+              <Upload className="mr-2 h-4 w-4" />
+              CSV Import
+            </Button>
+          </>
+        )}
+      />
 
-      <Tabs value={activeTab} onValueChange={(value) => setQueryState(searchParams, setSearchParams, { tab: value })} className="space-y-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <TabsList className="grid w-full max-w-sm grid-cols-2">
-            <TabsTrigger value="contacts">Contacts</TabsTrigger>
-            <TabsTrigger value="groups">Groups</TabsTrigger>
-          </TabsList>
-        </div>
+      <ListingTabsShell
+        value={activeTab}
+        onValueChange={(value) => setQueryState(searchParams, setSearchParams, { tab: value })}
+        tabs={[
+          { value: 'contacts', label: 'Contacts' },
+          { value: 'groups', label: 'Groups' },
+        ]}
+      >
 
         <TabsContent value="contacts" className="space-y-4">
-          <Card className="border-border/60 shadow-sm">
-            <CardHeader className="space-y-4">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div className="flex flex-wrap gap-2">
-                  <Input
-                    placeholder="Search name, phone, or email"
-                    value={contactSearch}
-                    onChange={(event) => {
-                      setContactSearch(event.target.value);
-                      setContactPage(1);
-                    }}
-                    className="w-full sm:w-64"
-                  />
-                  <Select value={tagFilter || 'all'} onValueChange={(value) => {
-                    setTagFilter(value === 'all' ? '' : value);
-                    setContactPage(1);
-                  }}>
-                    <SelectTrigger className="w-full sm:w-44">
-                      <SelectValue placeholder="Filter by tag" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All tags</SelectItem>
-                      {tags.map((tag) => <SelectItem key={tag.id} value={tag.id}>{tag.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Select value={groupFilter || 'all'} onValueChange={(value) => {
-                    setGroupFilter(value === 'all' ? '' : value);
-                    setContactPage(1);
-                  }}>
-                    <SelectTrigger className="w-full sm:w-48">
-                      <SelectValue placeholder="Filter by group" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All groups</SelectItem>
-                      {groups.map((group) => <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+
+          <ListingTableCard>
+            <ListingToolbar
+              searchValue={contactListing.search}
+              onSearchChange={contactListing.setSearch}
+              searchPlaceholder="Search name, phone, or email"
+              filters={[
+                {
+                  id: 'tag_id',
+                  value: contactListing.filters.tag_id,
+                  placeholder: 'Tag',
+                  onChange: (value) => contactListing.setFilter('tag_id', value),
+                  allLabel: 'All tags',
+                  options: tags.map((tag) => ({ value: tag.id, label: tag.name })),
+                },
+                {
+                  id: 'group_id',
+                  value: contactListing.filters.group_id,
+                  placeholder: 'Group',
+                  onChange: (value) => contactListing.setFilter('group_id', value),
+                  allLabel: 'All groups',
+                  options: groups.map((group) => ({ value: group.id, label: group.name })),
+                },
+              ]}
+              dateRange={contactListing.dateRange}
+              onDateRangeChange={contactListing.setDateRange}
+              dateRangePlaceholder="Created date range"
+              hasActiveFilters={contactListing.hasActiveFilters}
+              onReset={contactListing.resetAll}
+              actions={(
                 <Button size="sm" onClick={() => setCreateContactOpen(true)}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add Contact
                 </Button>
-              </div>
-
-              {selectedContacts.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/25 p-3">
-                  <span className="text-sm font-medium">{selectedContacts.length} selected</span>
-                  <Button variant="outline" size="sm" onClick={() => setBulkTagMode('assign')}>
-                    <Tags className="mr-2 h-4 w-4" />
-                    Add Tags
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => setBulkTagMode('remove')}>
-                    <Tags className="mr-2 h-4 w-4" />
-                    Remove Tags
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => setBulkGroupMode('assign')}>
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    Assign Groups
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => setBulkGroupMode('remove')}>
-                    <UserMinus className="mr-2 h-4 w-4" />
-                    Remove Groups
-                  </Button>
-                  <Button variant="destructive" size="sm" onClick={() => setBulkDeleteContactsOpen(true)}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </Button>
-                </div>
               )}
-            </CardHeader>
+            />
 
-            <CardContent>
-              <DataTable
-                columns={contactColumns}
-                data={contacts}
-                isLoading={contactsQuery.isLoading}
-                page={contactsMeta?.page ?? 1}
-                totalPages={contactsMeta?.totalPages ?? 1}
-                total={contactsMeta?.total}
-                onPageChange={setContactPage}
-                enableSelection
-                onSelectionChange={setSelectedContacts}
-                onRowClick={(contact) => navigate(`/contacts/${contact.id}`)}
-                emptyMessage="No contacts found yet. Add one or import a CSV to get started."
-              />
-            </CardContent>
-          </Card>
+            {selectedContacts.length > 0 && (
+              <BulkActionsBar selectedCount={selectedContacts.length}>
+                <Button variant="outline" size="sm" onClick={() => setBulkTagMode('assign')}>
+                  <Tags className="mr-2 h-4 w-4" />
+                  Add Tags
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setBulkTagMode('remove')}>
+                  <Tags className="mr-2 h-4 w-4" />
+                  Remove Tags
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setBulkGroupMode('assign')}>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Assign Groups
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setBulkGroupMode('remove')}>
+                  <UserMinus className="mr-2 h-4 w-4" />
+                  Remove Groups
+                </Button>
+                <Button variant="destructive" size="sm" onClick={() => setBulkDeleteContactsOpen(true)}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </Button>
+              </BulkActionsBar>
+            )}
+
+            <DataTable
+              columns={contactColumns}
+              data={contacts}
+              isLoading={contactsQuery.isLoading}
+              page={contactsMeta?.page ?? 1}
+              totalPages={contactsMeta?.totalPages ?? 1}
+              total={contactsMeta?.total}
+              onPageChange={contactListing.setPage}
+              enableSelection
+              onSelectionChange={setSelectedContacts}
+              onRowClick={(contact) => navigate(`/contacts/${contact.id}`)}
+              emptyMessage={(
+                <ListingEmptyState
+                  title="No contacts found"
+                  description="Add a contact or import a CSV to get started."
+                />
+              )}
+            />
+          </ListingTableCard>
         </TabsContent>
 
         <TabsContent value="groups" className="space-y-4">
-          <Card className="border-border/60 shadow-sm">
-            <CardHeader className="space-y-4">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
 
-                <Input
-                  placeholder="Search groups"
-                  value={groupSearch}
-                  onChange={(event) => {
-                    setGroupSearch(event.target.value);
-                    setGroupPage(1);
-                  }}
-                  className="w-full sm:w-56"
-                />
+          <ListingTableCard>
+            <ListingToolbar
+              searchValue={groupListing.search}
+              onSearchChange={groupListing.setSearch}
+              searchPlaceholder="Search groups"
+              filters={[
+                {
+                  id: 'type',
+                  value: groupListing.filters.type,
+                  placeholder: 'Type',
+                  onChange: (value) => groupListing.setFilter('type', value),
+                  allLabel: 'All types',
+                  options: [
+                    { value: 'static', label: 'Static' },
+                    { value: 'dynamic', label: 'Dynamic' },
+                  ],
+                },
+              ]}
+              dateRange={groupListing.dateRange}
+              onDateRangeChange={groupListing.setDateRange}
+              dateRangePlaceholder="Created date range"
+              hasActiveFilters={groupListing.hasActiveFilters}
+              onReset={groupListing.resetAll}
+              actions={(
                 <Button size="sm" onClick={openCreateGroupDialog}>
                   <FolderPlus className="mr-2 h-4 w-4" />
                   New Group
                 </Button>
-              </div>
-
-              {selectedGroups.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/25 p-3">
-                  <span className="text-sm font-medium">{selectedGroups.length} selected</span>
-                  <Button variant="outline" size="sm" onClick={() => {
-                    setSelectedDialogContactIds([]);
-                    setGroupMemberSearch('');
-                    setGroupMemberContactPage(1);
-                    setGroupMemberMode('assign');
-                  }}>
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    Add Contacts
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => {
-                    setSelectedDialogContactIds([]);
-                    setGroupMemberSearch('');
-                    setGroupMemberContactPage(1);
-                    setGroupMemberMode('remove');
-                  }}>
-                    <UserMinus className="mr-2 h-4 w-4" />
-                    Remove Contacts
-                  </Button>
-                  <Button variant="destructive" size="sm" onClick={() => setBulkDeleteGroupsOpen(true)}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </Button>
-                </div>
               )}
-            </CardHeader>
+            />
 
-            <CardContent className="space-y-4">
-              <DataTable
-                columns={groupColumns}
-                data={groups}
-                isLoading={groupsQuery.isLoading}
-                page={groupsMeta?.page ?? 1}
-                totalPages={groupsMeta?.totalPages ?? 1}
-                total={groupsMeta?.total}
-                onPageChange={setGroupPage}
-                enableSelection
-                onSelectionChange={setSelectedGroups}
-                onRowClick={openGroupDetail}
-                emptyMessage="No groups found yet. Create one now and add members later if needed."
-              />
-            </CardContent>
-          </Card>
+            {selectedGroups.length > 0 && (
+              <BulkActionsBar selectedCount={selectedGroups.length}>
+                <Button variant="outline" size="sm" onClick={() => {
+                  setSelectedDialogContactIds([]);
+                  setGroupMemberSearch('');
+                  setGroupMemberContactPage(1);
+                  setGroupMemberMode('assign');
+                }}>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add Contacts
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => {
+                  setSelectedDialogContactIds([]);
+                  setGroupMemberSearch('');
+                  setGroupMemberContactPage(1);
+                  setGroupMemberMode('remove');
+                }}>
+                  <UserMinus className="mr-2 h-4 w-4" />
+                  Remove Contacts
+                </Button>
+                <Button variant="destructive" size="sm" onClick={() => setBulkDeleteGroupsOpen(true)}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </Button>
+              </BulkActionsBar>
+            )}
+            <DataTable
+              columns={groupColumns}
+              data={groups}
+              isLoading={groupsQuery.isLoading}
+              page={groupsMeta?.page ?? 1}
+              totalPages={groupsMeta?.totalPages ?? 1}
+              total={groupsMeta?.total}
+              onPageChange={groupListing.setPage}
+              enableSelection
+              onSelectionChange={setSelectedGroups}
+              onRowClick={openGroupDetail}
+              emptyMessage={(
+                <ListingEmptyState
+                  title="No groups found"
+                  description="Create a group now and add members later if needed."
+                />
+              )}
+            />
+          </ListingTableCard>
         </TabsContent>
-      </Tabs>
+      </ListingTabsShell>
 
       <CreateContactDialog open={createContactOpen} onOpenChange={setCreateContactOpen} />
 

@@ -216,6 +216,41 @@ npm run stack:logs
 npm run stack:logs -- auth-service
 ```
 
+### Individual service/container control
+
+Use the repo helper scripts when you want to manage just one container from the development stack in `docker-compose.dev.yml`.
+
+Examples:   
+
+```bash
+npm run service:start -- whatsapp-service
+npm run service:stop -- whatsapp-service
+npm run service:restart -- whatsapp-service
+
+npm run service:start -- chat-service
+npm run service:stop -- chat-service
+npm run service:restart -- chat-service
+```
+
+If you changed Dockerfile or dependency setup for a single service, rebuild that service while starting or restarting it:
+
+```bash
+npm run service:start -- whatsapp-service --build
+npm run service:restart -- chat-service --build
+```
+
+Raw Docker Compose equivalents:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d whatsapp-service
+docker compose -f docker-compose.dev.yml stop whatsapp-service
+docker compose -f docker-compose.dev.yml restart whatsapp-service
+
+docker compose -f docker-compose.dev.yml up -d chat-service
+docker compose -f docker-compose.dev.yml stop chat-service
+docker compose -f docker-compose.dev.yml restart chat-service
+```
+
 ### Migrations
 
 ```bash

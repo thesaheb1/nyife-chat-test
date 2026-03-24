@@ -10,6 +10,7 @@ import type {
   EmbeddedSignupPreviewResult,
   WaAccount,
   WaAccountHealthResult,
+  WaAccountRepairResult,
 } from '@/core/types';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 
@@ -102,7 +103,7 @@ export function useReconcileWhatsAppAccount() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data } = await apiClient.post<ApiResponse<{ account: WaAccount }>>(
+      const { data } = await apiClient.post<ApiResponse<WaAccountRepairResult>>(
         ENDPOINTS.WHATSAPP.ACCOUNT_RECONCILE(id),
         {}
       );

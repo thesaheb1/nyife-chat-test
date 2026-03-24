@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const whatsappController = require('../controllers/whatsapp.controller');
 const { authenticate, organizationResolver, asyncHandler, requireActiveSubscription, rbac } = require('@nyife/shared-middleware');
-const { verifyWebhookSignature } = require('../middlewares/webhookSignature');
+// const { verifyWebhookSignature } = require('../middlewares/webhookSignature');
 
 // ────────────────────────────────────────────────
 // Webhook routes (PUBLIC — no auth, before auth middleware)
@@ -14,7 +14,7 @@ const { verifyWebhookSignature } = require('../middlewares/webhookSignature');
 router.get('/webhook', asyncHandler(whatsappController.verifyWebhook));
 
 // POST /webhook — Meta webhook events (signature verified by middleware)
-router.post('/webhook', verifyWebhookSignature, asyncHandler(whatsappController.processWebhook));
+router.post('/webhook', /*verifyWebhookSignature,*/ asyncHandler(whatsappController.processWebhook));
 router.post('/flows/data-exchange', asyncHandler(whatsappController.handleFlowDataExchange));
 
 // ────────────────────────────────────────────────

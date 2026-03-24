@@ -478,6 +478,12 @@ export interface WaAccountHealthResult {
   };
 }
 
+export interface WaAccountRepairResult {
+  account: WaAccount;
+  steps: EmbeddedSignupResultStep[];
+  warnings: string[];
+}
+
 // Subscriptions
 export interface Plan {
   id: string;

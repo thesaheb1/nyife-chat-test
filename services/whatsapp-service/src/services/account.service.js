@@ -2,12 +2,12 @@
 
 const crypto = require('crypto');
 const axios = require('axios');
+const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const { publishEvent, TOPICS } = require('@nyife/shared-events');
 const { WaAccount, WaOnboardingAttempt } = require('../models');
 const {
   AppError,
   encrypt,
-  decrypt,
   META_CREDENTIAL_SOURCES,
 } = require('@nyife/shared-utils');
 const config = require('../config');
@@ -22,6 +22,8 @@ const signupSessionFallbackStore = new Map();
 const ONBOARDING_STEP_SKIPPED = 'skipped';
 const ONBOARDING_STEP_COMPLETED = 'completed';
 const ONBOARDING_STEP_FAILED = 'failed';
+const LEGACY_EMBEDDED_SIGNUP_PIN = '123456';
+const REGISTER_ENDPOINT_GRAPH_API_VERSION = 'v20.0';
 
 function createStep(name, status, message, extra = {}) {
   return {
@@ -93,6 +95,45 @@ function getMetaErrorCode(err) {
   return String(err.response?.data?.error?.code || '');
 }
 
+function isPhoneConnectedStatus(status) {
+  return String(status || '').trim().toUpperCase() === 'CONNECTED';
+}
+
+function deriveDataLocalizationRegion(displayPhone) {
+  if (!displayPhone) {
+    return null;
+  }
+
+  try {
+    const phoneNumber = parsePhoneNumberFromString(displayPhone);
+    return phoneNumber?.country || null;
+  } catch (err) {
+    console.warn(
+      `[whatsapp-service] Failed to derive data localization region for phone "${displayPhone}":`,
+      err.message
+    );
+    return null;
+  }
+}
+
+function buildRegisterPhonePayload(displayPhone) {
+  const payload = {
+    messaging_product: 'whatsapp',
+    pin: LEGACY_EMBEDDED_SIGNUP_PIN,
+  };
+  const dataLocalizationRegion = deriveDataLocalizationRegion(displayPhone);
+
+  if (dataLocalizationRegion) {
+    payload.data_localization_region = dataLocalizationRegion;
+  }
+
+  return payload;
+}
+
+function getLegacyPinRepairMessage(phoneNumberId) {
+  return `Meta reported a two-step verification PIN mismatch for phone number ${phoneNumberId}. Use the "Repair legacy signup compatibility" action in Nyife to reset the shared legacy PIN before trying again.`;
+}
+
 function buildMetaHeaders(accessToken) {
   return {
     Authorization: `Bearer ${accessToken}`,
@@ -100,24 +141,8 @@ function buildMetaHeaders(accessToken) {
   };
 }
 
-function generateRegistrationPin() {
-  return crypto.randomInt(0, 1000000).toString().padStart(6, '0');
-}
-
-function resolveRegistrationPin(existingAccount) {
-  if (!existingAccount?.registration_pin) {
-    return generateRegistrationPin();
-  }
-
-  try {
-    return decrypt(existingAccount.registration_pin);
-  } catch (err) {
-    console.warn(
-      `[whatsapp-service] Failed to decrypt stored registration PIN for account ${existingAccount.id}:`,
-      err.message
-    );
-    return generateRegistrationPin();
-  }
+function resolveRegistrationPin() {
+  return LEGACY_EMBEDDED_SIGNUP_PIN;
 }
 
 function sanitizeConnectedAccount(account) {
@@ -597,9 +622,9 @@ async function subscribeAppToWaba(accessToken, wabaId) {
 
   const payload = config.meta.overrideCallbackUrl
     ? {
-        override_callback_uri: config.meta.overrideCallbackUrl,
-        verify_token: config.meta.webhookVerifyToken,
-      }
+      override_callback_uri: config.meta.overrideCallbackUrl,
+      verify_token: config.meta.webhookVerifyToken,
+    }
     : {};
 
   try {
@@ -871,14 +896,14 @@ async function setTwoStepVerificationPin(accessToken, phoneNumberId, pin) {
   }
 }
 
-async function registerPhoneNumber(accessToken, phoneNumberId, pin) {
+async function registerPhoneNumber(accessToken, phoneNumberId, displayPhone, options = {}) {
+  const { repairMode = false } = options;
+  const payload = buildRegisterPhonePayload(displayPhone);
+
   try {
     await axios.post(
-      `${config.meta.baseUrl}/${phoneNumberId}/register`,
-      {
-        messaging_product: 'whatsapp',
-        pin,
-      },
+      `https://graph.facebook.com/${REGISTER_ENDPOINT_GRAPH_API_VERSION}/${phoneNumberId}/register`,
+      payload,
       {
         headers: buildMetaHeaders(accessToken),
         timeout: 15000,
@@ -886,32 +911,67 @@ async function registerPhoneNumber(accessToken, phoneNumberId, pin) {
     );
   } catch (err) {
     if (getMetaErrorCode(err) === '133005') {
-      await setTwoStepVerificationPin(accessToken, phoneNumberId, pin);
-
-      try {
-        await axios.post(
-          `${config.meta.baseUrl}/${phoneNumberId}/register`,
-          {
-            messaging_product: 'whatsapp',
-            pin,
-          },
-          {
-            headers: buildMetaHeaders(accessToken),
-            timeout: 15000,
-          }
-        );
-        return;
-      } catch (retryErr) {
-        throw AppError.badRequest(
-          `Failed to register phone number ${phoneNumberId} with Meta after refreshing the two-step verification PIN. ${getMetaErrorMessage(retryErr, 'Phone registration failed.')}`
-        );
-      }
+      throw AppError.badRequest(
+        repairMode
+          ? `Failed to register phone number ${phoneNumberId} after resetting the shared legacy PIN. ${getMetaErrorMessage(err, 'Phone registration failed.')}`
+          : getLegacyPinRepairMessage(phoneNumberId)
+      );
     }
 
     throw AppError.badRequest(
       `Failed to register phone number ${phoneNumberId} with Meta. ${getMetaErrorMessage(err, 'Phone registration failed.')}`
     );
   }
+}
+
+async function ensurePhoneRegistrationForSignup(accessToken, phone) {
+  const phoneNumberId = String(phone.phone_number_id);
+  const phoneDetails = await fetchPhoneNumberHealth(accessToken, phoneNumberId);
+  const currentStatus = phoneDetails?.status || null;
+  const displayPhone = phoneDetails?.display_phone_number || phone.display_phone || null;
+
+  if (isPhoneConnectedStatus(currentStatus)) {
+    return {
+      skipped: true,
+      statusBefore: currentStatus,
+      phoneDetails,
+    };
+  }
+
+  await registerPhoneNumber(accessToken, phoneNumberId, displayPhone);
+
+  return {
+    skipped: false,
+    statusBefore: currentStatus,
+    phoneDetails,
+  };
+}
+
+async function repairLegacyRegistrationCompatibility(accessToken, phone) {
+  const phoneNumberId = String(phone.phone_number_id);
+  const phoneDetails = await fetchPhoneNumberHealth(accessToken, phoneNumberId);
+  const currentStatus = phoneDetails?.status || null;
+  const displayPhone = phoneDetails?.display_phone_number || phone.display_phone || null;
+
+  await setTwoStepVerificationPin(accessToken, phoneNumberId, LEGACY_EMBEDDED_SIGNUP_PIN);
+
+  if (isPhoneConnectedStatus(currentStatus)) {
+    return {
+      pinReset: true,
+      registered: false,
+      statusBefore: currentStatus,
+      phoneDetails,
+    };
+  }
+
+  await registerPhoneNumber(accessToken, phoneNumberId, displayPhone, { repairMode: true });
+
+  return {
+    pinReset: true,
+    registered: true,
+    statusBefore: currentStatus,
+    phoneDetails,
+  };
 }
 
 async function upsertConnectedAccount(
@@ -1139,7 +1199,7 @@ async function completeEmbeddedSignup(userId, signupSessionId, selectedWabaId, p
       continue;
     }
 
-    const registrationPin = resolveRegistrationPin(existingAccount);
+    const registrationPin = resolveRegistrationPin();
     const attempt = await createOnboardingAttempt({
       userId,
       waAccountId: existingAccount?.id || null,
@@ -1218,13 +1278,22 @@ async function completeEmbeddedSignup(userId, signupSessionId, selectedWabaId, p
         warnings: localWarnings,
       });
 
-      await registerPhoneNumber(
+      const registrationResult = await ensurePhoneRegistrationForSignup(
         managementToken,
-        String(phone.phone_number_id),
-        registrationPin
+        phone
       );
       stepDetails.push(
-        createStep('register_phone', ONBOARDING_STEP_COMPLETED, 'Phone number registered successfully with Meta.')
+        createStep(
+          'register_phone',
+          registrationResult.skipped ? ONBOARDING_STEP_SKIPPED : ONBOARDING_STEP_COMPLETED,
+          registrationResult.skipped
+            ? 'Phone number was already connected in Meta, so registration was skipped.'
+            : 'Phone number registered successfully with Meta.',
+          {
+            number_status_before_registration: registrationResult.statusBefore,
+            legacy_pin: LEGACY_EMBEDDED_SIGNUP_PIN,
+          }
+        )
       );
       await updateOnboardingAttempt(attempt, { step_details: stepDetails });
 
@@ -1539,21 +1608,17 @@ async function getAccountHealth(userId, accountId, kafkaProducer = null) {
 }
 
 async function reconcileAccount(userId, accountId, kafkaProducer = null) {
-  if (!hasProviderManagementConfig()) {
-    throw new AppError(
-      'Provider-managed Meta credentials are required before Nyife can reconcile this account.',
-      503
-    );
-  }
-
-  await ensureProviderSystemUserConfigured();
-
   const account = await WaAccount.scope('withAll').findOne({
     where: { id: accountId, user_id: userId },
   });
 
   if (!account) {
     throw AppError.notFound('WhatsApp account not found');
+  }
+
+  const providerConfigured = hasProviderManagementConfig();
+  if (providerConfigured) {
+    await ensureProviderSystemUserConfigured();
   }
 
   const phone = {
@@ -1577,24 +1642,37 @@ async function reconcileAccount(userId, accountId, kafkaProducer = null) {
 
   const steps = [];
   const warnings = [];
-  const registrationPin = resolveRegistrationPin(account);
+  const registrationPin = resolveRegistrationPin();
+  const credential = requireResolvedMetaCredential(account, {
+    allowLegacyAccountTokenFallback: true,
+  });
 
   try {
-    const assignmentResult = await assignSystemUserToWaba(account.waba_id);
-    steps.push(
-      createStep(
-        'assign_system_user',
-        assignmentResult.status === 'already_assigned' ? ONBOARDING_STEP_SKIPPED : ONBOARDING_STEP_COMPLETED,
-        assignmentResult.status === 'already_assigned'
-          ? 'Nyife system user was already assigned to the WABA.'
-          : 'Nyife system user assigned to the WABA.',
-        assignmentResult
-      )
-    );
-    await verifyAssignedSystemUser(account.waba_id);
-    steps.push(createStep('verify_system_user_assignment', ONBOARDING_STEP_COMPLETED, 'Meta confirmed the system user assignment.'));
+    if (providerConfigured) {
+      const assignmentResult = await assignSystemUserToWaba(account.waba_id);
+      steps.push(
+        createStep(
+          'assign_system_user',
+          assignmentResult.status === 'already_assigned' ? ONBOARDING_STEP_SKIPPED : ONBOARDING_STEP_COMPLETED,
+          assignmentResult.status === 'already_assigned'
+            ? 'Nyife system user was already assigned to the WABA.'
+            : 'Nyife system user assigned to the WABA.',
+          assignmentResult
+        )
+      );
+      await verifyAssignedSystemUser(account.waba_id);
+      steps.push(createStep('verify_system_user_assignment', ONBOARDING_STEP_COMPLETED, 'Meta confirmed the system user assignment.'));
+    } else {
+      steps.push(
+        createStep(
+          'assign_system_user',
+          ONBOARDING_STEP_SKIPPED,
+          'Repair is using the account-level Embedded Signup token because provider-managed credentials are not configured.'
+        )
+      );
+    }
 
-    const subscriptionResult = await subscribeAppToWaba(config.meta.systemUserAccessToken, account.waba_id);
+    const subscriptionResult = await subscribeAppToWaba(credential.accessToken, account.waba_id);
     steps.push(
       createStep(
         'subscribe_app',
@@ -1606,7 +1684,9 @@ async function reconcileAccount(userId, accountId, kafkaProducer = null) {
       )
     );
 
-    const creditResult = await attachCreditLineToWaba(account.waba_id);
+    const creditResult = providerConfigured
+      ? await attachCreditLineToWaba(account.waba_id)
+      : { status: 'not_required', warning: null };
     if (creditResult.warning) {
       warnings.push(creditResult.warning);
     }
@@ -1619,19 +1699,50 @@ async function reconcileAccount(userId, accountId, kafkaProducer = null) {
       )
     );
 
-    await registerPhoneNumber(config.meta.systemUserAccessToken, account.phone_number_id, registrationPin);
-    steps.push(createStep('register_phone', ONBOARDING_STEP_COMPLETED, 'Phone number registered successfully with Meta.'));
+    const repairResult = await repairLegacyRegistrationCompatibility(credential.accessToken, phone);
+    steps.push(
+      createStep(
+        'repair_two_step_verification',
+        ONBOARDING_STEP_COMPLETED,
+        'Shared legacy two-step verification PIN restored for cross-platform compatibility.',
+        { legacy_pin: LEGACY_EMBEDDED_SIGNUP_PIN }
+      )
+    );
+    steps.push(
+      createStep(
+        'register_phone',
+        repairResult.registered ? ONBOARDING_STEP_COMPLETED : ONBOARDING_STEP_SKIPPED,
+        repairResult.registered
+          ? 'Phone number re-registered successfully with Meta after restoring legacy compatibility.'
+          : 'Phone number was already connected in Meta, so re-registration was skipped after restoring legacy compatibility.',
+        {
+          number_status_before_registration: repairResult.statusBefore,
+          legacy_pin: LEGACY_EMBEDDED_SIGNUP_PIN,
+        }
+      )
+    );
+
+    const [phoneDetailsResult, accountReviewResult] = await Promise.allSettled([
+      fetchPhoneNumberHealth(credential.accessToken, String(account.phone_number_id)),
+      fetchAccountReviewStatus(credential.accessToken, String(account.waba_id)),
+    ]);
+
+    const hydratedPhone = applyResolvedPhoneMetadata(
+      phone,
+      phoneDetailsResult.status === 'fulfilled' ? phoneDetailsResult.value : null,
+      accountReviewResult.status === 'fulfilled' ? accountReviewResult.value : null
+    );
 
     const result = await upsertConnectedAccount(
       userId,
-      null,
+      credential.source === META_CREDENTIAL_SOURCES.LEGACY_EMBEDDED_USER_TOKEN ? credential.accessToken : null,
       account.business_id,
-      phone,
+      hydratedPhone,
       account,
       registrationPin,
       {
-        credential_source: META_CREDENTIAL_SOURCES.PROVIDER_SYSTEM_USER,
-        assigned_system_user_id: config.meta.systemUserId,
+        credential_source: credential.source,
+        assigned_system_user_id: providerConfigured ? config.meta.systemUserId : account.assigned_system_user_id,
         app_subscription_status: 'subscribed',
         credit_sharing_status: creditResult.status || 'unknown',
         onboarding_status: 'active',
@@ -1640,7 +1751,13 @@ async function reconcileAccount(userId, accountId, kafkaProducer = null) {
       }
     );
 
-    steps.push(createStep('activate_account', ONBOARDING_STEP_COMPLETED, 'The WhatsApp account is active in Nyife.'));
+    steps.push(
+      createStep(
+        'activate_account',
+        ONBOARDING_STEP_COMPLETED,
+        'The WhatsApp account is active in Nyife and compatible with the legacy Nyife signup flow.'
+      )
+    );
     await updateOnboardingAttempt(attempt, {
       wa_account_id: result.account.id,
       status: 'completed',
@@ -1692,4 +1809,15 @@ module.exports = {
   findByPhoneNumberId,
   updateQualityRating,
   updateAccountStatusByWaba,
+  __private: {
+    LEGACY_EMBEDDED_SIGNUP_PIN,
+    REGISTER_ENDPOINT_GRAPH_API_VERSION,
+    resolveRegistrationPin,
+    isPhoneConnectedStatus,
+    deriveDataLocalizationRegion,
+    buildRegisterPhonePayload,
+    registerPhoneNumber,
+    ensurePhoneRegistrationForSignup,
+    repairLegacyRegistrationCompatibility,
+  },
 };

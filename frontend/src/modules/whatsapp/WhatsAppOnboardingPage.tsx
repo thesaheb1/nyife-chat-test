@@ -38,6 +38,7 @@ import type {
   EmbeddedSignupPreviewAccount,
   EmbeddedSignupPreviewResult,
   WaAccount,
+  WaAccountRepairResult,
 } from '@/core/types';
 import {
   getActiveWhatsAppAccounts,
@@ -48,6 +49,7 @@ import {
   useDisconnectWhatsAppAccount,
   useEmbeddedSignupComplete,
   useEmbeddedSignupPreview,
+  useReconcileWhatsAppAccount,
   useRefreshWhatsAppAccountHealth,
   useWhatsAppAccounts,
 } from './useWhatsAppAccounts';
@@ -125,6 +127,7 @@ export function WhatsAppOnboardingPage() {
   const completeSignup = useEmbeddedSignupComplete();
   const disconnectMutation = useDisconnectWhatsAppAccount();
   const refreshHealthMutation = useRefreshWhatsAppAccountHealth();
+  const reconcileMutation = useReconcileWhatsAppAccount();
   const [sdkReady, setSdkReady] = useState(false);
   const [sdkError, setSdkError] = useState<string | null>(null);
   const [preview, setPreview] = useState<EmbeddedSignupPreviewResult | null>(null);
@@ -132,6 +135,8 @@ export function WhatsAppOnboardingPage() {
   const [selectedPhoneIds, setSelectedPhoneIds] = useState<string[]>([]);
   const [completionResult, setCompletionResult] = useState<EmbeddedSignupCompleteResult | null>(null);
   const [disconnectAllOpen, setDisconnectAllOpen] = useState(false);
+  const [repairResult, setRepairResult] = useState<WaAccountRepairResult | null>(null);
+  const [repairingAccountId, setRepairingAccountId] = useState<string | null>(null);
 
   const configReady = Boolean(META_APP_ID && META_EMBEDDED_SIGNUP_CONFIG_ID);
   const originError = getMetaEmbeddedSignupOriginError();
@@ -363,6 +368,23 @@ export function WhatsAppOnboardingPage() {
     }
   };
 
+  const handleRepairCompatibility = async (id: string) => {
+    try {
+      setRepairingAccountId(id);
+      const result = await reconcileMutation.mutateAsync(id);
+      setRepairResult(result);
+      toast.success(
+        result.warnings.length
+          ? `Legacy signup compatibility repaired with ${result.warnings.length} warning(s).`
+          : 'Legacy signup compatibility repaired.'
+      );
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to repair legacy signup compatibility.'));
+    } finally {
+      setRepairingAccountId(null);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-center gap-4">
@@ -559,6 +581,22 @@ export function WhatsAppOnboardingPage() {
                       <Activity className="mr-2 h-4 w-4" />
                       Refresh
                     </Button>
+                    {account.status === 'active' ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleRepairCompatibility(account.id)}
+                        disabled={reconcileMutation.isPending}
+                      >
+                        {reconcileMutation.isPending && repairingAccountId === account.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="mr-2 h-4 w-4" />
+                        )}
+                        Repair legacy signup
+                      </Button>
+                    ) : null}
                     {account.status === 'active' ? (
                       <Button
                         type="button"
@@ -786,6 +824,58 @@ export function WhatsAppOnboardingPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={Boolean(repairResult)} onOpenChange={(open) => { if (!open) setRepairResult(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Legacy Signup Repair Result</DialogTitle>
+            <DialogDescription>
+              {repairResult
+                ? `Compatibility details for ${repairResult.account.verified_name || repairResult.account.display_phone || repairResult.account.phone_number_id}.`
+                : 'Compatibility repair details.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {repairResult ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border p-4 text-sm">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <p>Connected number: {repairResult.account.display_phone || 'Unknown'}</p>
+                  <p>WABA ID: {repairResult.account.waba_id}</p>
+                  <p>Status: {repairResult.account.status}</p>
+                  <p>Onboarding: {repairResult.account.onboarding_status}</p>
+                </div>
+              </div>
+
+              {repairResult.warnings.length ? (
+                <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 p-3 text-xs text-amber-900">
+                  {repairResult.warnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                {repairResult.steps.map((step) => (
+                  <div key={`${step.name}:${step.timestamp}`} className="rounded-lg border p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium capitalize">{step.name.replace(/_/g, ' ')}</p>
+                      <Badge variant="outline" className="capitalize">{step.status}</Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">{step.message}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRepairResult(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

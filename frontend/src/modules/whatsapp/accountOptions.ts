@@ -103,3 +103,36 @@ export function findWhatsAppAccount(accounts: WaAccount[] | undefined, accountId
 
   return (accounts || []).find((account) => account.id === accountId) || null;
 }
+
+export function resolveWhatsAppPreviewAccount(
+  accounts: WaAccount[] | undefined,
+  identifiers: {
+    waAccountId?: string | null;
+    wabaId?: string | null;
+  }
+) {
+  const allAccounts = accounts || [];
+
+  if (identifiers.waAccountId) {
+    const directMatch = findWhatsAppAccount(allAccounts, identifiers.waAccountId);
+    if (directMatch) {
+      return directMatch;
+    }
+  }
+
+  if (identifiers.wabaId) {
+    const activeWabaMatch = allAccounts.find(
+      (account) => account.status === 'active' && account.waba_id === identifiers.wabaId
+    );
+    if (activeWabaMatch) {
+      return activeWabaMatch;
+    }
+
+    const wabaMatch = allAccounts.find((account) => account.waba_id === identifiers.wabaId);
+    if (wabaMatch) {
+      return wabaMatch;
+    }
+  }
+
+  return getActiveWhatsAppAccounts(allAccounts)[0] || allAccounts[0] || null;
+}

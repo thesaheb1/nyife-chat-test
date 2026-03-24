@@ -26,7 +26,6 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { getApiErrorMessage } from '@/core/errors/apiError';
 import { PhoneNumberInput } from '@/shared/components/PhoneNumberInput';
 import type {
   HeaderFormat,
@@ -43,6 +42,7 @@ import {
   getTemplateMediaRule,
   validateTemplateMediaFile,
 } from './templateMediaRules';
+import { runTemplateActionToast } from './templateToast';
 import { useUploadTemplateMedia } from './useTemplates';
 
 export function FieldError({ message }: { message?: string }) {
@@ -101,21 +101,24 @@ export function TypeCard({
   title,
   description,
   active,
+  disabled = false,
   onClick,
 }: {
   title: string;
   description: string;
   active: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`rounded-2xl border p-4 text-left transition ${active
           ? 'border-primary bg-primary/5 shadow-sm'
           : 'border-border hover:border-primary/40 hover:bg-muted/40'
-        }`}
+        } ${disabled ? 'cursor-not-allowed opacity-60 hover:border-border hover:bg-transparent' : ''}`}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="font-semibold">{title}</div>
@@ -215,7 +218,11 @@ export function HeaderFields({
 
     try {
       const mediaMetadata = await extractTemplateMediaMetadata(file, headerFormat);
-      const uploaded = await uploadMedia.mutateAsync(file);
+      const uploaded = await runTemplateActionToast(uploadMedia.mutateAsync(file), {
+        loading: 'Uploading header sample...',
+        success: 'Header sample uploaded.',
+        error: 'Failed to upload the header sample.',
+      });
       const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
       onMediaChange({
         file_id: uploaded.id,
@@ -229,9 +236,8 @@ export function HeaderFields({
         aspect_ratio: mediaMetadata?.aspect_ratio,
         header_handle: null,
       });
-      toast.success('Header sample uploaded.');
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to upload the header sample.'));
+    } catch {
+      return;
     } finally {
       if (inputRef.current) {
         inputRef.current.value = '';

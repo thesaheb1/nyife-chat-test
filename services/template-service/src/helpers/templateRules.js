@@ -1,7 +1,11 @@
 'use strict';
 
 const { AppError } = require('@nyife/shared-utils');
-const { META_TEMPLATE_LANGUAGE_CODES } = require('../constants/template.constants');
+const {
+  META_TEMPLATE_LANGUAGE_CODES,
+  META_TEMPLATE_STATUSES,
+  TEMPLATE_QUALITY_SCORES,
+} = require('../constants/template.constants');
 
 const BODY_TEXT_LIMIT = 1024;
 const HEADER_TEXT_LIMIT = 60;
@@ -11,6 +15,7 @@ const MAX_STANDARD_BUTTONS = 10;
 const MAX_CAROUSEL_BUTTONS = 2;
 const MAX_CAROUSEL_CARDS = 10;
 const MIN_CAROUSEL_CARDS = 2;
+const EDITABLE_META_STATUSES = new Set(['APPROVED', 'REJECTED', 'PAUSED']);
 const TEMPLATE_MEDIA_RULES = {
   IMAGE: {
     label: 'Image',
@@ -44,6 +49,96 @@ function normalizeComponentType(type) {
 
 function textValue(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeMetaTemplateStatus(status) {
+  const normalized = textValue(status).toUpperCase();
+  return META_TEMPLATE_STATUSES.includes(normalized) ? normalized : null;
+}
+
+function normalizeTemplateQualityScore(score) {
+  const normalized = textValue(score).toUpperCase();
+  return TEMPLATE_QUALITY_SCORES.includes(normalized) ? normalized : null;
+}
+
+function resolveTemplateMetaStatus(template) {
+  const normalizedMetaStatus = normalizeMetaTemplateStatus(template?.meta_status_raw);
+  if (normalizedMetaStatus) {
+    return normalizedMetaStatus;
+  }
+
+  if (!template?.meta_template_id) {
+    return null;
+  }
+
+  const status = textValue(template?.status).toLowerCase();
+  if (status === 'approved') {
+    return 'APPROVED';
+  }
+  if (status === 'rejected') {
+    return 'REJECTED';
+  }
+  if (status === 'paused') {
+    return 'PAUSED';
+  }
+  if (status === 'disabled') {
+    return 'DISABLED';
+  }
+  if (status === 'pending') {
+    return 'PENDING';
+  }
+
+  return null;
+}
+
+function deriveLocalTemplateStatus(metaStatus, fallbackStatus = null) {
+  const normalizedMetaStatus = normalizeMetaTemplateStatus(metaStatus);
+  if (normalizedMetaStatus === 'APPROVED') {
+    return 'approved';
+  }
+  if (normalizedMetaStatus === 'REJECTED') {
+    return 'rejected';
+  }
+  if (normalizedMetaStatus === 'PAUSED') {
+    return 'paused';
+  }
+  if (normalizedMetaStatus === 'DISABLED') {
+    return 'disabled';
+  }
+  if (normalizedMetaStatus === 'PENDING' || normalizedMetaStatus === 'PENDING_DELETION' || normalizedMetaStatus === 'APPEAL_REQUESTED') {
+    return 'pending';
+  }
+
+  return String(fallbackStatus || 'draft').toLowerCase();
+}
+
+function isLegacyRejectedDraft(template) {
+  return !template?.meta_template_id && String(template?.status || '').toLowerCase() === 'rejected';
+}
+
+function isUnpublishedTemplate(template) {
+  return !template?.meta_template_id;
+}
+
+function canPublishTemplate(template) {
+  const status = String(template?.status || '').toLowerCase();
+  return isUnpublishedTemplate(template) && (status === 'draft' || status === 'rejected');
+}
+
+function canEditTemplate(template) {
+  if (canPublishTemplate(template)) {
+    return true;
+  }
+
+  return EDITABLE_META_STATUSES.has(resolveTemplateMetaStatus(template));
+}
+
+function canDeleteTemplate(template) {
+  return resolveTemplateMetaStatus(template) !== 'DISABLED';
+}
+
+function canSyncTemplate(template) {
+  return Boolean(template?.wa_account_id || template?.waba_id);
 }
 
 function addError(errors, field, message) {
@@ -411,16 +506,22 @@ function assertTemplateBusinessRules(template) {
 }
 
 function getTemplateAvailableActions(template) {
-  const status = String(template.status || '').toLowerCase();
-  const actions = new Set(['view', 'delete']);
+  const actions = new Set(['view']);
 
-  if (status === 'draft' || status === 'rejected') {
+  if (canEditTemplate(template)) {
     actions.add('edit');
+  }
+
+  if (canPublishTemplate(template)) {
     actions.add('publish');
   }
 
-  if (template.waba_id) {
+  if (canSyncTemplate(template)) {
     actions.add('sync');
+  }
+
+  if (canDeleteTemplate(template)) {
+    actions.add('delete');
   }
 
   return Array.from(actions);
@@ -429,4 +530,13 @@ function getTemplateAvailableActions(template) {
 module.exports = {
   assertTemplateBusinessRules,
   getTemplateAvailableActions,
+  normalizeMetaTemplateStatus,
+  normalizeTemplateQualityScore,
+  resolveTemplateMetaStatus,
+  deriveLocalTemplateStatus,
+  canPublishTemplate,
+  canEditTemplate,
+  canDeleteTemplate,
+  canSyncTemplate,
+  isLegacyRejectedDraft,
 };

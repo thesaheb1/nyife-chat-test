@@ -1,40 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
-import { Eye, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { Loader2, Plus, RefreshCw } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { getApiErrorMessage } from '@/core/errors/apiError';
 import { usePermissions } from '@/core/hooks/usePermissions';
 import type { Template } from '@/core/types';
 import { DataTable } from '@/shared/components/DataTable';
+import { resolveWhatsAppPreviewAccount } from '@/modules/whatsapp/accountOptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { useListingState } from '@/shared/hooks/useListingState';
 import {
@@ -44,23 +17,24 @@ import {
   ListingToolbar,
 } from '@/shared/components';
 import {
-  TEMPLATE_ACTION_LABELS,
   TEMPLATE_CATEGORY_OPTIONS,
-  TEMPLATE_STATUS_CLASSES,
   TEMPLATE_STATUS_LABELS,
   TEMPLATE_TYPE_LABELS,
   TEMPLATE_TYPE_OPTIONS,
   getTemplateAvailableActions,
   getTemplateLanguageLabel,
+  resolveTemplateMetaStatus,
 } from './templateCatalog';
-import { useDeleteTemplate, usePublishTemplate, useSyncTemplates, useTemplates } from './useTemplates';
+import { useTemplates } from './useTemplates';
+import { TemplateActionsMenu } from './TemplateActionsMenu';
+import { TemplateActionDialogs } from './TemplateActionDialogs';
+import { TemplatePreviewDialog } from './TemplatePreviewDialog';
+import { TemplateStatusBadges } from './TemplateStatusBadges';
+import { useTemplateLifecycleActions } from './useTemplateLifecycleActions';
 
 export function TemplateListPage() {
   const navigate = useNavigate();
   const { canOrganization } = usePermissions();
-  const [publishTarget, setPublishTarget] = useState<Template | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Template | null>(null);
-  const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
   const listing = useListingState({
     initialFilters: {
       status: '',
@@ -82,82 +56,34 @@ export function TemplateListPage() {
     status: listing.filters.status || undefined,
     category: listing.filters.category || undefined,
     type: listing.filters.type || undefined,
-    date_from: listing.dateRange.from,
-    date_to: listing.dateRange.to,
   });
 
-  const publishTemplate = usePublishTemplate();
-  const syncTemplates = useSyncTemplates();
-  const deleteTemplate = useDeleteTemplate();
+  const lifecycle = useTemplateLifecycleActions();
   const canCreateTemplates = canOrganization('templates', 'create');
   const canUpdateTemplates = canOrganization('templates', 'update');
   const canDeleteTemplates = canOrganization('templates', 'delete');
+  const [previewTarget, setPreviewTarget] = useState<Template | null>(null);
 
   const templates = data?.data?.templates ?? [];
   const meta = data?.meta;
-
-  const setBusy = (value: string | null) => {
-    setRowBusyKey(value);
-  };
+  const previewAccount = useMemo(
+    () => resolveWhatsAppPreviewAccount(waAccounts, {
+      waAccountId: previewTarget?.wa_account_id,
+      wabaId: previewTarget?.waba_id,
+    }),
+    [previewTarget?.wa_account_id, previewTarget?.waba_id, waAccounts]
+  );
 
   const openPublishDialog = useCallback((template: Template) => {
     if (!canUpdateTemplates) {
       return;
     }
-    setPublishTarget(template);
-  }, [canUpdateTemplates]);
+    lifecycle.setPublishTarget(template);
+  }, [canUpdateTemplates, lifecycle]);
 
-  const handleSync = useCallback(async (scopeKey: string, template?: Template | null) => {
-    if (!canUpdateTemplates) {
-      return;
-    }
-    setBusy(scopeKey);
-    try {
-      const result = await syncTemplates.mutateAsync(template?.wa_account_id || undefined);
-      toast.success(`Synced ${result.synced} templates (${result.created} created, ${result.updated} updated).`);
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to sync templates.'));
-    } finally {
-      setBusy(null);
-    }
-  }, [canUpdateTemplates, syncTemplates]);
-
-  const handlePublish = async () => {
-    if (!publishTarget) {
-      return;
-    }
-
-    setBusy(`publish:${publishTarget.id}`);
-    try {
-      await publishTemplate.mutateAsync({
-        id: publishTarget.id,
-        wa_account_id: publishTarget.wa_account_id || undefined,
-      });
-      toast.success('Template submitted to Meta for review.');
-      setPublishTarget(null);
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to submit template.'));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) {
-      return;
-    }
-
-    setBusy(`delete:${deleteTarget.id}`);
-    try {
-      await deleteTemplate.mutateAsync(deleteTarget.id);
-      toast.success('Template deleted.');
-      setDeleteTarget(null);
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to delete template.'));
-    } finally {
-      setBusy(null);
-    }
-  };
+  const openPreview = useCallback((template: Template) => {
+    setPreviewTarget(template);
+  }, []);
 
   const columns = useMemo<ColumnDef<Template, unknown>[]>(
     () => [
@@ -172,7 +98,7 @@ export function TemplateListPage() {
                 className="text-left font-semibold hover:text-primary hover:underline"
                 onClick={(event) => {
                   event.stopPropagation();
-                  navigate(`/templates/${template.id}`);
+                  openPreview(template);
                 }}
               >
                 {template.display_name || template.name}
@@ -206,12 +132,14 @@ export function TemplateListPage() {
       {
         accessorKey: 'status',
         header: 'Status',
-        cell: ({ getValue }) => {
-          const status = getValue() as Template['status'];
+        cell: ({ row }) => {
+          const template = row.original;
+          const effectiveMetaStatus = resolveTemplateMetaStatus(template);
           return (
-            <Badge variant="outline" className={TEMPLATE_STATUS_CLASSES[status]}>
-              {TEMPLATE_STATUS_LABELS[status]}
-            </Badge>
+            <TemplateStatusBadges
+              template={template}
+              showMetaStatus={effectiveMetaStatus === 'PENDING_DELETION' || effectiveMetaStatus === 'APPEAL_REQUESTED'}
+            />
           );
         },
       },
@@ -233,7 +161,10 @@ export function TemplateListPage() {
             if (action === 'view') {
               return true;
             }
-            if (action === 'edit' || action === 'publish' || action === 'sync') {
+            if (action === 'sync') {
+              return false;
+            }
+            if (action === 'edit' || action === 'publish') {
               return canUpdateTemplates;
             }
             if (action === 'delete') {
@@ -241,71 +172,17 @@ export function TemplateListPage() {
             }
             return false;
           });
-          const isBusy =
-            rowBusyKey === `publish:${template.id}` ||
-            rowBusyKey === `delete:${template.id}` ||
-            rowBusyKey === `sync:${template.id}`;
 
           return (
             <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>Template actions</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {actions.includes('view') ? (
-                    <DropdownMenuItem onSelect={() => navigate(`/templates/${template.id}`)}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      {TEMPLATE_ACTION_LABELS.view}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {actions.includes('edit') ? (
-                    <DropdownMenuItem onSelect={() => navigate(`/templates/${template.id}/edit`)}>
-                      <Pencil className="mr-2 h-4 w-4" />
-                      {TEMPLATE_ACTION_LABELS.edit}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {actions.includes('publish') ? (
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        openPublishDialog(template);
-                      }}
-                    >
-                      <Send className="mr-2 h-4 w-4" />
-                      {TEMPLATE_ACTION_LABELS.publish}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {actions.includes('sync') ? (
-                    <DropdownMenuItem
-                      disabled={syncTemplates.isPending}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void handleSync(`sync:${template.id}`, template);
-                      }}
-                    >
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      {TEMPLATE_ACTION_LABELS.sync}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {actions.includes('delete') ? (
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        setDeleteTarget(template);
-                      }}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      {TEMPLATE_ACTION_LABELS.delete}
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <TemplateActionsMenu
+                actions={actions}
+                isBusy={lifecycle.busyKey === `publish:${template.id}` || lifecycle.busyKey === `delete:${template.id}`}
+                onView={() => openPreview(template)}
+                onEdit={() => navigate(`/templates/${template.id}/edit`)}
+                onPublish={() => openPublishDialog(template)}
+                onDelete={() => lifecycle.setDeleteTarget(template)}
+              />
             </div>
           );
         },
@@ -314,11 +191,10 @@ export function TemplateListPage() {
     [
       canDeleteTemplates,
       canUpdateTemplates,
-      handleSync,
+      lifecycle.busyKey,
       navigate,
+      openPreview,
       openPublishDialog,
-      rowBusyKey,
-      syncTemplates.isPending,
     ]
   );
 
@@ -331,16 +207,17 @@ export function TemplateListPage() {
           <>
             {canUpdateTemplates ? (
               <Button
+                className="w-full sm:w-auto"
                 variant="outline"
-                onClick={() => void handleSync('sync:global')}
-                disabled={syncTemplates.isPending || activeAccountCount === 0}
+                onClick={() => void lifecycle.syncTemplate('sync:global')}
+                disabled={lifecycle.syncTemplates.isPending || activeAccountCount === 0}
               >
-                {rowBusyKey === 'sync:global' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                {lifecycle.busyKey === 'sync:global' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Sync from Meta
               </Button>
             ) : null}
             {canCreateTemplates ? (
-              <Button onClick={() => navigate('/templates/create')}>
+              <Button className="w-full sm:w-auto" onClick={() => navigate('/templates/create')}>
                 <Plus className="mr-2 h-4 w-4" />
                 Create Template
               </Button>
@@ -379,13 +256,9 @@ export function TemplateListPage() {
               allLabel: 'All types',
             },
           ]}
-          dateRange={listing.dateRange}
-          onDateRangeChange={listing.setDateRange}
-          dateRangePlaceholder="Updated date range"
           hasActiveFilters={listing.hasActiveFilters}
           onReset={listing.resetAll}
         />
-
 
         <DataTable
           columns={columns}
@@ -395,7 +268,7 @@ export function TemplateListPage() {
           totalPages={meta?.totalPages ?? 1}
           total={meta?.total}
           onPageChange={listing.setPage}
-          onRowClick={(template) => navigate(`/templates/${template.id}`)}
+          onRowClick={(template) => openPreview(template)}
           emptyMessage={
             <ListingEmptyState
               title="No templates found"
@@ -405,63 +278,37 @@ export function TemplateListPage() {
         />
       </ListingTableCard>
 
-      <Dialog
-        open={!!publishTarget}
-        onOpenChange={(open: boolean) => {
+      <TemplateActionDialogs
+        publishTarget={lifecycle.publishTarget}
+        deleteTarget={lifecycle.deleteTarget}
+        publishPending={lifecycle.publishTemplate.isPending}
+        deletePending={lifecycle.deleteTemplate.isPending}
+        activeAccountCount={activeAccountCount}
+        onPublishOpenChange={(open) => {
           if (!open) {
-            setPublishTarget(null);
+            lifecycle.setPublishTarget(null);
           }
         }}
-      >
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Submit template to Meta</DialogTitle>
-            <DialogDescription>
-              Only draft or rejected templates can be resubmitted. Nyife will use the connected WhatsApp account automatically.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-2xl border bg-muted/30 p-4">
-              <div className="font-semibold">{publishTarget?.display_name || publishTarget?.name}</div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                {publishTarget ? TEMPLATE_TYPE_LABELS[publishTarget.type] : ''} template
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setPublishTarget(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handlePublish} disabled={publishTemplate.isPending || activeAccountCount === 0}>
-              {publishTemplate.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Submit to Meta
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onDeleteOpenChange={(open) => {
+          if (!open) {
+            lifecycle.setDeleteTarget(null);
+          }
+        }}
+        onConfirmPublish={lifecycle.confirmPublish}
+        onConfirmDelete={lifecycle.confirmDelete}
+      />
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this template?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget?.display_name || deleteTarget?.name} will be removed from Nyife. If it was already synced or submitted,
-              the backend will also attempt the matching Meta cleanup where supported.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleDelete}>
-              Delete template
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <TemplatePreviewDialog
+        template={previewTarget}
+        open={Boolean(previewTarget)}
+        accountName={previewAccount?.verified_name || previewAccount?.display_phone || null}
+        accountPhone={previewAccount?.display_phone}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPreviewTarget(null);
+          }
+        }}
+      />
     </div>
   );
 }

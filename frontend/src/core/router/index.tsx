@@ -27,7 +27,6 @@ const GroupsPage = lazy(() => import('@/modules/contacts/GroupsPage').then(m => 
 const GroupDetailPage = lazy(() => import('@/modules/contacts/GroupDetailPage').then(m => ({ default: m.GroupDetailPage })));
 const TemplateListPage = lazy(() => import('@/modules/templates/TemplateListPage').then(m => ({ default: m.TemplateListPage })));
 const CreateTemplatePage = lazy(() => import('@/modules/templates/CreateTemplatePage').then(m => ({ default: m.CreateTemplatePage })));
-const TemplateDetailPage = lazy(() => import('@/modules/templates/TemplateDetailPage').then(m => ({ default: m.TemplateDetailPage })));
 const FlowListPage = lazy(() => import('@/modules/flows/FlowListPage').then(m => ({ default: m.FlowListPage })));
 const FlowBuilderPage = lazy(() => import('@/modules/flows/FlowBuilderPage').then(m => ({ default: m.FlowBuilderPage })));
 const FlowDetailPage = lazy(() => import('@/modules/flows/FlowDetailPage').then(m => ({ default: m.FlowDetailPage })));
@@ -119,7 +118,7 @@ const organizationScopedRoutes = [
   { path: 'templates', element: guardedLazyElement('organization', 'templates', 'read', TemplateListPage) },
   { path: 'templates/create', element: guardedLazyElement('organization', 'templates', 'create', CreateTemplatePage) },
   { path: 'templates/:id/edit', element: guardedLazyElement('organization', 'templates', 'update', CreateTemplatePage) },
-  { path: 'templates/:id', element: guardedLazyElement('organization', 'templates', 'read', TemplateDetailPage) },
+  { path: 'templates/:id', element: <Navigate to="../templates" relative="path" replace /> },
   { path: 'flows', element: guardedLazyElement('organization', 'flows', 'read', FlowListPage) },
   { path: 'flows/create', element: guardedLazyElement('organization', 'flows', 'create', FlowBuilderPage) },
   { path: 'flows/:id/edit', element: guardedLazyElement('organization', 'flows', 'update', FlowBuilderPage) },

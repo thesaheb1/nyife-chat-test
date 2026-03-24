@@ -31,3 +31,42 @@
 // NOTE : create comprehensive production grade plan and implement all these requirements. make sure that implementation is complete production garde also .
 // IMPORTANT NOTE : if any new requirements required major changes then discuss with me first before implementation.
 
+
+
+
+
+// BUGS:
+// 1. first read meta graph api documentation for manage template such as create, update, delete, sync, publish, etc.
+// 2. meta graph api documentation url : https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/template-management
+// 3. does meta restrict update action on template if status is not approved or rejected? if no then why my Ui action prevent me to edit approved template?
+
+// IMPROVEMENTS:
+// 1. view template Ui page is so basic. please make it more visually appealing, professional and user friendly.
+// 2. template create/edit page language selection dropdown is not scalable and responsive. please make it responsive and scalable. so it can't hide language options.
+// 3. All template related page must be responsive and scalable. for mobile, tablet and desktop.
+
+// 1. Again action dropdown has no edit option for approved template. so it can't edit approved template.
+// 2. Template create/edit page language selection dropdown should scroll and responsive. so it can't hide language options. currently it is not scrollable. please fix it.
+// 3. find all the bugs in template module and fix them. compare with meta graph api documentation and fix it.
+// 4. template action dropdown must be consistent Ui like other action dropdown in other pages.
+// 5. Consistency is most important. So please make all the action dropdown consistent.
+
+
+
+// Good evening sir, Here is my today's report :-
+
+
+// 1. Created user analytics overview Ui on user details page.
+
+// 2. Created organization switcher, status updation UI and functionality on user details page.
+
+// 3. Integrated organization switcher and status updation API on user details page.
+
+// 4. Created credit and debit wallet UI and functionality on user details page.
+
+// 5. Created credit and debit wallet API and integrated it on user details page.
+
+// 6. Created user profile delete UI on user details page.
+
+// 7. Created user profile delete API and integrated it on user details page.
+

@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const whatsappController = require('../controllers/whatsapp.controller');
+const whatsappController = require('../services/whatsapp-service/src/controllers/whatsapp.controller');
 const { authenticate, organizationResolver, asyncHandler, requireActiveSubscription, rbac } = require('@nyife/shared-middleware');
 // const { verifyWebhookSignature } = require('../middlewares/webhookSignature');
 

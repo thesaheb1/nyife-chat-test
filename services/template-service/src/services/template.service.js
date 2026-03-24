@@ -10,7 +10,17 @@ const {
   resolveMetaAccessCredential,
 } = require('@nyife/shared-utils');
 const config = require('../config');
-const { assertTemplateBusinessRules, getTemplateAvailableActions } = require('../helpers/templateRules');
+const {
+  assertTemplateBusinessRules,
+  getTemplateAvailableActions,
+  normalizeMetaTemplateStatus,
+  normalizeTemplateQualityScore,
+  resolveTemplateMetaStatus,
+  deriveLocalTemplateStatus,
+  canPublishTemplate,
+  canEditTemplate,
+  canDeleteTemplate,
+} = require('../helpers/templateRules');
 const {
   fetchActiveWaAccountById,
   resolveSingleWabaAccount,
@@ -41,6 +51,16 @@ const TEMPLATE_MEDIA_RULES = {
     maxSizeBytes: 100 * 1024 * 1024,
   },
 };
+const META_TEMPLATE_FIELDS = [
+  'id',
+  'name',
+  'language',
+  'status',
+  'category',
+  'components',
+  'quality_score',
+  'rejected_reason',
+].join(',');
 
 // ─── Helper: check subscription limit ──────────────────────────────────────
 
@@ -176,26 +196,79 @@ async function resolveAccountContext(userId, options = {}) {
   return null;
 }
 
-async function applyTemplateStatusEvent(event) {
-  const metaTemplateId = event.messageTemplateId || event.message_template_id || null;
-  const templateName = event.messageTemplateName || event.message_template_name;
-  const wabaId = event.wabaId || event.waba_id;
-  const normalizedStatus = String(event.status || event.event || '').toUpperCase();
+function extractQualityScore(data) {
+  return normalizeTemplateQualityScore(
+    data?.quality_score?.score
+      || data?.quality_score
+      || data?.newQualityScore
+      || data?.new_quality_score
+  );
+}
 
-  if (!templateName || !wabaId || !normalizedStatus) {
-    throw AppError.badRequest('Template status event is missing required identifiers.');
+function extractQualityReasons(data) {
+  const reasons = data?.quality_score?.reasons || data?.quality_reasons || [];
+  if (!Array.isArray(reasons)) {
+    return null;
   }
 
-  const statusMap = {
-    APPROVED: 'approved',
-    REJECTED: 'rejected',
-    PENDING: 'pending',
-    PENDING_DELETION: 'pending',
-    PAUSED: 'paused',
-    DISABLED: 'disabled',
-  };
+  const normalized = reasons
+    .map((reason) => trimString(reason))
+    .filter(Boolean);
 
-  const nextStatus = statusMap[normalizedStatus] || 'pending';
+  return normalized.length ? normalized : null;
+}
+
+function extractRejectionReason(data) {
+  const value = trimString(
+    data?.rejected_reason
+      || data?.rejection_reason
+      || data?.reason
+  );
+  return value || null;
+}
+
+function mapMetaTemplateToLocalState(metaTemplate, context = {}) {
+  const metaStatusRaw = normalizeMetaTemplateStatus(metaTemplate?.status || metaTemplate?.meta_status_raw);
+  const qualityScore = extractQualityScore(metaTemplate);
+  const qualityReasons = extractQualityReasons(metaTemplate);
+  const rejectionReason = extractRejectionReason(metaTemplate);
+
+  return {
+    name: metaTemplate?.name,
+    language: metaTemplate?.language,
+    category: metaTemplate?.category,
+    type: detectTemplateType(metaTemplate?.components || []),
+    status: deriveLocalTemplateStatus(metaStatusRaw, 'pending'),
+    components: metaTemplate?.components || [],
+    meta_template_id: metaTemplate?.id || context.metaTemplateId || null,
+    meta_status_raw: metaStatusRaw,
+    quality_score: qualityScore,
+    quality_reasons: qualityReasons,
+    rejection_reason: metaStatusRaw === 'REJECTED' ? rejectionReason : null,
+    waba_id: context.wabaId !== undefined ? context.wabaId : undefined,
+    wa_account_id: context.waAccountId !== undefined ? context.waAccountId : undefined,
+    last_synced_at: new Date(),
+  };
+}
+
+async function fetchMetaTemplateById(metaTemplateId, accessToken) {
+  const response = await axios.get(
+    `${config.meta.baseUrl}/${metaTemplateId}`,
+    {
+      params: {
+        fields: META_TEMPLATE_FIELDS,
+      },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      timeout: 15000,
+    }
+  );
+
+  return response.data;
+}
+
+async function findTemplateByMetaIdentifiers({ metaTemplateId, templateName, wabaId }) {
   const where = metaTemplateId
     ? { meta_template_id: metaTemplateId }
     : {
@@ -203,14 +276,72 @@ async function applyTemplateStatusEvent(event) {
         name: templateName,
       };
 
-  const template = await Template.findOne({ where });
+  return Template.findOne({ where });
+}
+
+async function applyTemplateQualityEvent(event) {
+  const metaTemplateId = event.messageTemplateId || event.message_template_id || null;
+  const templateName = event.messageTemplateName || event.message_template_name || null;
+  const wabaId = event.wabaId || event.waba_id || null;
+  const qualityScore = extractQualityScore(event);
+
+  if (!qualityScore) {
+    throw AppError.badRequest('Template quality event is missing the new quality score.');
+  }
+
+  if (!metaTemplateId && (!templateName || !wabaId)) {
+    throw AppError.badRequest('Template quality event is missing required identifiers.');
+  }
+
+  const template = await findTemplateByMetaIdentifiers({
+    metaTemplateId,
+    templateName,
+    wabaId,
+  });
+
   if (!template) {
     return null;
   }
 
   await template.update({
-    status: nextStatus,
-    rejection_reason: nextStatus === 'rejected' ? event.reason || event.rejection_reason || null : null,
+    quality_score: qualityScore,
+    last_synced_at: new Date(),
+  });
+
+  return template;
+}
+
+async function applyTemplateStatusEvent(event) {
+  if (
+    event?.eventType === 'quality_update'
+    || event?.newQualityScore
+    || event?.new_quality_score
+  ) {
+    return applyTemplateQualityEvent(event);
+  }
+
+  const metaTemplateId = event.messageTemplateId || event.message_template_id || null;
+  const templateName = event.messageTemplateName || event.message_template_name || null;
+  const wabaId = event.wabaId || event.waba_id || null;
+  const normalizedStatus = normalizeMetaTemplateStatus(event.status || event.event);
+
+  if ((!metaTemplateId && (!templateName || !wabaId)) || !normalizedStatus) {
+    throw AppError.badRequest('Template status event is missing required identifiers.');
+  }
+
+  const template = await findTemplateByMetaIdentifiers({
+    metaTemplateId,
+    templateName,
+    wabaId,
+  });
+  if (!template) {
+    return null;
+  }
+
+  await template.update({
+    status: deriveLocalTemplateStatus(normalizedStatus, template.status),
+    meta_status_raw: normalizedStatus,
+    rejection_reason: normalizedStatus === 'REJECTED' ? extractRejectionReason(event) : null,
     meta_template_id: metaTemplateId || template.meta_template_id,
     last_synced_at: new Date(),
   });
@@ -682,8 +813,57 @@ function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
 }
 
+function getMetaManagedTemplateChanges(template, data) {
+  return {
+    categoryChanged: data.category !== undefined && data.category !== template.category,
+    componentsChanged: data.components !== undefined,
+  };
+}
+
+function assertMetaTemplateUpdateAllowed(template, data, nextWaAccountId) {
+  const disallowedFields = [];
+
+  if (data.name !== undefined && data.name !== template.name) {
+    disallowedFields.push('name');
+  }
+
+  if (data.language !== undefined && data.language !== template.language) {
+    disallowedFields.push('language');
+  }
+
+  if (data.type !== undefined && data.type !== template.type) {
+    disallowedFields.push('type');
+  }
+
+  if (data.wa_account_id !== undefined && nextWaAccountId !== template.wa_account_id) {
+    disallowedFields.push('wa_account_id');
+  }
+
+  if (
+    resolveTemplateMetaStatus(template) === 'APPROVED'
+    && data.category !== undefined
+    && data.category !== template.category
+  ) {
+    disallowedFields.push('category');
+  }
+
+  if (disallowedFields.length) {
+    throw AppError.badRequest(
+      `Meta-managed templates cannot update these fields in the current state: ${disallowedFields.join(', ')}.`
+    );
+  }
+}
+
 function serializeTemplate(template) {
   const record = typeof template.toJSON === 'function' ? template.toJSON() : { ...template };
+  record.meta_status_raw = resolveTemplateMetaStatus(record);
+  record.quality_score = extractQualityScore(record);
+  record.quality_reasons = extractQualityReasons(record);
+
+  if (record.meta_template_id && record.meta_status_raw) {
+    record.status = deriveLocalTemplateStatus(record.meta_status_raw, record.status);
+  }
+
   return {
     ...record,
     available_actions: getTemplateAvailableActions(record),
@@ -836,9 +1016,8 @@ async function getTemplate(userId, templateId) {
 // ─── Update Template ───────────────────────────────────────────────────────
 
 /**
- * Updates a template. Only allows updates to templates in 'draft' or 'rejected' status.
- * If the template has been published (has meta_template_id), only components can be updated
- * via Meta's edit API, handled separately.
+ * Updates a template using either the local draft workflow or Meta's edit API,
+ * depending on whether the template has already been created on Meta.
  *
  * @param {string} userId
  * @param {string} templateId
@@ -854,10 +1033,9 @@ async function updateTemplate(userId, templateId, data) {
     throw AppError.notFound('Template not found');
   }
 
-  // Only allow editing draft or rejected templates locally
-  if (!['draft', 'rejected'].includes(template.status)) {
+  if (!canEditTemplate(template)) {
     throw AppError.badRequest(
-      `Cannot edit a template with status "${template.status}". Only draft or rejected templates can be edited.`
+      `Cannot edit a template with status "${template.status}".`
     );
   }
 
@@ -909,6 +1087,117 @@ async function updateTemplate(userId, templateId, data) {
   };
   assertTemplateBusinessRules(nextTemplateState);
 
+  const localOnlyUpdateFields = {};
+  if (data.display_name !== undefined) localOnlyUpdateFields.display_name = data.display_name;
+  if (data.example_values !== undefined) localOnlyUpdateFields.example_values = data.example_values;
+
+  const isMetaLinkedTemplate = Boolean(
+    template.meta_template_id && resolveTemplateMetaStatus(template)
+  );
+
+  if (isMetaLinkedTemplate) {
+    assertMetaTemplateUpdateAllowed(template, data, nextWaAccountId);
+
+    const managedChanges = getMetaManagedTemplateChanges(template, data);
+    const hasMetaManagedChanges = managedChanges.categoryChanged || managedChanges.componentsChanged;
+
+    if (!hasMetaManagedChanges) {
+      if (Object.keys(localOnlyUpdateFields).length > 0) {
+        await template.update(localOnlyUpdateFields);
+      }
+      return serializeTemplate(template);
+    }
+
+    const accountContext = await resolveAccountContext(userId, {
+      waAccountId: template.wa_account_id,
+      wabaId: template.waba_id,
+      allowFallbackByWaba: true,
+    });
+
+    if (!accountContext) {
+      throw AppError.badRequest(
+        'WhatsApp access token is required for editing a Meta template. Configure META_SYSTEM_USER_ACCESS_TOKEN or connect an active WhatsApp account for this WABA.'
+      );
+    }
+
+    const wabaId = String(accountContext.waba_id);
+    if (template.waba_id && String(template.waba_id) !== wabaId) {
+      throw AppError.badRequest(
+        `The connected WhatsApp account belongs to WABA ${wabaId}, but this template is scoped to WABA ${template.waba_id}.`
+      );
+    }
+
+    const metaEditableTemplate = {
+      ...template.toJSON(),
+      category: data.category !== undefined ? data.category : template.category,
+      components: data.components !== undefined ? data.components : template.components,
+      wa_account_id: accountContext.wa_account_id || template.wa_account_id,
+      waba_id: wabaId,
+    };
+
+    const payload = await buildMetaTemplatePayload(
+      userId,
+      accountContext.access_token,
+      metaEditableTemplate,
+      wabaId
+    );
+
+    try {
+      await axios.post(
+        `${config.meta.baseUrl}/${template.meta_template_id}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accountContext.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
+        }
+      );
+    } catch (err) {
+      const metaError = err.response?.data?.error;
+      throw AppError.badRequest(
+        `Meta API error: ${metaError?.message || err.message}`
+      );
+    }
+
+    let refreshedTemplate = null;
+    try {
+      refreshedTemplate = await fetchMetaTemplateById(
+        template.meta_template_id,
+        accountContext.access_token
+      );
+    } catch (err) {
+      console.warn(
+        '[template-service] Could not refresh edited template from Meta:',
+        err.response?.data?.error?.message || err.message
+      );
+    }
+
+    const updateFields = refreshedTemplate
+      ? mapMetaTemplateToLocalState(refreshedTemplate, {
+          wabaId,
+          waAccountId: accountContext.wa_account_id || template.wa_account_id,
+          metaTemplateId: template.meta_template_id,
+        })
+      : {
+          category: data.category !== undefined ? data.category : template.category,
+          components: data.components !== undefined ? data.components : template.components,
+          status: 'pending',
+          meta_status_raw: 'PENDING',
+          waba_id: wabaId,
+          wa_account_id: accountContext.wa_account_id || template.wa_account_id,
+          last_synced_at: new Date(),
+        };
+
+    await template.update({
+      ...updateFields,
+      ...localOnlyUpdateFields,
+    });
+
+    return serializeTemplate(template);
+  }
+
   // Build the update object only with provided fields
   const updateFields = {};
   if (data.name !== undefined) updateFields.name = data.name;
@@ -921,11 +1210,10 @@ async function updateTemplate(userId, templateId, data) {
   if (data.wa_account_id !== undefined) updateFields.wa_account_id = nextWaAccountId;
   if (data.wa_account_id !== undefined && nextWabaId) updateFields.waba_id = nextWabaId;
 
-  // If the template was rejected and is being re-edited, reset status to draft
-  if (template.status === 'rejected') {
+  if (template.status === 'rejected' && !template.meta_template_id) {
     updateFields.status = 'draft';
     updateFields.rejection_reason = null;
-    updateFields.meta_template_id = null;
+    updateFields.meta_status_raw = null;
   }
 
   await template.update(updateFields);
@@ -953,8 +1241,14 @@ async function deleteTemplate(userId, templateId, accessToken) {
     throw AppError.notFound('Template not found');
   }
 
+  if (!canDeleteTemplate(template)) {
+    throw AppError.badRequest('Disabled Meta templates cannot be deleted.');
+  }
+
+  const metaStatusRaw = resolveTemplateMetaStatus(template);
+
   // If the template has been published to Meta, delete from Meta first
-  if (template.meta_template_id && template.waba_id) {
+  if (template.meta_template_id && template.waba_id && metaStatusRaw !== 'PENDING_DELETION') {
     const accountContext = await resolveAccountContext(userId, {
       waAccountId: template.wa_account_id,
       wabaId: template.waba_id,
@@ -974,7 +1268,7 @@ async function deleteTemplate(userId, templateId, accessToken) {
         {
           params: pickDefinedEntries([
             ['name', template.name],
-            ['hsm_id', template.meta_template_id],
+            ['hsm_id', template.meta_template_id || undefined],
           ]),
           headers: {
             Authorization: `Bearer ${accountContext.access_token}`,
@@ -1028,10 +1322,9 @@ async function publishTemplate(userId, templateId, accessToken, waAccountIdOverr
     throw AppError.notFound('Template not found');
   }
 
-  // Only draft or rejected templates can be published
-  if (!['draft', 'rejected'].includes(template.status)) {
+  if (!canPublishTemplate(template)) {
     throw AppError.badRequest(
-      `Cannot publish a template with status "${template.status}". Only draft or rejected templates can be published.`
+      `Cannot publish a template with status "${template.status}".`
     );
   }
 
@@ -1099,24 +1392,24 @@ async function publishTemplate(userId, templateId, accessToken, waAccountIdOverr
 
   // Extract template ID from Meta response
   const metaTemplateId = metaResponse.data?.id;
-  const metaStatus = metaResponse.data?.status;
+  const metaStatus = normalizeMetaTemplateStatus(metaResponse.data?.status) || 'PENDING';
+  const nextStatus = deriveLocalTemplateStatus(metaStatus, 'pending');
+  const rejectionReason = metaStatus === 'REJECTED'
+    ? extractRejectionReason(metaResponse.data)
+    : null;
 
   // Update local template record
   const updateData = {
-    status: 'pending',
+    status: nextStatus,
     meta_template_id: metaTemplateId || null,
+    meta_status_raw: metaStatus,
+    quality_score: null,
+    quality_reasons: null,
+    rejection_reason: rejectionReason,
     waba_id: wabaId,
     wa_account_id: accountContext.wa_account_id || template.wa_account_id,
     last_synced_at: new Date(),
   };
-
-  // If Meta immediately approved/rejected (rare but possible)
-  if (metaStatus === 'APPROVED') {
-    updateData.status = 'approved';
-  } else if (metaStatus === 'REJECTED') {
-    updateData.status = 'rejected';
-    updateData.rejection_reason = metaResponse.data?.rejection_reason || null;
-  }
 
   await template.update(updateData);
 
@@ -1156,11 +1449,16 @@ async function syncTemplates(userId, waAccountId, accessToken) {
 
   // Fetch all templates from Meta
   let metaTemplates = [];
-  let nextUrl = `${config.meta.baseUrl}/${wabaId}/message_templates?limit=100`;
+  let nextUrl = `${config.meta.baseUrl}/${wabaId}/message_templates`;
+  let requestParams = {
+    limit: 100,
+    fields: META_TEMPLATE_FIELDS,
+  };
 
   try {
     while (nextUrl) {
       const response = await axios.get(nextUrl, {
+        params: requestParams,
         headers: {
           Authorization: `Bearer ${accountContext.access_token}`,
         },
@@ -1173,6 +1471,7 @@ async function syncTemplates(userId, waAccountId, accessToken) {
 
       // Handle pagination from Meta API
       nextUrl = response.data?.paging?.next || null;
+      requestParams = undefined;
     }
   } catch (err) {
     const metaError = err.response?.data?.error;
@@ -1187,23 +1486,9 @@ async function syncTemplates(userId, waAccountId, accessToken) {
   let created = 0;
   let updated = 0;
 
-  // Map Meta status to our local status
-  const statusMap = {
-    APPROVED: 'approved',
-    PENDING: 'pending',
-    REJECTED: 'rejected',
-    PAUSED: 'paused',
-    DISABLED: 'disabled',
-  };
-
   for (const metaTemplate of metaTemplates) {
     const metaId = metaTemplate.id;
     const metaName = metaTemplate.name;
-    const metaStatus = statusMap[metaTemplate.status] || 'pending';
-    const metaCategory = metaTemplate.category;
-    const metaLanguage = metaTemplate.language;
-    const metaComponents = metaTemplate.components || [];
-    const rejectionReason = metaTemplate.rejected_reason || metaTemplate.quality_score?.reasons?.join(', ') || null;
 
     // Try to find existing local template by meta_template_id
     let localTemplate = await Template.findOne({
@@ -1225,18 +1510,14 @@ async function syncTemplates(userId, waAccountId, accessToken) {
     }
 
     if (localTemplate) {
-      // Update existing template with Meta's current state
       const updateData = {
-        status: metaStatus,
-        meta_template_id: metaId,
-        components: metaComponents,
-        category: metaCategory,
-        language: metaLanguage,
-        type: detectTemplateType(metaComponents),
-        rejection_reason: rejectionReason,
+        ...mapMetaTemplateToLocalState(metaTemplate, {
+          wabaId,
+          waAccountId: accountContext.wa_account_id,
+          metaTemplateId: metaId,
+        }),
         waba_id: wabaId,
         wa_account_id: accountContext.wa_account_id,
-        last_synced_at: new Date(),
       };
 
       if (!localTemplate.source && !localTemplate.meta_template_id) {
@@ -1247,21 +1528,29 @@ async function syncTemplates(userId, waAccountId, accessToken) {
       updated++;
     } else {
       // Create new local record for template that exists on Meta but not locally
+      const syncedState = mapMetaTemplateToLocalState(metaTemplate, {
+        wabaId,
+        waAccountId: accountContext.wa_account_id,
+        metaTemplateId: metaId,
+      });
       await Template.create({
         user_id: userId,
         waba_id: wabaId,
         wa_account_id: accountContext.wa_account_id,
         name: metaName,
         display_name: metaName.replace(/_/g, ' '),
-        language: metaLanguage,
-        category: metaCategory,
-        type: detectTemplateType(metaComponents),
-        status: metaStatus,
+        language: syncedState.language,
+        category: syncedState.category,
+        type: syncedState.type,
+        status: syncedState.status,
         source: 'meta_sync',
-        components: metaComponents,
+        components: syncedState.components,
         meta_template_id: metaId,
-        rejection_reason: rejectionReason,
-        last_synced_at: new Date(),
+        meta_status_raw: syncedState.meta_status_raw,
+        quality_score: syncedState.quality_score,
+        quality_reasons: syncedState.quality_reasons,
+        rejection_reason: syncedState.rejection_reason,
+        last_synced_at: syncedState.last_synced_at,
       });
       created++;
     }

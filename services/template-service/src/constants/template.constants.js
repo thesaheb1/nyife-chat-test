@@ -6,6 +6,18 @@ const TEMPLATE_TYPES = ['standard', 'authentication', 'carousel', 'flow', 'list_
 
 const TEMPLATE_STATUSES = ['draft', 'pending', 'approved', 'rejected', 'paused', 'disabled'];
 
+const META_TEMPLATE_STATUSES = [
+  'APPROVED',
+  'PENDING',
+  'PENDING_DELETION',
+  'REJECTED',
+  'PAUSED',
+  'DISABLED',
+  'APPEAL_REQUESTED',
+];
+
+const TEMPLATE_QUALITY_SCORES = ['GREEN', 'YELLOW', 'RED', 'UNKNOWN'];
+
 const META_TEMPLATE_LANGUAGE_CODES = [
   'af',
   'sq',
@@ -122,5 +134,7 @@ module.exports = {
   TEMPLATE_CATEGORIES,
   TEMPLATE_TYPES,
   TEMPLATE_STATUSES,
+  META_TEMPLATE_STATUSES,
+  TEMPLATE_QUALITY_SCORES,
   META_TEMPLATE_LANGUAGE_CODES,
 };

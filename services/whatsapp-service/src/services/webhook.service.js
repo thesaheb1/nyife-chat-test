@@ -88,7 +88,15 @@ async function processWebhook(body, kafkaProducer) {
             break;
 
           case 'message_template_status_update':
-            await handleTemplateStatusUpdate(wabaId, value, kafkaProducer);
+            if (value.new_quality_score || value.previous_quality_score) {
+              await handleTemplateQualityUpdate(wabaId, value, kafkaProducer);
+            } else {
+              await handleTemplateStatusUpdate(wabaId, value, kafkaProducer);
+            }
+            break;
+
+          case 'message_template_quality_update':
+            await handleTemplateQualityUpdate(wabaId, value, kafkaProducer);
             break;
 
           case 'phone_number_quality_update':
@@ -612,6 +620,56 @@ async function handleTemplateStatusUpdate(wabaId, value, kafkaProducer) {
     } catch (err) {
       console.error(
         '[whatsapp-service] Failed to publish template status to Kafka:',
+        err.message
+      );
+    }
+  }
+}
+
+/**
+ * Handles template quality score changes from Meta.
+ *
+ * @param {string} wabaId - WABA ID
+ * @param {object} value - The change value containing template quality info
+ * @param {object|null} kafkaProducer - Kafka producer
+ */
+async function handleTemplateQualityUpdate(wabaId, value, kafkaProducer) {
+  const account = await WaAccount.findOne({
+    where: { waba_id: String(wabaId) },
+    order: [['updated_at', 'DESC']],
+  });
+
+  const qualityEvent = {
+    message_template_id: value.message_template_id,
+    message_template_name: value.message_template_name,
+    message_template_language: value.message_template_language,
+    previous_quality_score: normalizeQualityRating(value.previous_quality_score),
+    new_quality_score: normalizeQualityRating(value.new_quality_score),
+  };
+
+  console.log(
+    `[whatsapp-service] Template quality update for WABA ${wabaId}: ` +
+      `template="${qualityEvent.message_template_name}" quality="${qualityEvent.new_quality_score}"`
+  );
+
+  if (kafkaProducer) {
+    try {
+      await publishEvent(kafkaProducer, TOPICS.WHATSAPP_TEMPLATE_STATUS, wabaId, {
+        userId: account?.user_id || null,
+        waAccountId: account?.id || null,
+        wabaId: String(wabaId),
+        phoneNumberId: account?.phone_number_id || null,
+        messageTemplateId: qualityEvent.message_template_id || null,
+        messageTemplateName: qualityEvent.message_template_name || null,
+        messageTemplateLanguage: qualityEvent.message_template_language || null,
+        previousQualityScore: qualityEvent.previous_quality_score,
+        newQualityScore: qualityEvent.new_quality_score,
+        eventType: 'quality_update',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error(
+        '[whatsapp-service] Failed to publish template quality to Kafka:',
         err.message
       );
     }

@@ -73,6 +73,18 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING(100),
         allowNull: true,
       },
+      meta_status_raw: {
+        type: DataTypes.STRING(50),
+        allowNull: true,
+      },
+      quality_score: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+      },
+      quality_reasons: {
+        type: DataTypes.JSON,
+        allowNull: true,
+      },
       last_synced_at: {
         type: DataTypes.DATE,
         allowNull: true,

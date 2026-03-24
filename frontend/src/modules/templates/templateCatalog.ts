@@ -1,6 +1,8 @@
 import type { Template, WaAccount } from '@/core/types';
 
 export type TemplateActionKey = 'view' | 'edit' | 'publish' | 'sync' | 'delete';
+export type TemplateQualityScore = NonNullable<Template['quality_score']>;
+const EDITABLE_META_STATUSES = new Set(['APPROVED', 'REJECTED', 'PAUSED']);
 
 export const TEMPLATE_CATEGORY_OPTIONS = [
   { label: 'Marketing', value: 'MARKETING' },
@@ -55,11 +57,45 @@ export const TEMPLATE_STATUS_CLASSES: Record<Template['status'], string> = {
 };
 
 export const TEMPLATE_ACTION_LABELS: Record<TemplateActionKey, string> = {
-  view: 'View details',
-  edit: 'Edit draft',
+  view: 'Preview template',
+  edit: 'Edit template',
   publish: 'Submit to Meta',
   sync: 'Sync from Meta',
   delete: 'Delete template',
+};
+
+export const TEMPLATE_META_STATUS_LABELS: Record<string, string> = {
+  APPROVED: 'Meta approved',
+  PENDING: 'Meta in review',
+  PENDING_DELETION: 'Pending deletion',
+  REJECTED: 'Meta rejected',
+  PAUSED: 'Meta paused',
+  DISABLED: 'Meta disabled',
+  APPEAL_REQUESTED: 'Appeal requested',
+};
+
+export const TEMPLATE_META_STATUS_CLASSES: Record<string, string> = {
+  APPROVED: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-200',
+  PENDING: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200',
+  PENDING_DELETION: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/60 dark:text-orange-200',
+  REJECTED: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/60 dark:text-rose-200',
+  PAUSED: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/60 dark:text-orange-200',
+  DISABLED: 'border-zinc-200 bg-zinc-100 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200',
+  APPEAL_REQUESTED: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/60 dark:text-sky-200',
+};
+
+export const TEMPLATE_QUALITY_LABELS: Record<TemplateQualityScore, string> = {
+  GREEN: 'High quality',
+  YELLOW: 'Medium quality',
+  RED: 'Low quality',
+  UNKNOWN: 'Quality pending',
+};
+
+export const TEMPLATE_QUALITY_CLASSES: Record<TemplateQualityScore, string> = {
+  GREEN: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-200',
+  YELLOW: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200',
+  RED: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/60 dark:text-rose-200',
+  UNKNOWN: 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200',
 };
 
 export const TEMPLATE_TYPE_LABELS: Record<Template['type'], string> = {
@@ -182,27 +218,91 @@ export const META_TEMPLATE_LANGUAGES = [
   { label: 'Zulu', value: 'zu' },
 ] as const;
 
+export function resolveTemplateMetaStatus(
+  template: Pick<Template, 'status' | 'meta_status_raw' | 'meta_template_id'> | null | undefined
+) {
+  const normalizedMetaStatus = template?.meta_status_raw?.trim().toUpperCase();
+  if (normalizedMetaStatus) {
+    return normalizedMetaStatus;
+  }
+
+  if (!template?.meta_template_id) {
+    return null;
+  }
+
+  const compatibilityMap: Partial<Record<Template['status'], string>> = {
+    pending: 'PENDING',
+    approved: 'APPROVED',
+    rejected: 'REJECTED',
+    paused: 'PAUSED',
+    disabled: 'DISABLED',
+  };
+
+  return compatibilityMap[template.status] || null;
+}
+
+export function canPublishTemplate(
+  template: Pick<Template, 'status' | 'meta_template_id'> | null | undefined
+) {
+  return Boolean(template && !template.meta_template_id && ['draft', 'rejected'].includes(template.status));
+}
+
+export function canEditTemplate(
+  template: Pick<Template, 'status' | 'meta_status_raw' | 'meta_template_id'> | null | undefined
+) {
+  if (canPublishTemplate(template)) {
+    return true;
+  }
+
+  const effectiveMetaStatus = resolveTemplateMetaStatus(template);
+  return effectiveMetaStatus ? EDITABLE_META_STATUSES.has(effectiveMetaStatus) : false;
+}
+
+export function canDeleteTemplate(
+  template: Pick<Template, 'status' | 'meta_status_raw' | 'meta_template_id'> | null | undefined
+) {
+  return resolveTemplateMetaStatus(template) !== 'DISABLED';
+}
+
+export function canSyncTemplate(
+  template: Pick<Template, 'wa_account_id' | 'waba_id'> | null | undefined
+) {
+  return Boolean(template?.wa_account_id || template?.waba_id);
+}
+
 export function getTemplateAvailableActions(template: Template): TemplateActionKey[] {
   const declared = template.available_actions?.filter(
     (action): action is TemplateActionKey => ['view', 'edit', 'publish', 'sync', 'delete'].includes(action)
   );
 
-  if (declared?.length) {
-    return declared;
+  const actions = new Set<TemplateActionKey>(declared?.length ? declared : ['view']);
+  actions.add('view');
+
+  if (canEditTemplate(template)) {
+    actions.add('edit');
   }
 
-  const actions = new Set<TemplateActionKey>(['view', 'delete']);
-
-  if (template.status === 'draft' || template.status === 'rejected') {
-    actions.add('edit');
+  if (canPublishTemplate(template)) {
     actions.add('publish');
   }
 
-  if (template.waba_id) {
+  if (canSyncTemplate(template)) {
     actions.add('sync');
   }
 
+  if (canDeleteTemplate(template)) {
+    actions.add('delete');
+  }
+
   return Array.from(actions);
+}
+
+export function getTemplateMetaStatusLabel(status: string | null) {
+  if (!status) {
+    return null;
+  }
+
+  return TEMPLATE_META_STATUS_LABELS[status] || status.replace(/_/g, ' ').toLowerCase();
 }
 
 export function buildTemplateWabaOptions(accounts: WaAccount[] | undefined) {

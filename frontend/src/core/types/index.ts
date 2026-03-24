@@ -146,6 +146,9 @@ export interface Template {
   example_values: Record<string, unknown> | null;
   rejection_reason: string | null;
   meta_template_id: string | null;
+  meta_status_raw: string | null;
+  quality_score: 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN' | null;
+  quality_reasons: string[] | null;
   available_actions?: Array<'view' | 'edit' | 'publish' | 'sync' | 'delete'>;
   last_synced_at: string | null;
   created_at: string;

@@ -53,20 +53,5 @@
 
 
 
-// Good evening sir, Here is my today's report :-
 
-
-// 1. Created user analytics overview Ui on user details page.
-
-// 2. Created organization switcher, status updation UI and functionality on user details page.
-
-// 3. Integrated organization switcher and status updation API on user details page.
-
-// 4. Created credit and debit wallet UI and functionality on user details page.
-
-// 5. Created credit and debit wallet API and integrated it on user details page.
-
-// 6. Created user profile delete UI on user details page.
-
-// 7. Created user profile delete API and integrated it on user details page.
 

@@ -48,6 +48,8 @@ export function TemplateListPage() {
     () => (waAccounts || []).filter((account) => account.status === 'active').length,
     [waAccounts]
   );
+// Validation checklist Ui is taking so much space can we make it compact not 
+
   const { data, isLoading } = useTemplates({
     page: listing.page,
     limit: 20,

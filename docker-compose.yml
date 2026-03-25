@@ -160,6 +160,7 @@ services:
       NODE_ENV: production
       AUTH_SERVICE_PORT: 3001
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
       EMAIL_SERVICE_URL: http://email-service:3013
@@ -188,6 +189,7 @@ services:
       NODE_ENV: production
       USER_SERVICE_PORT: 3002
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -215,6 +217,7 @@ services:
       NODE_ENV: production
       SUBSCRIPTION_SERVICE_PORT: 3003
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -272,6 +275,7 @@ services:
       CONTACT_SERVICE_PORT: 3005
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -301,6 +305,7 @@ services:
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MEDIA_SERVICE_URL: http://media-service:3017
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -329,6 +334,7 @@ services:
       CAMPAIGN_SERVICE_PORT: 3007
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -358,6 +364,7 @@ services:
       NODE_ENV: production
       CHAT_SERVICE_PORT: 3008
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -386,6 +393,7 @@ services:
       WHATSAPP_SERVICE_PORT: 3009
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -415,6 +423,7 @@ services:
       NODE_ENV: production
       AUTOMATION_SERVICE_PORT: 3010
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -444,6 +453,7 @@ services:
       NODE_ENV: production
       ORGANIZATION_SERVICE_PORT: 3011
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -471,6 +481,7 @@ services:
       NODE_ENV: production
       NOTIFICATION_SERVICE_PORT: 3012
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -500,6 +511,7 @@ services:
       NODE_ENV: production
       EMAIL_SERVICE_PORT: 3013
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -529,6 +541,7 @@ services:
       NODE_ENV: production
       SUPPORT_SERVICE_PORT: 3014
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -558,6 +571,7 @@ services:
       EMAIL_SERVICE_URL: http://email-service:3013
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -585,6 +599,7 @@ services:
       NODE_ENV: production
       ANALYTICS_SERVICE_PORT: 3016
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:29092
     depends_on:
@@ -614,6 +629,7 @@ services:
       NODE_ENV: production
       MEDIA_SERVICE_PORT: 3017
       MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
       REDIS_HOST: redis
     volumes:
       - media_uploads:/app/uploads

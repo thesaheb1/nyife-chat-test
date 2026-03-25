@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Template } from '@/core/types';
 import type { TemplateDraft, TemplateMediaAsset } from './templateBuilder';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface TemplateComponent {
   type: string;
@@ -426,11 +427,9 @@ export function WhatsAppTemplatePreview({
               </div>
             </div>
 
-            <div
-              className={cn(
-                'min-h-90 px-2.5 pb-3 pt-3'
-              )}
-            >
+            <ScrollArea className={cn(
+              'h-90 px-2.5 pb-3 pt-3 overflow-y-auto'
+            )}>
               <div className="mb-3 flex justify-center">
                 <span
                   className={cn(
@@ -460,7 +459,8 @@ export function WhatsAppTemplatePreview({
                   <TemplateMessageCard type={type} components={normalizedComponents} draft={draft} theme={theme} />
                 )}
               </div>
-            </div>
+
+            </ScrollArea>
 
             <div className={cn('border-t px-2.5 py-2', isDark ? 'border-white/8 bg-[#202c33]' : 'border-black/8 bg-[#f0f2f5]')}>
               <div className="flex items-center gap-2">

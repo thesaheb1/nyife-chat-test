@@ -76,20 +76,24 @@ export function SectionIssueList({ title, issues }: { title: string; issues: Val
 export function ValidationSummary({
   valid,
   issueCount,
+  compact = false,
 }: {
   valid: boolean;
   issueCount: number;
+  compact?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border p-4">
+    <div className={`flex items-center gap-3 rounded-2xl border ${compact ? 'px-3 py-2.5' : 'p-4'}`}>
       {valid ? (
-        <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+        <CheckCircle2 className={`${compact ? 'h-4 w-4' : 'h-5 w-5'} text-emerald-600`} />
       ) : (
-        <AlertTriangle className="h-5 w-5 text-amber-600" />
+        <AlertTriangle className={`${compact ? 'h-4 w-4' : 'h-5 w-5'} text-amber-600`} />
       )}
-      <div>
-        <div className="font-medium">{valid ? 'Ready for save or update' : 'Validation required'}</div>
-        <div className="text-sm text-muted-foreground">
+      <div className="min-w-0">
+        <div className={compact ? 'text-sm font-medium' : 'font-medium'}>
+          {valid ? 'Ready for save or update' : 'Validation required'}
+        </div>
+        <div className={`${compact ? 'text-xs' : 'text-sm'} text-muted-foreground`}>
           {valid ? 'The current payload matches the type-specific frontend rules.' : `${issueCount} issue(s) still need attention.`}
         </div>
       </div>

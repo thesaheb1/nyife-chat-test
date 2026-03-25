@@ -390,33 +390,33 @@ function TemplateComposer({
           ) : null}
 
           <Card>
-            <CardHeader>
-              <CardTitle>Validation checklist</CardTitle>
-              <CardDescription>Visible while you edit, so Meta-facing issues never disappear behind the preview.</CardDescription>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Validation checklist</CardTitle>
+              <CardDescription>Compact checks that stay visible while you edit.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <ValidationSummary valid={isPayloadValid} issueCount={validationIssues.length} />
-              <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-                <p>Language: {getTemplateLanguageLabel(draft.language)}</p>
-                <p>Category: {draft.category}</p>
-                <p>Type: {TEMPLATE_TYPE_LABELS[draft.type]}</p>
+            <CardContent className="space-y-3 pt-0">
+              <ValidationSummary valid={isPayloadValid} issueCount={validationIssues.length} compact />
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full border bg-muted/30 px-2.5 py-1">Language: {getTemplateLanguageLabel(draft.language)}</span>
+                <span className="rounded-full border bg-muted/30 px-2.5 py-1">Category: {draft.category}</span>
+                <span className="rounded-full border bg-muted/30 px-2.5 py-1">Type: {TEMPLATE_TYPE_LABELS[draft.type]}</span>
               </div>
               {isPayloadValid ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
                   All current client-side checks passed, including type-specific structure, Meta text limits, and CTA rules.
                 </div>
               ) : (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-                  <div className="mb-2 flex items-center gap-2 font-semibold">
+                <details className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                  <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold">
                     <AlertTriangle className="h-4 w-4" />
-                    Fix these items
-                  </div>
-                  <div className="space-y-1">
+                    Fix these items ({Math.min(validationIssues.length, 8)} shown)
+                  </summary>
+                  <div className="mt-2 space-y-1">
                     {validationIssues.slice(0, 8).map((issue) => (
                       <p key={`${issue.path}-${issue.message}`}>{issue.message}</p>
                     ))}
                   </div>
-                </div>
+                </details>
               )}
             </CardContent>
           </Card>

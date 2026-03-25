@@ -249,6 +249,7 @@ async function verifyWebhook(req, res) {
 async function processWebhook(req, res) {
   // Respond 200 immediately to Meta (they require a fast response)
   res.status(200).json({ status: 'received' });
+  console.log('[whatsapp-service] Webhook received:', JSON.stringify(req.body));
 
   // Process webhook asynchronously (after response is sent)
   const kafkaProducer = req.app.locals.kafkaProducer || null;

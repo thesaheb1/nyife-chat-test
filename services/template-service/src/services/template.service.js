@@ -58,6 +58,7 @@ const META_TEMPLATE_FIELDS = [
   'status',
   'category',
   'components',
+  'message_send_ttl_seconds',
   'quality_score',
   'rejected_reason',
 ].join(',');
@@ -206,7 +207,7 @@ function extractQualityScore(data) {
 }
 
 function extractQualityReasons(data) {
-  const reasons = data?.quality_score?.reasons || data?.quality_reasons || [];
+  const reasons = data?.quality_score?.reasons || data?.quality_reasons || data?.qualityReasons || [];
   if (!Array.isArray(reasons)) {
     return null;
   }
@@ -227,11 +228,25 @@ function extractRejectionReason(data) {
   return value || null;
 }
 
+function normalizeMessageSendTtl(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
 function mapMetaTemplateToLocalState(metaTemplate, context = {}) {
   const metaStatusRaw = normalizeMetaTemplateStatus(metaTemplate?.status || metaTemplate?.meta_status_raw);
   const qualityScore = extractQualityScore(metaTemplate);
   const qualityReasons = extractQualityReasons(metaTemplate);
   const rejectionReason = extractRejectionReason(metaTemplate);
+  const messageSendTtlSeconds = normalizeMessageSendTtl(metaTemplate?.message_send_ttl_seconds);
 
   return {
     name: metaTemplate?.name,
@@ -245,6 +260,7 @@ function mapMetaTemplateToLocalState(metaTemplate, context = {}) {
     quality_score: qualityScore,
     quality_reasons: qualityReasons,
     rejection_reason: metaStatusRaw === 'REJECTED' ? rejectionReason : null,
+    message_send_ttl_seconds: messageSendTtlSeconds,
     waba_id: context.wabaId !== undefined ? context.wabaId : undefined,
     wa_account_id: context.waAccountId !== undefined ? context.waAccountId : undefined,
     last_synced_at: new Date(),
@@ -268,22 +284,64 @@ async function fetchMetaTemplateById(metaTemplateId, accessToken) {
   return response.data;
 }
 
-async function findTemplateByMetaIdentifiers({ metaTemplateId, templateName, wabaId }) {
-  const where = metaTemplateId
-    ? { meta_template_id: metaTemplateId }
-    : {
-        waba_id: String(wabaId),
-        name: templateName,
-      };
+async function findTemplateByMetaIdentifiers({
+  userId = null,
+  metaTemplateId,
+  templateName,
+  templateLanguage,
+  wabaId,
+}) {
+  const scopedUserFilter = userId ? { user_id: userId } : {};
 
-  return Template.findOne({ where });
+  if (metaTemplateId) {
+    return Template.findOne({
+      where: {
+        ...scopedUserFilter,
+        meta_template_id: metaTemplateId,
+      },
+    });
+  }
+
+  const normalizedName = trimString(templateName);
+  const normalizedWabaId = wabaId ? String(wabaId) : null;
+  const normalizedLanguage = trimString(templateLanguage);
+
+  if (!normalizedName || !normalizedWabaId) {
+    return null;
+  }
+
+  if (normalizedLanguage) {
+    return Template.findOne({
+      where: {
+        ...scopedUserFilter,
+        waba_id: normalizedWabaId,
+        name: normalizedName,
+        language: normalizedLanguage,
+      },
+    });
+  }
+
+  const matches = await Template.findAll({
+    where: {
+      ...scopedUserFilter,
+      waba_id: normalizedWabaId,
+      name: normalizedName,
+    },
+    order: [['updated_at', 'DESC']],
+    limit: 2,
+  });
+
+  return matches.length === 1 ? matches[0] : null;
 }
 
 async function applyTemplateQualityEvent(event) {
+  const userId = event.userId || event.user_id || null;
   const metaTemplateId = event.messageTemplateId || event.message_template_id || null;
   const templateName = event.messageTemplateName || event.message_template_name || null;
+  const templateLanguage = event.messageTemplateLanguage || event.message_template_language || null;
   const wabaId = event.wabaId || event.waba_id || null;
   const qualityScore = extractQualityScore(event);
+  const qualityReasons = extractQualityReasons(event);
 
   if (!qualityScore) {
     throw AppError.badRequest('Template quality event is missing the new quality score.');
@@ -294,8 +352,10 @@ async function applyTemplateQualityEvent(event) {
   }
 
   const template = await findTemplateByMetaIdentifiers({
+    userId,
     metaTemplateId,
     templateName,
+    templateLanguage,
     wabaId,
   });
 
@@ -305,6 +365,7 @@ async function applyTemplateQualityEvent(event) {
 
   await template.update({
     quality_score: qualityScore,
+    quality_reasons: qualityReasons,
     last_synced_at: new Date(),
   });
 
@@ -320,8 +381,10 @@ async function applyTemplateStatusEvent(event) {
     return applyTemplateQualityEvent(event);
   }
 
+  const userId = event.userId || event.user_id || null;
   const metaTemplateId = event.messageTemplateId || event.message_template_id || null;
   const templateName = event.messageTemplateName || event.message_template_name || null;
+  const templateLanguage = event.messageTemplateLanguage || event.message_template_language || null;
   const wabaId = event.wabaId || event.waba_id || null;
   const normalizedStatus = normalizeMetaTemplateStatus(event.status || event.event);
 
@@ -330,8 +393,10 @@ async function applyTemplateStatusEvent(event) {
   }
 
   const template = await findTemplateByMetaIdentifiers({
+    userId,
     metaTemplateId,
     templateName,
+    templateLanguage,
     wabaId,
   });
   if (!template) {
@@ -725,7 +790,8 @@ async function sanitizeTemplateComponentsForMeta(userId, accessToken, templateTy
   return sanitized;
 }
 
-async function buildMetaTemplatePayload(userId, accessToken, template, wabaId) {
+async function buildMetaTemplatePayload(userId, accessToken, template, wabaId, options = {}) {
+  const { includeIdentity = true } = options;
   const resolvedComponents = await resolveTemplateFlowButtons(
     userId,
     wabaId,
@@ -733,8 +799,12 @@ async function buildMetaTemplatePayload(userId, accessToken, template, wabaId) {
   );
 
   return {
-    name: template.name,
-    language: template.language,
+    ...(includeIdentity
+      ? {
+          name: template.name,
+          language: template.language,
+        }
+      : {}),
     category: template.category,
     components: await sanitizeTemplateComponentsForMeta(
       userId,
@@ -742,6 +812,9 @@ async function buildMetaTemplatePayload(userId, accessToken, template, wabaId) {
       template.type,
       resolvedComponents
     ),
+    ...(normalizeMessageSendTtl(template.message_send_ttl_seconds)
+      ? { message_send_ttl_seconds: normalizeMessageSendTtl(template.message_send_ttl_seconds) }
+      : {}),
   };
 }
 
@@ -813,36 +886,52 @@ function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
 }
 
-function getMetaManagedTemplateChanges(template, data) {
+function areJsonValuesEqual(left, right) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function getMetaManagedTemplateChanges(template, data, nextWaAccountId) {
+  const nextMessageSendTtlSeconds =
+    data.message_send_ttl_seconds !== undefined
+      ? normalizeMessageSendTtl(data.message_send_ttl_seconds)
+      : normalizeMessageSendTtl(template.message_send_ttl_seconds);
+
   return {
+    nameChanged: data.name !== undefined && data.name !== template.name,
+    languageChanged: data.language !== undefined && data.language !== template.language,
+    typeChanged: data.type !== undefined && data.type !== template.type,
+    waAccountChanged: data.wa_account_id !== undefined && nextWaAccountId !== template.wa_account_id,
     categoryChanged: data.category !== undefined && data.category !== template.category,
-    componentsChanged: data.components !== undefined,
+    componentsChanged:
+      data.components !== undefined
+      && !areJsonValuesEqual(data.components, template.components),
+    messageSendTtlChanged: data.message_send_ttl_seconds !== undefined
+      && nextMessageSendTtlSeconds !== normalizeMessageSendTtl(template.message_send_ttl_seconds),
   };
 }
 
-function assertMetaTemplateUpdateAllowed(template, data, nextWaAccountId) {
+function assertMetaTemplateUpdateAllowed(template, changes) {
   const disallowedFields = [];
 
-  if (data.name !== undefined && data.name !== template.name) {
+  if (changes.nameChanged) {
     disallowedFields.push('name');
   }
 
-  if (data.language !== undefined && data.language !== template.language) {
+  if (changes.languageChanged) {
     disallowedFields.push('language');
   }
 
-  if (data.type !== undefined && data.type !== template.type) {
+  if (changes.typeChanged) {
     disallowedFields.push('type');
   }
 
-  if (data.wa_account_id !== undefined && nextWaAccountId !== template.wa_account_id) {
+  if (changes.waAccountChanged) {
     disallowedFields.push('wa_account_id');
   }
 
   if (
     resolveTemplateMetaStatus(template) === 'APPROVED'
-    && data.category !== undefined
-    && data.category !== template.category
+    && changes.categoryChanged
   ) {
     disallowedFields.push('category');
   }
@@ -859,6 +948,7 @@ function serializeTemplate(template) {
   record.meta_status_raw = resolveTemplateMetaStatus(record);
   record.quality_score = extractQualityScore(record);
   record.quality_reasons = extractQualityReasons(record);
+  record.message_send_ttl_seconds = normalizeMessageSendTtl(record.message_send_ttl_seconds);
 
   if (record.meta_template_id && record.meta_status_raw) {
     record.status = deriveLocalTemplateStatus(record.meta_status_raw, record.status);
@@ -898,13 +988,14 @@ async function createTemplate(userId, data) {
   const whereClause = {
     user_id: userId,
     name: data.name,
+    language: data.language || 'en_US',
   };
   whereClause.waba_id = resolvedWabaId;
 
   const existingTemplate = await Template.findOne({ where: whereClause });
   if (existingTemplate) {
     throw AppError.conflict(
-      `A template with the name "${data.name}" already exists for WABA ${resolvedWabaId}`
+      `A template with the name "${data.name}" and language "${data.language || 'en_US'}" already exists for WABA ${resolvedWabaId}`
     );
   }
 
@@ -921,6 +1012,7 @@ async function createTemplate(userId, data) {
     source: 'nyife',
     components: data.components,
     example_values: data.example_values || null,
+    message_send_ttl_seconds: normalizeMessageSendTtl(data.message_send_ttl_seconds),
   });
 
   // Notify subscription service (best-effort)
@@ -1053,12 +1145,14 @@ async function updateTemplate(userId, templateId, data) {
   }
 
   const nextName = data.name !== undefined ? data.name : template.name;
+  const nextLanguage = data.language !== undefined ? data.language : template.language;
 
   // If the destination name or WABA changes, check uniqueness in the destination scope
-  if (nextName !== template.name || nextWabaId !== template.waba_id) {
+  if (nextName !== template.name || nextLanguage !== template.language || nextWabaId !== template.waba_id) {
     const whereClause = {
       user_id: userId,
       name: nextName,
+      language: nextLanguage,
       id: { [Op.ne]: templateId },
     };
     if (nextWabaId) {
@@ -1070,7 +1164,7 @@ async function updateTemplate(userId, templateId, data) {
     const existing = await Template.findOne({ where: whereClause });
     if (existing) {
       throw AppError.conflict(
-        `A template with the name "${nextName}" already exists${nextWabaId ? ` for WABA ${nextWabaId}` : ''}`
+        `A template with the name "${nextName}" and language "${nextLanguage}" already exists${nextWabaId ? ` for WABA ${nextWabaId}` : ''}`
       );
     }
   }
@@ -1082,6 +1176,10 @@ async function updateTemplate(userId, templateId, data) {
     type: data.type !== undefined ? data.type : template.type,
     category: data.category !== undefined ? data.category : template.category,
     language: data.language !== undefined ? data.language : template.language,
+    message_send_ttl_seconds:
+      data.message_send_ttl_seconds !== undefined
+        ? normalizeMessageSendTtl(data.message_send_ttl_seconds)
+        : normalizeMessageSendTtl(template.message_send_ttl_seconds),
     wa_account_id: nextWaAccountId,
     waba_id: nextWabaId,
   };
@@ -1091,15 +1189,32 @@ async function updateTemplate(userId, templateId, data) {
   if (data.display_name !== undefined) localOnlyUpdateFields.display_name = data.display_name;
   if (data.example_values !== undefined) localOnlyUpdateFields.example_values = data.example_values;
 
+  const effectiveMetaStatus = resolveTemplateMetaStatus(template);
+  const managedChanges = getMetaManagedTemplateChanges(template, data, nextWaAccountId);
+  const isMetaLifecycleTemplate = Boolean(template.meta_template_id || effectiveMetaStatus);
+  const hasMetaLinkageGap = Boolean(effectiveMetaStatus && !template.meta_template_id);
   const isMetaLinkedTemplate = Boolean(
-    template.meta_template_id && resolveTemplateMetaStatus(template)
+    template.meta_template_id && effectiveMetaStatus
   );
 
-  if (isMetaLinkedTemplate) {
-    assertMetaTemplateUpdateAllowed(template, data, nextWaAccountId);
+  if (isMetaLifecycleTemplate) {
+    assertMetaTemplateUpdateAllowed(template, managedChanges);
+  }
 
-    const managedChanges = getMetaManagedTemplateChanges(template, data);
-    const hasMetaManagedChanges = managedChanges.categoryChanged || managedChanges.componentsChanged;
+  if (
+    hasMetaLinkageGap
+    && (managedChanges.categoryChanged || managedChanges.componentsChanged || managedChanges.messageSendTtlChanged)
+  ) {
+    throw AppError.badRequest(
+      'This template looks Meta-managed, but its Meta template ID is missing locally. Sync from Meta before editing the live template content.'
+    );
+  }
+
+  if (isMetaLinkedTemplate) {
+    const hasMetaManagedChanges =
+      managedChanges.categoryChanged
+      || managedChanges.componentsChanged
+      || managedChanges.messageSendTtlChanged;
 
     if (!hasMetaManagedChanges) {
       if (Object.keys(localOnlyUpdateFields).length > 0) {
@@ -1131,6 +1246,10 @@ async function updateTemplate(userId, templateId, data) {
       ...template.toJSON(),
       category: data.category !== undefined ? data.category : template.category,
       components: data.components !== undefined ? data.components : template.components,
+      message_send_ttl_seconds:
+        data.message_send_ttl_seconds !== undefined
+          ? normalizeMessageSendTtl(data.message_send_ttl_seconds)
+          : normalizeMessageSendTtl(template.message_send_ttl_seconds),
       wa_account_id: accountContext.wa_account_id || template.wa_account_id,
       waba_id: wabaId,
     };
@@ -1139,7 +1258,8 @@ async function updateTemplate(userId, templateId, data) {
       userId,
       accountContext.access_token,
       metaEditableTemplate,
-      wabaId
+      wabaId,
+      { includeIdentity: false }
     );
 
     try {
@@ -1183,6 +1303,10 @@ async function updateTemplate(userId, templateId, data) {
       : {
           category: data.category !== undefined ? data.category : template.category,
           components: data.components !== undefined ? data.components : template.components,
+          message_send_ttl_seconds:
+            data.message_send_ttl_seconds !== undefined
+              ? normalizeMessageSendTtl(data.message_send_ttl_seconds)
+              : normalizeMessageSendTtl(template.message_send_ttl_seconds),
           status: 'pending',
           meta_status_raw: 'PENDING',
           waba_id: wabaId,
@@ -1207,6 +1331,9 @@ async function updateTemplate(userId, templateId, data) {
   if (data.type !== undefined) updateFields.type = data.type;
   if (data.components !== undefined) updateFields.components = data.components;
   if (data.example_values !== undefined) updateFields.example_values = data.example_values;
+  if (data.message_send_ttl_seconds !== undefined) {
+    updateFields.message_send_ttl_seconds = normalizeMessageSendTtl(data.message_send_ttl_seconds);
+  }
   if (data.wa_account_id !== undefined) updateFields.wa_account_id = nextWaAccountId;
   if (data.wa_account_id !== undefined && nextWabaId) updateFields.waba_id = nextWabaId;
 
@@ -1362,6 +1489,18 @@ async function publishTemplate(userId, templateId, accessToken, waAccountIdOverr
     wabaId
   );
 
+  const publishPath = normalizeMessageSendTtl(template.message_send_ttl_seconds)
+    ? accountContext.account?.phone_number_id
+      ? `${config.meta.baseUrl}/${accountContext.account.phone_number_id}/message_templates`
+      : null
+    : `${config.meta.baseUrl}/${wabaId}/message_templates`;
+
+  if (normalizeMessageSendTtl(template.message_send_ttl_seconds) && !publishPath) {
+    throw AppError.badRequest(
+      'Select an active WhatsApp phone number before publishing a template with a custom delivery TTL.'
+    );
+  }
+
   // Include example values if present (needed for templates with media headers or variables)
   // Meta expects examples within components, but some are passed at the top level
   // The components array should already contain any example fields within each component
@@ -1369,7 +1508,7 @@ async function publishTemplate(userId, templateId, accessToken, waAccountIdOverr
   let metaResponse;
   try {
     metaResponse = await axios.post(
-      `${config.meta.baseUrl}/${wabaId}/message_templates`,
+      publishPath,
       payload,
       {
         headers: {
@@ -1406,6 +1545,7 @@ async function publishTemplate(userId, templateId, accessToken, waAccountIdOverr
     quality_score: null,
     quality_reasons: null,
     rejection_reason: rejectionReason,
+    message_send_ttl_seconds: normalizeMessageSendTtl(template.message_send_ttl_seconds),
     waba_id: wabaId,
     wa_account_id: accountContext.wa_account_id || template.wa_account_id,
     last_synced_at: new Date(),
@@ -1489,25 +1629,14 @@ async function syncTemplates(userId, waAccountId, accessToken) {
   for (const metaTemplate of metaTemplates) {
     const metaId = metaTemplate.id;
     const metaName = metaTemplate.name;
-
-    // Try to find existing local template by meta_template_id
-    let localTemplate = await Template.findOne({
-      where: {
-        user_id: userId,
-        meta_template_id: metaId,
-      },
+    const metaLanguage = metaTemplate.language || null;
+    const localTemplate = await findTemplateByMetaIdentifiers({
+      userId,
+      metaTemplateId: metaId,
+      templateName: metaName,
+      templateLanguage: metaLanguage,
+      wabaId,
     });
-
-    // If not found by meta_template_id, try matching by name + waba_id
-    if (!localTemplate) {
-      localTemplate = await Template.findOne({
-        where: {
-          user_id: userId,
-          waba_id: wabaId,
-          name: metaName,
-        },
-      });
-    }
 
     if (localTemplate) {
       const updateData = {
@@ -1550,6 +1679,7 @@ async function syncTemplates(userId, waAccountId, accessToken) {
         quality_score: syncedState.quality_score,
         quality_reasons: syncedState.quality_reasons,
         rejection_reason: syncedState.rejection_reason,
+        message_send_ttl_seconds: syncedState.message_send_ttl_seconds,
         last_synced_at: syncedState.last_synced_at,
       });
       created++;

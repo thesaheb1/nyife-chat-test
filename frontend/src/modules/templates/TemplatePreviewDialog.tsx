@@ -20,20 +20,21 @@ export function TemplatePreviewDialog({
   accountName?: string | null;
   accountPhone?: string | null;
 }) {
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="max-h-[90vh] overflow-y-auto border-none bg-transparent p-0 shadow-none sm:max-w-[390px]"
+        className="max-h-[90vh] overflow-y-auto border-none bg-transparent p-0 shadow-none sm:max-w-97.5"
       >
         <DialogHeader className="sr-only">
           <DialogTitle>
-            {template?.display_name || template?.name || 'Template'} preview
+            {template?.name || 'Template'} preview
           </DialogTitle>
         </DialogHeader>
         {template ? (
           <WhatsAppTemplatePreview
-            templateName={template.display_name || template.name}
+            templateName={template.name}
             type={template.type}
             components={template.components}
             accountName={accountName}

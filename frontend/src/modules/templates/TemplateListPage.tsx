@@ -49,6 +49,10 @@ export function TemplateListPage() {
     [waAccounts]
   );
 
+  // i think, again you made mistake and got into confusion.
+  // 1. you remove edit dropdown option from approved template in template list page. which means you are entirely restricting user to edit only draft template.
+  
+
   const { data, isLoading } = useTemplates({
     page: listing.page,
     limit: 20,

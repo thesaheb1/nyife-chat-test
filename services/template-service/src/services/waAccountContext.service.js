@@ -5,7 +5,7 @@ const { AppError } = require('@nyife/shared-utils');
 const { sequelize } = require('../models');
 
 const ACTIVE_ACCOUNT_COLUMNS = `
-  SELECT id, user_id, waba_id, access_token, status, onboarding_status, display_phone, verified_name, updated_at, created_at
+  SELECT id, user_id, waba_id, phone_number_id, access_token, status, onboarding_status, display_phone, verified_name, updated_at, created_at
   FROM wa_accounts
 `;
 

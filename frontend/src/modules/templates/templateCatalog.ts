@@ -3,6 +3,7 @@ import type { Template, WaAccount } from '@/core/types';
 export type TemplateActionKey = 'view' | 'edit' | 'publish' | 'sync' | 'delete';
 export type TemplateQualityScore = NonNullable<Template['quality_score']>;
 const EDITABLE_META_STATUSES = new Set(['APPROVED', 'REJECTED', 'PAUSED']);
+const TEMPLATE_ACTION_KEYS: TemplateActionKey[] = ['view', 'edit', 'publish', 'sync', 'delete'];
 
 export const TEMPLATE_CATEGORY_OPTIONS = [
   { label: 'Marketing', value: 'MARKETING' },
@@ -226,19 +227,22 @@ export function resolveTemplateMetaStatus(
     return normalizedMetaStatus;
   }
 
-  if (!template?.meta_template_id) {
-    return null;
-  }
-
   const compatibilityMap: Partial<Record<Template['status'], string>> = {
     pending: 'PENDING',
     approved: 'APPROVED',
-    rejected: 'REJECTED',
     paused: 'PAUSED',
     disabled: 'DISABLED',
   };
 
-  return compatibilityMap[template.status] || null;
+  // Older synced rows can be missing meta_template_id even though Meta already owns
+  // the template. We still treat clearly Meta-managed lifecycle states as immutable,
+  // but keep local rejected drafts editable/publishable by only inferring REJECTED
+  // when a concrete Meta template ID exists.
+  if (template?.meta_template_id) {
+    compatibilityMap.rejected = 'REJECTED';
+  }
+
+  return compatibilityMap[template?.status || 'draft'] || null;
 }
 
 export function canPublishTemplate(
@@ -270,26 +274,47 @@ export function canSyncTemplate(
   return Boolean(template?.wa_account_id || template?.waba_id);
 }
 
+export function getTemplateMetaFieldLocks(
+  template: Pick<Template, 'status' | 'meta_status_raw' | 'meta_template_id'> | null | undefined
+) {
+  const effectiveMetaStatus = resolveTemplateMetaStatus(template);
+  const metaManagedIdentity = Boolean(template?.meta_template_id || effectiveMetaStatus);
+
+  return {
+    name: metaManagedIdentity,
+    language: metaManagedIdentity,
+    type: metaManagedIdentity,
+    wa_account_id: metaManagedIdentity,
+    category: effectiveMetaStatus === 'APPROVED',
+  };
+}
+
+export function hasTemplateMetaLinkageGap(
+  template: Pick<Template, 'status' | 'meta_status_raw' | 'meta_template_id'> | null | undefined
+) {
+  return Boolean(resolveTemplateMetaStatus(template) && !template?.meta_template_id);
+}
+
 export function getTemplateAvailableActions(template: Template): TemplateActionKey[] {
   const declared = template.available_actions?.filter(
-    (action): action is TemplateActionKey => ['view', 'edit', 'publish', 'sync', 'delete'].includes(action)
+    (action): action is TemplateActionKey => TEMPLATE_ACTION_KEYS.includes(action as TemplateActionKey)
   );
 
-  const actions = new Set<TemplateActionKey>(declared?.length ? declared : ['view']);
-  actions.add('view');
+  if (declared?.length) {
+    return Array.from(new Set<TemplateActionKey>(['view', ...declared]));
+  }
+
+  const actions = new Set<TemplateActionKey>(['view']);
 
   if (canEditTemplate(template)) {
     actions.add('edit');
   }
-
   if (canPublishTemplate(template)) {
     actions.add('publish');
   }
-
   if (canSyncTemplate(template)) {
     actions.add('sync');
   }
-
   if (canDeleteTemplate(template)) {
     actions.add('delete');
   }

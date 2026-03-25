@@ -8,6 +8,7 @@ import type { Template, ApiResponse, MediaFile, PaginationMeta } from '@/core/ty
 import type { CreateTemplateFormData, UpdateTemplateFormData } from './validations';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
 import { buildListQuery } from '@/shared/utils/listing';
+import { resolveTemplateMetaStatus } from './templateCatalog';
 
 interface TemplateListParams {
   page?: number;
@@ -27,6 +28,23 @@ interface TemplateListResponse {
   meta: PaginationMeta;
 }
 
+const AUTO_REFRESH_META_STATUSES = new Set(['PENDING', 'APPEAL_REQUESTED', 'PENDING_DELETION']);
+
+function shouldAutoRefreshTemplate(
+  template: Pick<Template, 'status' | 'meta_status_raw' | 'meta_template_id'> | null | undefined
+) {
+  if (!template) {
+    return false;
+  }
+
+  const metaStatus = resolveTemplateMetaStatus(template);
+  if (metaStatus) {
+    return AUTO_REFRESH_META_STATUSES.has(metaStatus);
+  }
+
+  return template.status === 'pending';
+}
+
 // List templates
 export function useTemplates(params: TemplateListParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
@@ -40,6 +58,12 @@ export function useTemplates(params: TemplateListParams = {}) {
       return { data: data.data, meta: data.meta! };
     },
     enabled: Boolean(userId && activeOrganization?.id),
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => {
+      const data = query.state.data as TemplateListResponse | undefined;
+      const templates = data?.data?.templates || [];
+      return templates.some((template) => shouldAutoRefreshTemplate(template)) ? 15000 : false;
+    },
   });
 }
 
@@ -54,6 +78,11 @@ export function useTemplate(id: string | undefined) {
       return data.data.template;
     },
     enabled: Boolean(id && userId && activeOrganization?.id),
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => {
+      const template = query.state.data as Template | undefined;
+      return shouldAutoRefreshTemplate(template) ? 15000 : false;
+    },
   });
 }
 

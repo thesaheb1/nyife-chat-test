@@ -149,6 +149,7 @@ export interface Template {
   meta_status_raw: string | null;
   quality_score: 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN' | null;
   quality_reasons: string[] | null;
+  message_send_ttl_seconds: number | null;
   available_actions?: Array<'view' | 'edit' | 'publish' | 'sync' | 'delete'>;
   last_synced_at: string | null;
   created_at: string;

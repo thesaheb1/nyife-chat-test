@@ -67,15 +67,15 @@ function resolveTemplateMetaStatus(template) {
     return normalizedMetaStatus;
   }
 
-  if (!template?.meta_template_id) {
-    return null;
-  }
-
   const status = textValue(template?.status).toLowerCase();
   if (status === 'approved') {
     return 'APPROVED';
   }
-  if (status === 'rejected') {
+  // Older synced rows can be missing meta_template_id even though Meta already owns
+  // the template. We still treat clearly Meta-managed lifecycle states as immutable,
+  // but keep local rejected drafts editable/publishable by only inferring REJECTED
+  // when a concrete Meta template ID exists.
+  if (status === 'rejected' && template?.meta_template_id) {
     return 'REJECTED';
   }
   if (status === 'paused') {

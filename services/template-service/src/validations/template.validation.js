@@ -9,7 +9,6 @@ const {
 } = require('../constants/template.constants');
 
 const templateNameRegex = /^[a-z][a-z0-9_]*$/;
-const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HEADER_FORMATS = ['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT', 'LOCATION'];
 const BUTTON_TYPES = ['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'OTP', 'FLOW', 'CATALOG', 'MPM'];
 const FLOW_ACTIONS = ['navigate', 'data_exchange'];
@@ -23,7 +22,8 @@ const metaWabaIdSchema = z
   .regex(/^\d+$/, 'WABA ID must contain only digits')
   .max(100, 'WABA ID must be at most 100 characters');
 
-const uuidSchema = z.string().regex(uuidRegex, 'Invalid UUID format');
+const uuidSchema = z.string().uuid('Invalid UUID format');
+const messageSendTtlSchema = z.number().int().positive().optional().nullable();
 
 const mediaAssetSchema = z.object({
   file_id: z.string().trim().optional(),
@@ -98,6 +98,7 @@ const createTemplateSchema = z.object({
     .record(z.any())
     .optional()
     .nullable(),
+  message_send_ttl_seconds: messageSendTtlSchema,
   wa_account_id: uuidSchema.optional().nullable(),
 });
 
@@ -132,6 +133,7 @@ const updateTemplateSchema = z.object({
     .record(z.any())
     .optional()
     .nullable(),
+  message_send_ttl_seconds: messageSendTtlSchema,
   wa_account_id: uuidSchema.optional().nullable(),
 });
 
@@ -169,7 +171,7 @@ const syncTemplatesSchema = z.object({
 });
 
 const templateIdSchema = z.object({
-  id: z.string().regex(uuidRegex, 'Invalid template ID format (UUID expected)'),
+  id: z.string().uuid('Invalid template ID format (UUID expected)'),
 });
 
 module.exports = {

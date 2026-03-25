@@ -85,6 +85,10 @@ module.exports = (sequelize) => {
         type: DataTypes.JSON,
         allowNull: true,
       },
+      message_send_ttl_seconds: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
       last_synced_at: {
         type: DataTypes.DATE,
         allowNull: true,

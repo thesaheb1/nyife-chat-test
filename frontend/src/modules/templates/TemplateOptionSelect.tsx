@@ -1,8 +1,15 @@
 import { useMemo, useState } from 'react';
 import { Check, ChevronsUpDown, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Sheet,
@@ -28,6 +35,8 @@ interface TemplateOptionSelectProps {
   emptyMessage: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  title?: string;
+  description?: string;
 }
 
 export function TemplateOptionSelect({
@@ -38,11 +47,12 @@ export function TemplateOptionSelect({
   emptyMessage,
   onChange,
   disabled,
+  title = 'Select an option',
+  description = 'Search and choose from the available values.',
 }: TemplateOptionSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const isMobile = useMediaQuery('(max-width: 767px)');
-  const optionsHeightClass = isMobile ? 'h-[min(26rem,60vh)]' : 'h-[min(28rem,65vh)]';
+  const isCompactViewport = useMediaQuery('(max-width: 1023px)');
 
   const selected = options.find((option) => option.value === value);
   const filteredOptions = useMemo(() => {
@@ -92,7 +102,7 @@ export function TemplateOptionSelect({
 
   const optionList = (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b p-3 sm:p-4">
+      <div className="border-b p-4 sm:p-5">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -106,8 +116,8 @@ export function TemplateOptionSelect({
           {filteredOptions.length} option{filteredOptions.length === 1 ? '' : 's'}
         </p>
       </div>
-      <ScrollArea className={cn('min-h-0 flex-1', optionsHeightClass)}>
-        <div className="p-1.5">
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-2">
           {filteredOptions.length === 0 ? (
             <div className="px-3 py-8 text-center text-sm text-muted-foreground">
               {emptyMessage}
@@ -153,7 +163,7 @@ export function TemplateOptionSelect({
     </div>
   );
 
-  if (isMobile) {
+  if (isCompactViewport) {
     return (
       <Sheet open={open} onOpenChange={handleOpenChange}>
         {renderTrigger(() => {
@@ -163,13 +173,11 @@ export function TemplateOptionSelect({
         })}
         <SheetContent
           side="bottom"
-          className="flex h-[min(85vh,42rem)] flex-col gap-0 rounded-t-[28px] p-0 sm:max-w-none"
+          className="flex h-[92vh] flex-col gap-0 rounded-t-[28px] p-0 sm:max-w-none"
         >
           <SheetHeader className="border-b px-4 pb-3 pt-5">
-            <SheetTitle>Select an option</SheetTitle>
-            <SheetDescription>
-              Search and choose from the available Meta-supported values without losing options off-screen.
-            </SheetDescription>
+            <SheetTitle>{title}</SheetTitle>
+            <SheetDescription>{description}</SheetDescription>
           </SheetHeader>
           {optionList}
         </SheetContent>
@@ -178,17 +186,17 @@ export function TemplateOptionSelect({
   }
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
         {renderTrigger()}
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={8}
-        className="w-[min(48rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-0"
-      >
+      </DialogTrigger>
+      <DialogContent className="flex h-[min(82vh,46rem)] max-w-[min(44rem,calc(100vw-2rem))] flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b px-6 pb-4 pt-5 text-left">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
         {optionList}
-      </PopoverContent>
-    </Popover>
+      </DialogContent>
+    </Dialog>
   );
 }

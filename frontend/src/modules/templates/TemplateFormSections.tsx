@@ -240,6 +240,8 @@ export function FlowTemplateSection({
               placeholder="Select Nyife flow"
               searchPlaceholder="Search saved WhatsApp flows"
               emptyMessage="No flows found for this organization yet."
+              title="Select a WhatsApp flow"
+              description="Search saved Nyife flows and choose the one this template button should open."
               onChange={(value) => {
                 const flow = flows.find((item) => item.id === value);
                 const firstScreen = flow?.json_definition?.screens?.[0]?.id || '';

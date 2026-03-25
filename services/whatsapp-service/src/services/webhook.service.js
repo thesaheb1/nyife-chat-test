@@ -88,10 +88,11 @@ async function processWebhook(body, kafkaProducer) {
             break;
 
           case 'message_template_status_update':
+            if (value.event) {
+              await handleTemplateStatusUpdate(wabaId, value, kafkaProducer);
+            }
             if (value.new_quality_score || value.previous_quality_score) {
               await handleTemplateQualityUpdate(wabaId, value, kafkaProducer);
-            } else {
-              await handleTemplateStatusUpdate(wabaId, value, kafkaProducer);
             }
             break;
 
@@ -645,6 +646,7 @@ async function handleTemplateQualityUpdate(wabaId, value, kafkaProducer) {
     message_template_language: value.message_template_language,
     previous_quality_score: normalizeQualityRating(value.previous_quality_score),
     new_quality_score: normalizeQualityRating(value.new_quality_score),
+    quality_reasons: Array.isArray(value.quality_reasons) ? value.quality_reasons : [],
   };
 
   console.log(
@@ -664,6 +666,7 @@ async function handleTemplateQualityUpdate(wabaId, value, kafkaProducer) {
         messageTemplateLanguage: qualityEvent.message_template_language || null,
         previousQualityScore: qualityEvent.previous_quality_score,
         newQualityScore: qualityEvent.new_quality_score,
+        qualityReasons: qualityEvent.quality_reasons,
         eventType: 'quality_update',
         timestamp: new Date().toISOString(),
       });

@@ -26,6 +26,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<'input'>>(
         id={inputId}
         type={resolvedType}
         data-slot="input"
+        disabled={disabled}
         autoCapitalize={autoCapitalize ?? (isPasswordField ? 'none' : undefined)}
         autoCorrect={autoCorrect ?? (isPasswordField ? 'off' : undefined)}
         spellCheck={spellCheck ?? (isPasswordField ? false : undefined)}

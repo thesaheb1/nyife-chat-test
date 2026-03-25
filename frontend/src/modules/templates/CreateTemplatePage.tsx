@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Subscription, Template, WaAccount } from '@/core/types';
+import { cn } from '@/lib/utils';
 import { useFlows } from '@/modules/flows/useFlows';
 import { useCurrentSubscription } from '@/modules/subscription/useSubscriptions';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
@@ -42,7 +43,10 @@ import {
   TEMPLATE_CATEGORY_OPTIONS,
   TEMPLATE_TYPE_LABELS,
   TEMPLATE_TYPE_OPTIONS,
+  getTemplateAvailableActions,
   getTemplateLanguageLabel,
+  getTemplateMetaFieldLocks,
+  hasTemplateMetaLinkageGap,
   resolveTemplateMetaStatus,
 } from './templateCatalog';
 import { findIssue, type ValidationIssue } from './templateComposerUtils';
@@ -60,6 +64,36 @@ function getValidationIssues(payload: CreateTemplateFormData): ValidationIssue[]
     path: issue.path.map(String).join('.'),
     message: issue.message,
   }));
+}
+
+function getTemplateEditBlockedReason(template: Template | undefined) {
+  if (!template) {
+    return null;
+  }
+
+  const effectiveMetaStatus = resolveTemplateMetaStatus(template);
+
+  if (effectiveMetaStatus === 'PENDING') {
+    return 'Meta templates under review cannot be edited until the review finishes. Sync again after approval or rejection.';
+  }
+
+  if (effectiveMetaStatus === 'APPEAL_REQUESTED') {
+    return 'This template is currently in appeal review on Meta and is read-only for now.';
+  }
+
+  if (effectiveMetaStatus === 'PENDING_DELETION') {
+    return 'This template is already pending deletion on Meta and is now read-only.';
+  }
+
+  if (effectiveMetaStatus === 'DISABLED') {
+    return 'Disabled Meta templates cannot be edited.';
+  }
+
+  if (template.meta_template_id) {
+    return 'This Meta-managed template is read-only in its current lifecycle state.';
+  }
+
+  return `Templates with status "${template.status}" cannot be edited right now.`;
 }
 
 export function CreateTemplatePage() {
@@ -136,16 +170,22 @@ function TemplateComposer({
   const templateUsagePercent = templateLimit && templateLimit > 0 ? Math.min(100, (templatesUsed / templateLimit) * 100) : 0;
   const templateLimitReached = !isEdit && templateLimit !== null && templatesUsed >= templateLimit;
   const effectiveMetaStatus = resolveTemplateMetaStatus(existingTemplate);
+  const metaFieldLocks = getTemplateMetaFieldLocks(existingTemplate);
+  const hasMetaLinkageGap = hasTemplateMetaLinkageGap(existingTemplate);
+  const identityFieldsLocked = metaFieldLocks.name;
   const isMetaEditableTemplate = Boolean(
-    existingTemplate?.meta_template_id
+    !hasMetaLinkageGap
+    && existingTemplate?.meta_template_id
     && ['APPROVED', 'REJECTED', 'PAUSED'].includes(effectiveMetaStatus || '')
   );
-  const approvedMetaTemplate = effectiveMetaStatus === 'APPROVED';
-  const categoryLocked = draft.type === 'authentication' || approvedMetaTemplate;
+  const categoryLocked = draft.type === 'authentication' || metaFieldLocks.category || hasMetaLinkageGap;
+  const contentBuilderLocked = hasMetaLinkageGap;
   const submitLabel = isEdit
-    ? isMetaEditableTemplate
-      ? 'Save to Meta'
-      : 'Update template'
+    ? hasMetaLinkageGap
+      ? 'Save display name'
+      : isMetaEditableTemplate
+        ? 'Save to Meta'
+        : 'Update template'
     : 'Create template';
   const categoryOptions =
     draft.type === 'authentication'
@@ -165,6 +205,14 @@ function TemplateComposer({
       waAccounts,
     ]
   );
+  const templateActions = useMemo(
+    () => (existingTemplate ? getTemplateAvailableActions(existingTemplate) : []),
+    [existingTemplate]
+  );
+  const editBlockedReason = isEdit && existingTemplate && !templateActions.includes('edit')
+    ? getTemplateEditBlockedReason(existingTemplate)
+    : null;
+  const formLocked = Boolean(editBlockedReason);
 
   const setTemplateType = (nextType: TemplateDraft['type']) => {
     setDraft((current) => ({
@@ -180,6 +228,10 @@ function TemplateComposer({
   };
 
   const handleSubmit = async () => {
+    if (editBlockedReason) {
+      toast.error(editBlockedReason);
+      return;
+    }
     if (templateLimitReached) {
       toast.error('Your plan has reached its template limit. Upgrade the subscription before creating another template.');
       return;
@@ -247,7 +299,7 @@ function TemplateComposer({
           <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/templates')}>
             Cancel
           </Button>
-          <Button className="w-full sm:w-auto" onClick={handleSubmit} disabled={mutationPending || templateLimitReached}>
+          <Button className="w-full sm:w-auto" onClick={handleSubmit} disabled={mutationPending || templateLimitReached || formLocked}>
             {mutationPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {submitLabel}
           </Button>
@@ -287,8 +339,35 @@ function TemplateComposer({
         </div>
       </div>
 
+      {formLocked ? (
+        <Card className="border-amber-200 bg-amber-50/90 dark:border-amber-900 dark:bg-amber-950/30">
+          <CardContent className="flex items-start gap-3 p-4 text-sm text-amber-900 dark:text-amber-100">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="space-y-1">
+              <p className="font-semibold">Editing is unavailable for this template right now.</p>
+              <p>{editBlockedReason}</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {hasMetaLinkageGap && !formLocked ? (
+        <Card className="border-sky-200 bg-sky-50/90 dark:border-sky-900 dark:bg-sky-950/30">
+          <CardContent className="flex items-start gap-3 p-4 text-sm text-sky-950 dark:text-sky-100">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="space-y-1">
+              <p className="font-semibold">Sync from Meta before editing live template content.</p>
+              <p>
+                This template already looks Meta-managed, but Nyife is missing its Meta template ID locally.
+                Only the Nyife display name can be updated until you run a Meta sync to repair the linkage.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_356px] 2xl:grid-cols-[minmax(0,1fr)_372px]">
-        <div className="space-y-6">
+        <fieldset disabled={formLocked} className={cn('space-y-6', formLocked && 'opacity-70')}>
           {isMetaEditableTemplate ? (
             <Card className="border-sky-200 bg-sky-50/80 dark:border-sky-900 dark:bg-sky-950/30">
               <CardHeader>
@@ -299,12 +378,12 @@ function TemplateComposer({
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-sky-950 dark:text-sky-100">
                 <p>
-                  Template name, language, and type stay locked after Meta creates the template.
+                  Template name, language, type, and WhatsApp number stay locked after Meta creates the template.
                 </p>
                 <p>
-                  {approvedMetaTemplate
-                    ? 'Meta-approved templates also keep their category locked.'
-                    : 'Category remains editable until Meta approves the template again.'}
+                  {effectiveMetaStatus === 'APPROVED'
+                    ? 'For approved templates, content components stay editable while category remains locked by Meta.'
+                    : 'For rejected and paused templates, category and content components remain editable.'}
                 </p>
               </CardContent>
             </Card>
@@ -312,8 +391,40 @@ function TemplateComposer({
 
           <Card>
             <CardHeader>
+              <CardTitle>Validation checklist</CardTitle>
+              <CardDescription>Visible while you edit, so Meta-facing issues never disappear behind the preview.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ValidationSummary valid={isPayloadValid} issueCount={validationIssues.length} />
+              <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
+                <p>Language: {getTemplateLanguageLabel(draft.language)}</p>
+                <p>Category: {draft.category}</p>
+                <p>Type: {TEMPLATE_TYPE_LABELS[draft.type]}</p>
+              </div>
+              {isPayloadValid ? (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                  All current client-side checks passed, including type-specific structure, Meta text limits, and CTA rules.
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                  <div className="mb-2 flex items-center gap-2 font-semibold">
+                    <AlertTriangle className="h-4 w-4" />
+                    Fix these items
+                  </div>
+                  <div className="space-y-1">
+                    {validationIssues.slice(0, 8).map((issue) => (
+                      <p key={`${issue.path}-${issue.message}`}>{issue.message}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Basic information</CardTitle>
-              <CardDescription>Set the template identity, language, and Meta category.</CardDescription>
+              <CardDescription>Set the Meta template identity, Nyife display name, language, and category.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-4 lg:grid-cols-2">
@@ -323,13 +434,16 @@ function TemplateComposer({
                     value={draft.name}
                     onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
                     placeholder="order_confirmation"
-                    disabled={isMetaEditableTemplate}
+                    disabled={identityFieldsLocked || formLocked}
                   />
                   <FieldError message={findIssue(validationIssues, 'name')} />
                 </div>
                 <div className="space-y-2">
                   <Label>Display name</Label>
                   <Input value={draft.display_name} onChange={(event) => setDraft((current) => ({ ...current, display_name: event.target.value }))} placeholder="Order confirmation" />
+                  <p className="text-xs text-muted-foreground">
+                    Used inside Nyife to make the template easier to recognize. Meta reviewers and WhatsApp recipients still rely on the template name and content.
+                  </p>
                 </div>
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
@@ -341,8 +455,10 @@ function TemplateComposer({
                     placeholder="Select Meta-supported language"
                     searchPlaceholder="Search supported WhatsApp template languages"
                     emptyMessage="No language matches your search."
+                    title="Select template language"
+                    description="Meta supports a long list of locales, so this picker stays searchable and scrollable on every screen size."
                     onChange={(value) => setDraft((current) => ({ ...current, language: value }))}
-                    disabled={isMetaEditableTemplate}
+                    disabled={metaFieldLocks.language || formLocked}
                   />
                   <FieldError message={findIssue(validationIssues, 'language')} />
                 </div>
@@ -351,7 +467,7 @@ function TemplateComposer({
                   <Select
                     value={draft.category}
                     onValueChange={(value) => setDraft((current) => ({ ...current, category: value as TemplateDraft['category'] }))}
-                    disabled={categoryLocked}
+                    disabled={categoryLocked || formLocked}
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -378,62 +494,35 @@ function TemplateComposer({
                   title={option.label}
                   description={option.description}
                   active={draft.type === option.value}
-                  disabled={isMetaEditableTemplate}
+                  disabled={metaFieldLocks.type || contentBuilderLocked || formLocked}
                   onClick={() => setTemplateType(option.value as TemplateDraft['type'])}
                 />
               ))}
             </CardContent>
           </Card>
 
-          {draft.type === 'standard' ? <StandardTemplateSection draft={draft} onChange={setDraft} /> : null}
-          {draft.type === 'authentication' ? <AuthenticationTemplateSection draft={draft} onChange={setDraft} /> : null}
-          {draft.type === 'flow' ? <FlowTemplateSection draft={draft} flows={flows} onChange={setDraft} /> : null}
-          {draft.type === 'list_menu' ? <ListMenuTemplateSection draft={draft} onChange={setDraft} /> : null}
-          {draft.type === 'carousel' ? <CarouselTemplateSection draft={draft} onChange={setDraft} /> : null}
-        </div>
+          <fieldset disabled={contentBuilderLocked} className={cn(contentBuilderLocked && 'opacity-70')}>
+            {draft.type === 'standard' ? <StandardTemplateSection draft={draft} onChange={setDraft} /> : null}
+            {draft.type === 'authentication' ? <AuthenticationTemplateSection draft={draft} onChange={setDraft} /> : null}
+            {draft.type === 'flow' ? <FlowTemplateSection draft={draft} flows={flows} onChange={setDraft} /> : null}
+            {draft.type === 'list_menu' ? <ListMenuTemplateSection draft={draft} onChange={setDraft} /> : null}
+            {draft.type === 'carousel' ? <CarouselTemplateSection draft={draft} onChange={setDraft} /> : null}
+          </fieldset>
+        </fieldset>
 
         <div className="space-y-5 xl:self-start">
-          <div className="xl:sticky xl:top-20 xl:z-10">
+          <div className="xl:sticky xl:top-6 xl:z-10">
+            <div className="xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto xl:pr-1">
             <WhatsAppTemplatePreview
-              templateName={draft.display_name || draft.name || 'Untitled template'}
+              templateName={draft.name || 'Untitled template'}
               type={draft.type}
               components={payload.components}
               draft={draft}
               accountName={previewAccount?.verified_name || previewAccount?.display_phone || null}
               accountPhone={previewAccount?.display_phone}
             />
+            </div>
           </div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Validation checklist</CardTitle>
-              <CardDescription>One concise summary of the Meta-facing client-side checks before save or publish.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <ValidationSummary valid={isPayloadValid} issueCount={validationIssues.length} />
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <p>Language: {getTemplateLanguageLabel(draft.language)}</p>
-                <p>Category: {draft.category}</p>
-                <p>Type: {TEMPLATE_TYPE_LABELS[draft.type]}</p>
-              </div>
-              {isPayloadValid ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
-                  All current client-side template checks passed, including type-specific rules and Meta media/file guards.
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-                  <div className="mb-2 flex items-center gap-2 font-semibold">
-                    <AlertTriangle className="h-4 w-4" />
-                    Fix these items
-                  </div>
-                  <div className="space-y-1">
-                    {validationIssues.slice(0, 8).map((issue) => (
-                      <p key={`${issue.path}-${issue.message}`}>{issue.message}</p>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>

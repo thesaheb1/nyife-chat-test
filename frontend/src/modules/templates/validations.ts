@@ -6,6 +6,8 @@ import { getTemplateMediaRule } from './templateMediaRules';
 const TEMPLATE_CATEGORIES = TEMPLATE_CATEGORY_OPTIONS.map((option) => option.value) as [string, ...string[]];
 const TEMPLATE_TYPES = TEMPLATE_TYPE_OPTIONS.map((option) => option.value) as [string, ...string[]];
 const META_LANGUAGE_CODES = META_TEMPLATE_LANGUAGES.map((language) => language.value) as [string, ...string[]];
+const HEADER_TEXT_LIMIT = 60;
+const FOOTER_TEXT_LIMIT = 60;
 
 const metaLanguageSchema = z.enum(META_LANGUAGE_CODES, {
   error: 'Language must match a Meta-supported WhatsApp template locale.',
@@ -13,7 +15,7 @@ const metaLanguageSchema = z.enum(META_LANGUAGE_CODES, {
 
 const waAccountSchema = z
   .string()
-  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, 'Select a connected WhatsApp number.');
+  .uuid('Select a connected WhatsApp number.');
 
 const buttonSchema = z.object({
   type: z.enum(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'OTP', 'FLOW', 'CATALOG', 'MPM']),
@@ -183,10 +185,18 @@ function validateButtons(
         pushIssue(ctx, [...basePath, index], 'Provide only one flow reference: flow_id, flow_name, or flow_json.');
       }
 
+      if (!textValue(button.flow_action)) {
+        pushIssue(ctx, [...basePath, index, 'flow_action'], 'Flow buttons require a flow action.');
+      }
+
+      if (button.flow_action === 'navigate' && !textValue(button.navigate_screen)) {
+        pushIssue(ctx, [...basePath, index, 'navigate_screen'], 'Navigate flow buttons require a screen ID.');
+      }
+
       if (textValue(button.flow_json)) {
         try {
           const parsed = JSON.parse(button.flow_json!);
-          if (parsed && typeof parsed !== 'object') {
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
             pushIssue(ctx, [...basePath, index, 'flow_json'], 'Flow payload must be a JSON object.');
           }
         } catch {
@@ -244,13 +254,17 @@ function templateBusinessRules(schema: typeof baseTemplateSchema) {
       pushIssue(ctx, ['components'], 'Text headers require header text.');
     }
 
+    if (header?.format === 'TEXT' && textValue(header.text).length > HEADER_TEXT_LIMIT) {
+      pushIssue(ctx, ['components'], `Header text must be ${HEADER_TEXT_LIMIT} characters or fewer.`);
+    }
+
     if (header?.format && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(header.format) && !hasHeaderMedia(header)) {
       pushIssue(ctx, ['components'], 'Media headers require an uploaded sample file.');
     }
     validateHeaderMedia(header, ctx, ['components']);
 
-    if (footer?.text && textValue(footer.text).length > 60) {
-      pushIssue(ctx, ['components'], 'Footer text must be 60 characters or fewer.');
+    if (footer?.text && textValue(footer.text).length > FOOTER_TEXT_LIMIT) {
+      pushIssue(ctx, ['components'], `Footer text must be ${FOOTER_TEXT_LIMIT} characters or fewer.`);
     }
 
     switch (data.type) {
@@ -268,11 +282,20 @@ function templateBusinessRules(schema: typeof baseTemplateSchema) {
         if (data.category !== 'AUTHENTICATION') {
           pushIssue(ctx, ['category'], 'Authentication templates must use the AUTHENTICATION category.');
         }
+        if (header) {
+          pushIssue(ctx, ['components'], 'Authentication templates do not support headers.');
+        }
         if (!body || body.add_security_recommendation === undefined) {
           pushIssue(ctx, ['components'], 'Authentication templates require the BODY security recommendation flag.');
         }
         if (body?.text) {
           pushIssue(ctx, ['components'], 'Authentication template body text is not user-defined in the Meta API examples.');
+        }
+        if (!footer) {
+          pushIssue(ctx, ['components'], 'Authentication templates require a footer with a code expiration value.');
+        }
+        if (footer && footer.code_expiration_minutes === undefined) {
+          pushIssue(ctx, ['components'], 'Authentication templates require code_expiration_minutes in the footer.');
         }
         if (footer?.text) {
           pushIssue(ctx, ['components'], 'Authentication templates do not use custom footer text.');
@@ -284,6 +307,9 @@ function templateBusinessRules(schema: typeof baseTemplateSchema) {
         break;
 
       case 'carousel':
+        if (header || body || footer || buttonsComponent) {
+          pushIssue(ctx, ['components'], 'Carousel templates can only include CAROUSEL at the top level.');
+        }
         if (!carousel?.cards || carousel.cards.length < 2 || carousel.cards.length > 10) {
           pushIssue(ctx, ['components'], 'Carousel templates require between 2 and 10 cards.');
         } else {

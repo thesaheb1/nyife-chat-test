@@ -20,9 +20,14 @@ const {
   canPublishTemplate,
   canEditTemplate,
   canDeleteTemplate,
+  normalizeMetaButtonOrder,
 } = require('../helpers/templateRules');
 const {
-  fetchActiveWaAccountById,
+  buildBodyTextExample,
+  buildHeaderTextExample,
+} = require('../helpers/templateExamples');
+const { buildInternalOrganizationHeaders } = require('../helpers/templateRequestContext');
+const {
   resolveSingleWabaAccount,
 } = require('./waAccountContext.service');
 const TEMPLATE_MEDIA_RULES = {
@@ -62,6 +67,26 @@ const META_TEMPLATE_FIELDS = [
   'quality_score',
   'rejected_reason',
 ].join(',');
+
+function resolveScopeId(requestContext) {
+  if (typeof requestContext === 'string') {
+    return requestContext;
+  }
+
+  return requestContext?.scopeId || null;
+}
+
+function buildMediaServiceHeaders(requestContext) {
+  const headers = buildInternalOrganizationHeaders(requestContext);
+
+  if (!headers['x-user-id']) {
+    throw AppError.badRequest(
+      'Authenticated actor context is required to load template media samples from Nyife media storage.'
+    );
+  }
+
+  return headers;
+}
 
 // ─── Helper: check subscription limit ──────────────────────────────────────
 
@@ -242,7 +267,8 @@ function normalizeMessageSendTtl(value) {
 }
 
 function mapMetaTemplateToLocalState(metaTemplate, context = {}) {
-  const metaStatusRaw = normalizeMetaTemplateStatus(metaTemplate?.status || metaTemplate?.meta_status_raw);
+  const rawMetaStatus = trimString(metaTemplate?.status || metaTemplate?.meta_status_raw).toUpperCase();
+  const metaStatusRaw = normalizeMetaTemplateStatus(rawMetaStatus) || rawMetaStatus || null;
   const qualityScore = extractQualityScore(metaTemplate);
   const qualityReasons = extractQualityReasons(metaTemplate);
   const rejectionReason = extractRejectionReason(metaTemplate);
@@ -415,7 +441,11 @@ async function applyTemplateStatusEvent(event) {
 }
 
 async function requireActiveWaAccount(userId, waAccountId) {
-  const account = await fetchActiveWaAccountById(userId, waAccountId);
+  const selection = await resolveSingleWabaAccount(userId, {
+    waAccountId,
+    allowAutoResolve: false,
+  });
+  const account = selection.account || null;
   if (!account) {
     throw AppError.badRequest('Select an active WhatsApp account before continuing.');
   }
@@ -480,14 +510,43 @@ function normalizeButtonExample(example) {
   return value ? [value] : undefined;
 }
 
+function normalizeTemplateComponentsForMetaCompatibility(components) {
+  return (Array.isArray(components) ? components : []).map((component) => {
+    const normalizedType = normalizeComponentType(component?.type);
+
+    if (normalizedType === 'BUTTONS') {
+      return {
+        ...component,
+        buttons: normalizeMetaButtonOrder(
+          Array.isArray(component.buttons)
+            ? component.buttons.map((button) => ({ ...button }))
+            : []
+        ),
+      };
+    }
+
+    if (normalizedType === 'CAROUSEL') {
+      return {
+        ...component,
+        cards: Array.isArray(component.cards)
+          ? component.cards.map((card) => ({
+              ...card,
+              components: normalizeTemplateComponentsForMetaCompatibility(card.components),
+            }))
+          : [],
+      };
+    }
+
+    return { ...component };
+  });
+}
+
 async function fetchMediaRecord(userId, fileId) {
   try {
     const response = await axios.get(
       `${config.mediaServiceUrl}/api/v1/media/${fileId}`,
       {
-        headers: {
-          'x-user-id': userId,
-        },
+        headers: buildMediaServiceHeaders(userId),
         timeout: 10000,
       }
     );
@@ -505,9 +564,7 @@ async function fetchMediaBinary(userId, fileId) {
     const response = await axios.get(
       `${config.mediaServiceUrl}/api/v1/media/${fileId}/download`,
       {
-        headers: {
-          'x-user-id': userId,
-        },
+        headers: buildMediaServiceHeaders(userId),
         responseType: 'arraybuffer',
         timeout: 30000,
         maxContentLength: Infinity,
@@ -695,6 +752,15 @@ async function sanitizeTemplateComponentsForMeta(userId, accessToken, templateTy
 
       if (format === 'TEXT') {
         sanitizedHeader.text = trimString(component.text);
+        const headerTextExample = buildHeaderTextExample(
+          component.text,
+          component?.example?.header_text
+        );
+        if (headerTextExample) {
+          sanitizedHeader.example = {
+            header_text: headerTextExample,
+          };
+        }
       }
 
       if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(format)) {
@@ -714,9 +780,15 @@ async function sanitizeTemplateComponentsForMeta(userId, accessToken, templateTy
           add_security_recommendation: Boolean(component.add_security_recommendation),
         });
       } else {
+        const bodyTextExample = buildBodyTextExample(
+          component.text,
+          component?.example?.body_text?.[0]
+        );
+
         sanitized.push(pickDefinedEntries([
-          ['type', templateType === 'flow' ? 'body' : 'BODY'],
+          ['type', 'BODY'],
           ['text', trimString(component.text)],
+          ['example', bodyTextExample ? { body_text: bodyTextExample } : undefined],
         ]));
       }
       continue;
@@ -740,7 +812,9 @@ async function sanitizeTemplateComponentsForMeta(userId, accessToken, templateTy
     if (type === 'BUTTONS') {
       sanitized.push({
         type: 'BUTTONS',
-        buttons: Array.isArray(component.buttons) ? component.buttons.map(sanitizeButtonForMeta) : [],
+        buttons: normalizeMetaButtonOrder(
+          Array.isArray(component.buttons) ? component.buttons : []
+        ).map(sanitizeButtonForMeta),
       });
       continue;
     }
@@ -767,7 +841,7 @@ async function sanitizeTemplateComponentsForMeta(userId, accessToken, templateTy
     delete generic.media_asset;
 
     if (Array.isArray(generic.buttons)) {
-      generic.buttons = generic.buttons.map(sanitizeButtonForMeta);
+      generic.buttons = normalizeMetaButtonOrder(generic.buttons).map(sanitizeButtonForMeta);
     }
 
     if (Array.isArray(generic.cards)) {
@@ -793,14 +867,16 @@ async function sanitizeTemplateComponentsForMeta(userId, accessToken, templateTy
 async function buildMetaTemplatePayload(userId, accessToken, template, wabaId, options = {}) {
   const { includeIdentity = true } = options;
   const resolvedComponents = await resolveTemplateFlowButtons(
-    userId,
+    resolveScopeId(userId),
     wabaId,
     template.components
   );
+  const normalizedComponents = normalizeTemplateComponentsForMetaCompatibility(resolvedComponents);
 
   return {
     ...(includeIdentity
       ? {
+          allow_category_change: true,
           name: template.name,
           language: template.language,
         }
@@ -810,7 +886,7 @@ async function buildMetaTemplatePayload(userId, accessToken, template, wabaId, o
       userId,
       accessToken,
       template.type,
-      resolvedComponents
+      normalizedComponents
     ),
     ...(normalizeMessageSendTtl(template.message_send_ttl_seconds)
       ? { message_send_ttl_seconds: normalizeMessageSendTtl(template.message_send_ttl_seconds) }
@@ -969,7 +1045,8 @@ function serializeTemplate(template) {
  * @param {object} data - Validated template data
  * @returns {Promise<object>} The created template
  */
-async function createTemplate(userId, data) {
+async function createTemplate(requestContext, data) {
+  const userId = resolveScopeId(requestContext);
   // Check subscription limit before creating
   await checkSubscriptionLimit(userId);
   const activeAccount = await requireAutoResolvedWaAccount(
@@ -979,8 +1056,11 @@ async function createTemplate(userId, data) {
   );
   const resolvedWabaId = String(activeAccount.waba_id);
 
+  const normalizedComponents = normalizeTemplateComponentsForMetaCompatibility(data.components);
+
   assertTemplateBusinessRules({
     ...data,
+    components: normalizedComponents,
     waba_id: resolvedWabaId,
   });
 
@@ -1010,7 +1090,7 @@ async function createTemplate(userId, data) {
     type: data.type || 'standard',
     status: 'draft',
     source: 'nyife',
-    components: data.components,
+    components: normalizedComponents,
     example_values: data.example_values || null,
     message_send_ttl_seconds: normalizeMessageSendTtl(data.message_send_ttl_seconds),
   });
@@ -1030,7 +1110,8 @@ async function createTemplate(userId, data) {
  * @param {object} filters - { page, limit, status, category, type, search, waba_id }
  * @returns {Promise<{ templates: Array, meta: object }>}
  */
-async function listTemplates(userId, filters) {
+async function listTemplates(requestContext, filters) {
+  const userId = resolveScopeId(requestContext);
   const { page, limit, status, category, type, search, waba_id, wa_account_id, date_from, date_to } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
 
@@ -1093,7 +1174,8 @@ async function listTemplates(userId, filters) {
  * @param {string} templateId
  * @returns {Promise<object>} The template
  */
-async function getTemplate(userId, templateId) {
+async function getTemplate(requestContext, templateId) {
+  const userId = resolveScopeId(requestContext);
   const template = await Template.findOne({
     where: { id: templateId, user_id: userId },
   });
@@ -1116,7 +1198,8 @@ async function getTemplate(userId, templateId) {
  * @param {object} data - Validated update data
  * @returns {Promise<object>} The updated template
  */
-async function updateTemplate(userId, templateId, data) {
+async function updateTemplate(requestContext, templateId, data) {
+  const userId = resolveScopeId(requestContext);
   const template = await Template.findOne({
     where: { id: templateId, user_id: userId },
   });
@@ -1169,10 +1252,14 @@ async function updateTemplate(userId, templateId, data) {
     }
   }
 
+  const normalizedUpdatedComponents = data.components !== undefined
+    ? normalizeTemplateComponentsForMetaCompatibility(data.components)
+    : undefined;
+
   const nextTemplateState = {
     ...template.toJSON(),
     ...data,
-    components: data.components !== undefined ? data.components : template.components,
+    components: normalizedUpdatedComponents !== undefined ? normalizedUpdatedComponents : template.components,
     type: data.type !== undefined ? data.type : template.type,
     category: data.category !== undefined ? data.category : template.category,
     language: data.language !== undefined ? data.language : template.language,
@@ -1245,7 +1332,7 @@ async function updateTemplate(userId, templateId, data) {
     const metaEditableTemplate = {
       ...template.toJSON(),
       category: data.category !== undefined ? data.category : template.category,
-      components: data.components !== undefined ? data.components : template.components,
+      components: normalizedUpdatedComponents !== undefined ? normalizedUpdatedComponents : template.components,
       message_send_ttl_seconds:
         data.message_send_ttl_seconds !== undefined
           ? normalizeMessageSendTtl(data.message_send_ttl_seconds)
@@ -1255,7 +1342,7 @@ async function updateTemplate(userId, templateId, data) {
     };
 
     const payload = await buildMetaTemplatePayload(
-      userId,
+      requestContext,
       accountContext.access_token,
       metaEditableTemplate,
       wabaId,
@@ -1302,7 +1389,7 @@ async function updateTemplate(userId, templateId, data) {
         })
       : {
           category: data.category !== undefined ? data.category : template.category,
-          components: data.components !== undefined ? data.components : template.components,
+          components: normalizedUpdatedComponents !== undefined ? normalizedUpdatedComponents : template.components,
           message_send_ttl_seconds:
             data.message_send_ttl_seconds !== undefined
               ? normalizeMessageSendTtl(data.message_send_ttl_seconds)
@@ -1329,7 +1416,7 @@ async function updateTemplate(userId, templateId, data) {
   if (data.language !== undefined) updateFields.language = data.language;
   if (data.category !== undefined) updateFields.category = data.category;
   if (data.type !== undefined) updateFields.type = data.type;
-  if (data.components !== undefined) updateFields.components = data.components;
+  if (normalizedUpdatedComponents !== undefined) updateFields.components = normalizedUpdatedComponents;
   if (data.example_values !== undefined) updateFields.example_values = data.example_values;
   if (data.message_send_ttl_seconds !== undefined) {
     updateFields.message_send_ttl_seconds = normalizeMessageSendTtl(data.message_send_ttl_seconds);
@@ -1359,7 +1446,12 @@ async function updateTemplate(userId, templateId, data) {
  * @param {string|null} accessToken - Meta access token, required if template is published
  * @returns {Promise<void>}
  */
-async function deleteTemplate(userId, templateId, accessToken) {
+function shouldDeleteFromMeta(metaStatus) {
+  return !['PENDING_DELETION', 'DISABLED', 'DELETED', 'ARCHIVED', 'LIMIT_EXCEEDED'].includes(metaStatus);
+}
+
+async function deleteTemplate(requestContext, templateId, accessToken) {
+  const userId = resolveScopeId(requestContext);
   const template = await Template.findOne({
     where: { id: templateId, user_id: userId },
   });
@@ -1369,13 +1461,13 @@ async function deleteTemplate(userId, templateId, accessToken) {
   }
 
   if (!canDeleteTemplate(template)) {
-    throw AppError.badRequest('Disabled Meta templates cannot be deleted.');
+    throw AppError.badRequest('This Meta template is in an unsupported lifecycle state for deletion. Sync from Meta before trying again.');
   }
 
   const metaStatusRaw = resolveTemplateMetaStatus(template);
 
   // If the template has been published to Meta, delete from Meta first
-  if (template.meta_template_id && template.waba_id && metaStatusRaw !== 'PENDING_DELETION') {
+  if (template.meta_template_id && template.waba_id && shouldDeleteFromMeta(metaStatusRaw)) {
     const accountContext = await resolveAccountContext(userId, {
       waAccountId: template.wa_account_id,
       wabaId: template.waba_id,
@@ -1440,7 +1532,8 @@ async function deleteTemplate(userId, templateId, accessToken) {
  * @param {string|null} waAccountIdOverride - Optional WhatsApp account override from request body
  * @returns {Promise<object>} The updated template with meta_template_id
  */
-async function publishTemplate(userId, templateId, accessToken, waAccountIdOverride) {
+async function publishTemplate(requestContext, templateId, accessToken, waAccountIdOverride) {
+  const userId = resolveScopeId(requestContext);
   const template = await Template.findOne({
     where: { id: templateId, user_id: userId },
   });
@@ -1475,17 +1568,25 @@ async function publishTemplate(userId, templateId, accessToken, waAccountIdOverr
     );
   }
 
+  const normalizedTemplateComponents = normalizeTemplateComponentsForMetaCompatibility(template.toJSON().components);
+
   assertTemplateBusinessRules({
     ...template.toJSON(),
+    components: normalizedTemplateComponents,
     wa_account_id: accountContext.wa_account_id,
     waba_id: wabaId,
   });
 
+  const normalizedTemplate = {
+    ...template.toJSON(),
+    components: normalizedTemplateComponents,
+  };
+
   // Build Meta API payload
   const payload = await buildMetaTemplatePayload(
-    userId,
+    requestContext,
     accountContext.access_token,
-    template,
+    normalizedTemplate,
     wabaId
   );
 
@@ -1549,6 +1650,7 @@ async function publishTemplate(userId, templateId, accessToken, waAccountIdOverr
     waba_id: wabaId,
     wa_account_id: accountContext.wa_account_id || template.wa_account_id,
     last_synced_at: new Date(),
+    components: normalizedTemplateComponents,
   };
 
   await template.update(updateData);
@@ -1568,7 +1670,8 @@ async function publishTemplate(userId, templateId, accessToken, waAccountIdOverr
  * @param {string} accessToken - Meta WhatsApp access token
  * @returns {Promise<{ synced: number, created: number, updated: number }>}
  */
-async function syncTemplates(userId, waAccountId, accessToken) {
+async function syncTemplates(requestContext, waAccountId, accessToken) {
+  const userId = resolveScopeId(requestContext);
   const accountContext = await resolveAccountContext(userId, {
     waAccountId,
     providedAccessToken: accessToken,

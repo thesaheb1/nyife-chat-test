@@ -77,7 +77,7 @@ function getTemplateEditBlockedReason(template: Template | undefined) {
     return 'Meta templates under review cannot be edited until the review finishes. Sync again after approval or rejection.';
   }
 
-  if (effectiveMetaStatus === 'APPEAL_REQUESTED') {
+  if (effectiveMetaStatus === 'IN_APPEAL' || effectiveMetaStatus === 'APPEAL_REQUESTED') {
     return 'This template is currently in appeal review on Meta and is read-only for now.';
   }
 
@@ -87,6 +87,14 @@ function getTemplateEditBlockedReason(template: Template | undefined) {
 
   if (effectiveMetaStatus === 'DISABLED') {
     return 'Disabled Meta templates cannot be edited.';
+  }
+
+  if (effectiveMetaStatus === 'DELETED') {
+    return 'This template has already been deleted on Meta. Sync or remove the local record instead of editing it.';
+  }
+
+  if (effectiveMetaStatus === 'ARCHIVED' || effectiveMetaStatus === 'LIMIT_EXCEEDED') {
+    return 'This template is inactive on Meta in its current lifecycle state and is read-only in Nyife.';
   }
 
   if (template.meta_template_id) {

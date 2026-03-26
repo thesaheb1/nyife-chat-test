@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import type { Template } from '@/core/types';
 import type { TemplateDraft, TemplateMediaAsset } from './templateBuilder';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useAuthenticatedImageSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
 
 interface TemplateComponent {
   type: string;
@@ -121,11 +122,15 @@ function HeaderMediaPreview({
   theme: 'light' | 'dark';
 }) {
   const normalized = String(format).toUpperCase();
+  const resolvedImageSrc = useAuthenticatedImageSrc(
+    normalized === 'IMAGE' ? media?.preview_url : undefined,
+    media?.file_id || media?.header_handle || null
+  );
 
-  if (normalized === 'IMAGE' && media?.preview_url) {
+  if (normalized === 'IMAGE' && resolvedImageSrc) {
     return (
       <div className="overflow-hidden rounded-[14px] bg-[#d8d8d8]">
-        <img src={media.preview_url} alt={media.original_name || 'Header media'} className="h-32 w-full object-cover" />
+        <img src={resolvedImageSrc} alt={media?.original_name || 'Header media'} className="h-32 w-full object-cover" />
       </div>
     );
   }
@@ -297,7 +302,9 @@ function CarouselMessage({
   theme: 'light' | 'dark';
 }) {
   const carousel = getComponent(components, 'CAROUSEL');
+  const body = getComponent(components, 'BODY');
   const cards = Array.isArray(carousel?.cards) ? carousel.cards : [];
+  const introBodyText = trim(body?.text);
   const isDark = theme === 'dark';
 
   if (!cards.length) {
@@ -311,6 +318,13 @@ function CarouselMessage({
         isDark ? 'bg-[#202c33]' : 'bg-white shadow-[0_1px_0_rgba(11,20,26,0.08)]'
       )}
     >
+      {introBodyText ? (
+        <div className="px-3.5 pb-1 pt-3">
+          <div className={cn('text-[13px] leading-[1.45]', isDark ? 'text-[#e9edef]' : 'text-[#111b21]')}>
+            {introBodyText}
+          </div>
+        </div>
+      ) : null}
       <div className="-mx-1 flex gap-3 overflow-x-auto px-3 py-3">
         {cards.map((card, index) => (
           <div key={index} className="w-49 shrink-0">

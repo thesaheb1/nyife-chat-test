@@ -1,5 +1,12 @@
 
 import type { Template } from '@/core/types';
+import {
+  buildBodyTextExample,
+  buildHeaderTextExample,
+  readBodyTextExamples,
+  readButtonExampleValues,
+  readHeaderTextExamples,
+} from './templateExamples';
 import type { CreateTemplateFormData } from './validations';
 
 export type HeaderFormat = 'NONE' | 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'LOCATION';
@@ -25,14 +32,14 @@ export interface StandardButtonDraft {
   text: string;
   url: string;
   phone_number: string;
+  example: string[];
 }
 
 export interface CarouselCardDraft {
   headerFormat: HeaderFormat;
-  headerText: string;
   headerMedia: TemplateMediaAsset | null;
   bodyText: string;
-  footerText: string;
+  bodyTextExamples: string[];
   buttons: StandardButtonDraft[];
 }
 
@@ -47,8 +54,10 @@ export interface TemplateDraft {
   standard: {
     headerFormat: HeaderFormat;
     headerText: string;
+    headerTextExamples: string[];
     headerMedia: TemplateMediaAsset | null;
     bodyText: string;
+    bodyTextExamples: string[];
     footerText: string;
     buttons: StandardButtonDraft[];
   };
@@ -62,10 +71,13 @@ export interface TemplateDraft {
     signatureHash: string;
   };
   carousel: {
+    bodyText: string;
+    bodyTextExamples: string[];
     cards: CarouselCardDraft[];
   };
   flow: {
     bodyText: string;
+    bodyTextExamples: string[];
     buttonText: string;
     flow_id: string;
     flow_name: string;
@@ -76,8 +88,10 @@ export interface TemplateDraft {
   listMenu: {
     headerFormat: HeaderFormat;
     headerText: string;
+    headerTextExamples: string[];
     headerMedia: TemplateMediaAsset | null;
     bodyText: string;
+    bodyTextExamples: string[];
     footerText: string;
     buttonType: ListMenuButtonType;
     buttonText: string;
@@ -106,23 +120,25 @@ const DEFAULT_STANDARD_BUTTON = (): StandardButtonDraft => ({
   text: '',
   url: '',
   phone_number: '',
+  example: [],
 });
 
 const DEFAULT_CAROUSEL_CARD = (): CarouselCardDraft => ({
   headerFormat: 'IMAGE',
-  headerText: '',
   headerMedia: null,
   bodyText: '',
-  footerText: '',
+  bodyTextExamples: [],
   buttons: [
     {
       type: 'URL',
       text: '',
       url: '',
       phone_number: '',
+      example: [],
     },
   ],
 });
+
 
 export function createEmptyTemplateDraft(): TemplateDraft {
   return {
@@ -136,8 +152,10 @@ export function createEmptyTemplateDraft(): TemplateDraft {
     standard: {
       headerFormat: 'NONE',
       headerText: '',
+      headerTextExamples: [],
       headerMedia: null,
       bodyText: '',
+      bodyTextExamples: [],
       footerText: '',
       buttons: [DEFAULT_STANDARD_BUTTON()],
     },
@@ -151,10 +169,13 @@ export function createEmptyTemplateDraft(): TemplateDraft {
       signatureHash: '',
     },
     carousel: {
+      bodyText: '',
+      bodyTextExamples: [],
       cards: [DEFAULT_CAROUSEL_CARD(), DEFAULT_CAROUSEL_CARD()],
     },
     flow: {
       bodyText: '',
+      bodyTextExamples: [],
       buttonText: 'Open flow',
       flow_id: '',
       flow_name: '',
@@ -165,8 +186,10 @@ export function createEmptyTemplateDraft(): TemplateDraft {
     listMenu: {
       headerFormat: 'NONE',
       headerText: '',
+      headerTextExamples: [],
       headerMedia: null,
       bodyText: '',
+      bodyTextExamples: [],
       footerText: '',
       buttonType: 'CATALOG',
       buttonText: 'View catalog',
@@ -187,15 +210,65 @@ function getComponent(components: TemplateComponent[], type: string) {
   return components.find((component) => String(component.type).toUpperCase() === type) || null;
 }
 
-function hydrateStandardButtons(rawButtons: Array<Record<string, unknown>> | undefined): StandardButtonDraft[] {
-  const buttons = (rawButtons || [])
+function buildStoredMediaPreviewUrl(fileId: string) {
+  return fileId ? `/api/v1/media/${encodeURIComponent(fileId)}/download` : undefined;
+}
+
+function resolvePersistedPreviewUrl(asset: Pick<TemplateMediaAsset, 'file_id' | 'preview_url'>) {
+  if (asset.preview_url && !asset.preview_url.startsWith('blob:')) {
+    return asset.preview_url;
+  }
+
+  return buildStoredMediaPreviewUrl(asset.file_id);
+}
+
+function isQuickReplyButton(button: Pick<StandardButtonDraft, 'type'>) {
+  return button.type === 'QUICK_REPLY';
+}
+
+function normalizeStandardButtonsForMeta<T extends Pick<StandardButtonDraft, 'type'>>(buttons: T[]) {
+  if (!Array.isArray(buttons) || buttons.length < 2) {
+    return buttons;
+  }
+
+  const quickReplies = buttons.filter((button) => isQuickReplyButton(button));
+  const otherButtons = buttons.filter((button) => !isQuickReplyButton(button));
+
+  if (!quickReplies.length || !otherButtons.length) {
+    return buttons;
+  }
+
+  return isQuickReplyButton(buttons[0])
+    ? [...quickReplies, ...otherButtons]
+    : [...otherButtons, ...quickReplies];
+}
+
+function buildStandardButtonsPayload(buttons: StandardButtonDraft[]) {
+  return normalizeStandardButtonsForMeta(buttons)
+    .filter((button) => trim(button.text) || trim(button.url) || trim(button.phone_number))
     .map((button) => ({
-      type: (button.type as StandardButtonType) || 'QUICK_REPLY',
+      type: button.type,
       text: trim(button.text),
-      url: trim(button.url),
-      phone_number: trim(button.phone_number),
-    }))
-    .filter((button) => ['QUICK_REPLY', 'URL', 'PHONE_NUMBER'].includes(button.type));
+      ...(button.type === 'URL' ? { url: trim(button.url) } : {}),
+      ...(button.type === 'URL' && button.example.some((value) => trim(value))
+        ? { example: button.example.map((value) => trim(value)).filter(Boolean) }
+        : {}),
+      ...(button.type === 'PHONE_NUMBER' ? { phone_number: trim(button.phone_number) } : {}),
+    }));
+}
+
+function hydrateStandardButtons(rawButtons: Array<Record<string, unknown>> | undefined): StandardButtonDraft[] {
+  const buttons = normalizeStandardButtonsForMeta(
+    (rawButtons || [])
+      .map((button) => ({
+        type: (button.type as StandardButtonType) || 'QUICK_REPLY',
+        text: trim(button.text),
+        url: trim(button.url),
+        phone_number: trim(button.phone_number),
+        example: readButtonExampleValues(button),
+      }))
+      .filter((button) => ['QUICK_REPLY', 'URL', 'PHONE_NUMBER'].includes(button.type))
+  );
 
   return buttons.length ? buttons : [DEFAULT_STANDARD_BUTTON()];
 }
@@ -209,6 +282,7 @@ function normalizeHeaderMedia(component: TemplateComponent | null): TemplateMedi
   if (mediaAsset && typeof mediaAsset === 'object') {
     return {
       ...mediaAsset,
+      preview_url: resolvePersistedPreviewUrl(mediaAsset),
       header_handle:
         mediaAsset.header_handle
         || (Array.isArray(component.example?.header_handle) ? component.example.header_handle[0] || null : null),
@@ -238,6 +312,7 @@ function hydrateHeader(component: TemplateComponent | null) {
     return {
       headerFormat: 'NONE' as HeaderFormat,
       headerText: '',
+      headerTextExamples: [],
       headerMedia: null,
     };
   }
@@ -246,6 +321,7 @@ function hydrateHeader(component: TemplateComponent | null) {
   return {
     headerFormat: format,
     headerText: trim(component.text),
+    headerTextExamples: readHeaderTextExamples(component),
     headerMedia: normalizeHeaderMedia(component),
   };
 }
@@ -253,6 +329,7 @@ function hydrateHeader(component: TemplateComponent | null) {
 function buildHeaderComponent(
   headerFormat: HeaderFormat,
   headerText: string,
+  headerTextExamples: string[],
   headerMedia: TemplateMediaAsset | null
 ) {
   if (headerFormat === 'NONE') {
@@ -266,6 +343,12 @@ function buildHeaderComponent(
 
   if (headerFormat === 'TEXT' && trim(headerText)) {
     component.text = trim(headerText);
+    const headerExample = buildHeaderTextExample(headerText, headerTextExamples);
+    if (headerExample) {
+      component.example = {
+        header_text: headerExample,
+      };
+    }
   }
 
   if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerFormat) && headerMedia) {
@@ -275,6 +358,10 @@ function buildHeaderComponent(
       mime_type: headerMedia.mime_type,
       size: headerMedia.size,
       type: headerMedia.type,
+      ...(resolvePersistedPreviewUrl(headerMedia) ? { preview_url: resolvePersistedPreviewUrl(headerMedia) } : {}),
+      ...(headerMedia.width ? { width: headerMedia.width } : {}),
+      ...(headerMedia.height ? { height: headerMedia.height } : {}),
+      ...(headerMedia.aspect_ratio ? { aspect_ratio: headerMedia.aspect_ratio } : {}),
       ...(headerMedia.header_handle ? { header_handle: headerMedia.header_handle } : {}),
     };
 
@@ -286,6 +373,13 @@ function buildHeaderComponent(
   }
 
   return component;
+}
+
+function buildBodyExamplePayload(text: string, values: string[]) {
+  const bodyExample = buildBodyTextExample(text, values);
+  return bodyExample
+    ? { body_text: bodyExample }
+    : undefined;
 }
 
 export function hydrateTemplateDraft(template: Template | null | undefined): TemplateDraft {
@@ -301,7 +395,7 @@ export function hydrateTemplateDraft(template: Template | null | undefined): Tem
   const footer = getComponent(components, 'FOOTER');
   const buttonsComponent = getComponent(components, 'BUTTONS');
   const carousel = getComponent(components, 'CAROUSEL');
-  const { headerFormat, headerText, headerMedia } = hydrateHeader(header);
+  const { headerFormat, headerText, headerTextExamples, headerMedia } = hydrateHeader(header);
 
   draft.name = template.name || '';
   draft.display_name = template.display_name || '';
@@ -314,8 +408,10 @@ export function hydrateTemplateDraft(template: Template | null | undefined): Tem
   draft.standard = {
     headerFormat,
     headerText,
+    headerTextExamples,
     headerMedia,
     bodyText: trim(body?.text),
+    bodyTextExamples: readBodyTextExamples(body),
     footerText: trim(footer?.text),
     buttons: hydrateStandardButtons(buttonsComponent?.buttons as Array<Record<string, unknown>> | undefined),
   };
@@ -337,6 +433,7 @@ export function hydrateTemplateDraft(template: Template | null | undefined): Tem
 
   draft.flow = {
     bodyText: trim(body?.text),
+    bodyTextExamples: readBodyTextExamples(body),
     buttonText: trim(authButton?.text) || 'Open flow',
     flow_id: trim(authButton?.flow_id),
     flow_name: trim(authButton?.flow_name),
@@ -348,32 +445,38 @@ export function hydrateTemplateDraft(template: Template | null | undefined): Tem
   draft.listMenu = {
     headerFormat,
     headerText,
+    headerTextExamples,
     headerMedia,
     bodyText: trim(body?.text),
+    bodyTextExamples: readBodyTextExamples(body),
     footerText: trim(footer?.text),
     buttonType: (authButton?.type as ListMenuButtonType) || 'CATALOG',
     buttonText: trim(authButton?.text) || 'View catalog',
-    example: trim(authButton?.example),
+    example: Array.isArray(authButton?.example)
+      ? trim(authButton.example[0])
+      : trim(authButton?.example),
   };
 
   if (carousel?.cards?.length) {
-    draft.carousel.cards = carousel.cards.map((card) => {
-      const cardComponents = Array.isArray(card.components) ? card.components : [];
-      const cardHeader = getComponent(cardComponents, 'HEADER');
-      const cardBody = getComponent(cardComponents, 'BODY');
-      const cardFooter = getComponent(cardComponents, 'FOOTER');
-      const cardButtons = getComponent(cardComponents, 'BUTTONS');
-      const hydratedHeader = hydrateHeader(cardHeader);
+    draft.carousel = {
+      bodyText: trim(body?.text),
+      bodyTextExamples: readBodyTextExamples(body),
+      cards: carousel.cards.map((card) => {
+        const cardComponents = Array.isArray(card.components) ? card.components : [];
+        const cardHeader = getComponent(cardComponents, 'HEADER');
+        const cardBody = getComponent(cardComponents, 'BODY');
+        const cardButtons = getComponent(cardComponents, 'BUTTONS');
+        const hydratedHeader = hydrateHeader(cardHeader);
 
-      return {
-        headerFormat: hydratedHeader.headerFormat,
-        headerText: hydratedHeader.headerText,
-        headerMedia: hydratedHeader.headerMedia,
-        bodyText: trim(cardBody?.text),
-        footerText: trim(cardFooter?.text),
-        buttons: hydrateStandardButtons(cardButtons?.buttons as Array<Record<string, unknown>> | undefined),
-      };
-    });
+        return {
+          headerFormat: hydratedHeader.headerFormat,
+          headerMedia: hydratedHeader.headerMedia,
+          bodyText: trim(cardBody?.text),
+          bodyTextExamples: readBodyTextExamples(cardBody),
+          buttons: hydrateStandardButtons(cardButtons?.buttons as Array<Record<string, unknown>> | undefined),
+        };
+      }),
+    };
   }
 
   return draft;
@@ -398,6 +501,7 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
     const header = buildHeaderComponent(
       draft.standard.headerFormat,
       draft.standard.headerText,
+      draft.standard.headerTextExamples,
       draft.standard.headerMedia
     );
     if (header) {
@@ -407,6 +511,7 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
     payload.components.push({
       type: 'BODY',
       text: trim(draft.standard.bodyText),
+      example: buildBodyExamplePayload(draft.standard.bodyText, draft.standard.bodyTextExamples),
     });
 
     if (trim(draft.standard.footerText)) {
@@ -416,14 +521,7 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
       });
     }
 
-    const buttons = draft.standard.buttons
-      .filter((button) => trim(button.text) || trim(button.url) || trim(button.phone_number))
-      .map((button) => ({
-        type: button.type,
-        text: trim(button.text),
-        ...(button.type === 'URL' ? { url: trim(button.url) } : {}),
-        ...(button.type === 'PHONE_NUMBER' ? { phone_number: trim(button.phone_number) } : {}),
-      }));
+    const buttons = buildStandardButtonsPayload(draft.standard.buttons);
 
     if (buttons.length) {
       payload.components.push({
@@ -470,6 +568,7 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
     payload.components.push({
       type: 'BODY',
       text: trim(draft.flow.bodyText),
+      example: buildBodyExamplePayload(draft.flow.bodyText, draft.flow.bodyTextExamples),
     });
 
     payload.components.push({
@@ -492,6 +591,7 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
     const header = buildHeaderComponent(
       draft.listMenu.headerFormat,
       draft.listMenu.headerText,
+      draft.listMenu.headerTextExamples,
       draft.listMenu.headerMedia
     );
     if (header) {
@@ -501,6 +601,7 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
     payload.components.push({
       type: 'BODY',
       text: trim(draft.listMenu.bodyText),
+      example: buildBodyExamplePayload(draft.listMenu.bodyText, draft.listMenu.bodyTextExamples),
     });
 
     if (trim(draft.listMenu.footerText)) {
@@ -524,34 +625,34 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
 
   if (draft.type === 'carousel') {
     payload.components.push({
+      type: 'BODY',
+      text: trim(draft.carousel.bodyText),
+      example: buildBodyExamplePayload(draft.carousel.bodyText, draft.carousel.bodyTextExamples),
+    });
+
+    payload.components.push({
       type: 'CAROUSEL',
       cards: draft.carousel.cards.map((card) => {
         const cardComponents: CreateTemplateFormData['components'] = [];
-        const header = buildHeaderComponent(card.headerFormat, card.headerText, card.headerMedia);
+        const header = buildHeaderComponent(
+          card.headerFormat,
+          '',
+          [],
+          card.headerMedia
+        );
         if (header) {
           cardComponents.push(header as CreateTemplateFormData['components'][number]);
         }
 
-        cardComponents.push({
-          type: 'BODY',
-          text: trim(card.bodyText),
-        });
-
-        if (trim(card.footerText)) {
+        if (trim(card.bodyText)) {
           cardComponents.push({
-            type: 'FOOTER',
-            text: trim(card.footerText),
+            type: 'BODY',
+            text: trim(card.bodyText),
+            example: buildBodyExamplePayload(card.bodyText, card.bodyTextExamples),
           });
         }
 
-        const buttons = card.buttons
-          .filter((button) => trim(button.text) || trim(button.url) || trim(button.phone_number))
-          .map((button) => ({
-            type: button.type,
-            text: trim(button.text),
-            ...(button.type === 'URL' ? { url: trim(button.url) } : {}),
-            ...(button.type === 'PHONE_NUMBER' ? { phone_number: trim(button.phone_number) } : {}),
-          }));
+        const buttons = buildStandardButtonsPayload(card.buttons);
 
         if (buttons.length) {
           cardComponents.push({

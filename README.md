@@ -237,6 +237,10 @@ If you changed Dockerfile or dependency setup for a single service, rebuild that
 ```bash
 npm run service:start -- whatsapp-service --build
 npm run service:restart -- chat-service --build
+npm run service:restart -- template-service --build
+npm run service:restart -- admin-service --build
+
+
 ```
 
 Raw Docker Compose equivalents:

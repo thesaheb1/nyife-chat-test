@@ -15,8 +15,18 @@ function normalizeWabaId(value) {
 
 function buildMultipleWabaError() {
   return AppError.badRequest(
-    'Multiple WhatsApp Business Accounts are connected for this organization. Nyife now auto-selects a single WABA for templates and flows, so disconnect extra WABAs before continuing.'
+    'Only one active WABA can be connected per organization for templates and flows. Multiple phone numbers under that same WABA are supported. Disconnect the extra WABA before continuing.'
   );
+}
+
+function getDistinctActiveWabaIds(activeAccounts) {
+  return [
+    ...new Set(
+      (Array.isArray(activeAccounts) ? activeAccounts : [])
+        .map((account) => normalizeWabaId(account?.waba_id))
+        .filter(Boolean)
+    ),
+  ];
 }
 
 async function listActiveWaAccounts(userId) {
@@ -34,6 +44,12 @@ async function listActiveWaAccounts(userId) {
       type: QueryTypes.SELECT,
     }
   );
+}
+
+function assertSingleActiveAccountInvariant(activeAccounts) {
+  if (getDistinctActiveWabaIds(activeAccounts).length > 1) {
+    throw buildMultipleWabaError();
+  }
 }
 
 async function fetchActiveWaAccountById(userId, waAccountId) {
@@ -95,11 +111,12 @@ async function resolveSingleWabaAccount(userId, options = {}) {
     allowFallbackByWaba = true,
     allowAutoResolve = true,
   } = options;
-
+  const activeAccounts = await listActiveWaAccounts(userId);
+  assertSingleActiveAccountInvariant(activeAccounts);
   const normalizedWabaId = normalizeWabaId(wabaId);
 
   if (waAccountId) {
-    const account = await fetchActiveWaAccountById(userId, waAccountId);
+    const account = activeAccounts.find((activeAccount) => activeAccount.id === waAccountId) || null;
     if (!account) {
       throw AppError.badRequest('Select an active WhatsApp phone number for this organization.');
     }
@@ -151,8 +168,6 @@ async function resolveSingleWabaAccount(userId, options = {}) {
       waba_accounts: [],
     };
   }
-
-  const activeAccounts = await listActiveWaAccounts(userId);
   const resolvedWabaIdSet = [...new Set(activeAccounts.map((account) => normalizeWabaId(account.waba_id)).filter(Boolean))];
 
   if (normalizedWabaId) {
@@ -167,10 +182,6 @@ async function resolveSingleWabaAccount(userId, options = {}) {
       active_accounts: activeAccounts,
       waba_accounts: matchingAccounts,
     };
-  }
-
-  if (resolvedWabaIdSet.length > 1) {
-    throw buildMultipleWabaError();
   }
 
   const resolvedWabaId = resolvedWabaIdSet[0] || null;

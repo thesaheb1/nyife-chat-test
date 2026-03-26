@@ -82,3 +82,46 @@
 // 3. Fixed the error with production grade approach not just quick fix. find the root cause and fix it with production grade approach.
 // 4. code implementation must be clean, readable, maintainable, modular, and most importantly, reusable.
 // 5. don't make one big component. make it many small modular and reusable compoents.
+
+// CONTEXT : Our system is supposed to have only one Whatsapp account/WABA in a organization. So we can't have multiple WABA accounts in one organization.
+// also we can have multiple phone numbers in one WABA account as per subscription plan limit.
+
+// ERRORS:
+// 1. when i try to update a draft template it gaves me error.
+
+// {
+//     "success": false,
+//     "message": "Only one active WhatsApp account/WABA can be connected per organization for templates and flows. Disconnect extra accounts before continuing.",
+//     "stack": "AppError: Only one active WhatsApp account/WABA can be connected per organization for templates and flows. Disconnect extra accounts before continuing.\n    at AppError.badRequest (/app/shared/shared-utils/src/AppError.js:37:12)\n    at buildMultipleWabaError (/app/services/template-service/src/services/waAccountContext.service.js:17:19)\n    at assertSingleActiveAccountInvariant (/app/services/template-service/src/services/waAccountContext.service.js:41:11)\n    at resolveSingleWabaAccount (/app/services/template-service/src/services/waAccountContext.service.js:105:3)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async requireActiveWaAccount (/app/services/template-service/src/services/template.service.js:443:21)\n    at async Object.updateTemplate (/app/services/template-service/src/services/template.service.js:1184:29)\n    at async updateTemplate (/app/services/template-service/src/controllers/template.controller.js:63:20)"
+// }
+
+// Api Gateway :
+// Request URL : https://localhost:5173/api/v1/templates/d1d9d98d-72f1-4cde-8c2f-7b77f76b2f02
+// Request Method : PUT
+// Status Code : 400 Bad Request
+
+
+// Again when i try to publish a template it gives me error.
+
+// API Gateway :
+// Request URL : https://localhost:5173/api/v1/templates/d1d9d98d-72f1-4cde-8c2f-7b77f76b2f02/publish
+// Request Method : POST
+// Status Code : 400 Bad Request
+
+// Payload : {"wa_account_id":"15bf50f1-2ad6-4fd5-ab62-a41894fe7932"}
+
+// response error :
+// {
+//     "success": false,
+//     "message": "Meta API error: Invalid parameter - Message template button combination not supported. Either the number of buttons exceeded the limit, or there was an invalid button type used in the carousel card.",
+//     "stack": "AppError: Meta API error: Invalid parameter - Message template button combination not supported. Either the number of buttons exceeded the limit, or there was an invalid button type used in the carousel card.\n    at AppError.badRequest (/app/shared/shared-utils/src/AppError.js:37:12)\n    at Object.publishTemplate (/app/services/template-service/src/services/template.service.js:1575:22)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async publishTemplate (/app/services/template-service/src/controllers/template.controller.js:92:20)"
+// }
+
+// FIXES: 
+// 1. Review the complete and all types of templates parameter and Compare with meta graph api documentation and fix it.
+// 2. When i upload any media file such as image, video, document etc. then save the template. and then open that template in edit mode the media header is not showing. it only showing file name. please fix it.
+
+
+
+// When i open a draft template to edit and When i uploaded any media file such as image, video, document etc in the header component then the media is not showing. it only showing file name. please fix it.
+// I have attached the screenshot of the issue.

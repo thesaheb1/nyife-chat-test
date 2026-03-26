@@ -21,7 +21,12 @@ import {
 import { TemplateOptionSelect } from './TemplateOptionSelect';
 import { updateCarouselCard } from './templateComposerUtils';
 
-function applyHeaderFormat<T extends { headerFormat: TemplateDraft['standard']['headerFormat']; headerText: string; headerMedia: TemplateDraft['standard']['headerMedia'] }>(
+function applyHeaderFormat<T extends {
+  headerFormat: TemplateDraft['standard']['headerFormat'];
+  headerText: string;
+  headerTextExamples: string[];
+  headerMedia: TemplateDraft['standard']['headerMedia'];
+}>(
   current: T,
   next: TemplateDraft['standard']['headerFormat']
 ): T {
@@ -29,6 +34,7 @@ function applyHeaderFormat<T extends { headerFormat: TemplateDraft['standard']['
     ...current,
     headerFormat: next,
     headerText: next === 'TEXT' ? current.headerText : '',
+    headerTextExamples: next === 'TEXT' ? current.headerTextExamples : [],
     headerMedia: current.headerFormat === next ? current.headerMedia : null,
   };
 }
@@ -57,15 +63,19 @@ export function StandardTemplateSection({
         <HeaderFields
           headerFormat={draft.standard.headerFormat}
           headerText={draft.standard.headerText}
+          headerTextExamples={draft.standard.headerTextExamples}
           headerMedia={draft.standard.headerMedia}
           onFormatChange={(value) => onChange({ ...draft, standard: applyHeaderFormat(draft.standard, value) })}
           onTextChange={(value) => onChange({ ...draft, standard: { ...draft.standard, headerText: value } })}
+          onTextExamplesChange={(value) => onChange({ ...draft, standard: { ...draft.standard, headerTextExamples: value } })}
           onMediaChange={(value) => onChange({ ...draft, standard: { ...draft.standard, headerMedia: value } })}
         />
         <VariableTextareaField
           label="Body text"
           value={draft.standard.bodyText}
           onChange={(value) => onChange({ ...draft, standard: { ...draft.standard, bodyText: value } })}
+          examples={draft.standard.bodyTextExamples}
+          onExamplesChange={(value) => onChange({ ...draft, standard: { ...draft.standard, bodyTextExamples: value } })}
           rows={6}
           placeholder="Hi {{1}}, your order is confirmed and will reach you by {{2}}."
         />
@@ -216,6 +226,8 @@ export function FlowTemplateSection({
           label="Body text"
           value={draft.flow.bodyText}
           onChange={(value) => onChange({ ...draft, flow: { ...draft.flow, bodyText: value } })}
+          examples={draft.flow.bodyTextExamples}
+          onExamplesChange={(value) => onChange({ ...draft, flow: { ...draft.flow, bodyTextExamples: value } })}
           rows={6}
           placeholder="Complete the lead qualification flow to continue."
         />
@@ -309,15 +321,19 @@ export function ListMenuTemplateSection({
         <HeaderFields
           headerFormat={draft.listMenu.headerFormat}
           headerText={draft.listMenu.headerText}
+          headerTextExamples={draft.listMenu.headerTextExamples}
           headerMedia={draft.listMenu.headerMedia}
           onFormatChange={(value) => onChange({ ...draft, listMenu: applyHeaderFormat(draft.listMenu, value) })}
           onTextChange={(value) => onChange({ ...draft, listMenu: { ...draft.listMenu, headerText: value } })}
+          onTextExamplesChange={(value) => onChange({ ...draft, listMenu: { ...draft.listMenu, headerTextExamples: value } })}
           onMediaChange={(value) => onChange({ ...draft, listMenu: { ...draft.listMenu, headerMedia: value } })}
         />
         <VariableTextareaField
           label="Body text"
           value={draft.listMenu.bodyText}
           onChange={(value) => onChange({ ...draft, listMenu: { ...draft.listMenu, bodyText: value } })}
+          examples={draft.listMenu.bodyTextExamples}
+          onExamplesChange={(value) => onChange({ ...draft, listMenu: { ...draft.listMenu, bodyTextExamples: value } })}
           rows={6}
           placeholder="Browse our store and continue with the products that match your need."
         />
@@ -378,7 +394,7 @@ export function CarouselTemplateSection({
     <Card>
       <CardHeader>
         <CardTitle>Carousel template builder</CardTitle>
-        <CardDescription>Build 2 to 10 cards with their own media, copy, and CTA buttons.</CardDescription>
+        <CardDescription>Build a marketing carousel with one intro body plus 2 to 10 media cards and consistent CTA structure.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="flex items-center justify-between gap-3 rounded-2xl border p-4">
@@ -389,20 +405,29 @@ export function CarouselTemplateSection({
           <Button
             type="button"
             variant="outline"
-            onClick={() => onChange({ ...draft, carousel: { cards: addCarouselCard(draft.carousel.cards) } })}
+            onClick={() => onChange({ ...draft, carousel: { ...draft.carousel, cards: addCarouselCard(draft.carousel.cards) } })}
             disabled={draft.carousel.cards.length >= 10}
           >
             <Plus className="mr-2 h-4 w-4" />
             Add card
           </Button>
         </div>
+        <VariableTextareaField
+          label="Carousel intro body"
+          value={draft.carousel.bodyText}
+          onChange={(value) => onChange({ ...draft, carousel: { ...draft.carousel, bodyText: value } })}
+          examples={draft.carousel.bodyTextExamples}
+          onExamplesChange={(value) => onChange({ ...draft, carousel: { ...draft.carousel, bodyTextExamples: value } })}
+          rows={5}
+          placeholder="Share the headline or intro that appears above the carousel cards."
+        />
         <div className="space-y-4">
           {draft.carousel.cards.map((card, index) => (
             <div key={index} className="rounded-3xl border p-4">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <div className="font-semibold">Card {index + 1}</div>
-                  <div className="text-sm text-muted-foreground">Configure media, message copy, and card CTAs.</div>
+                  <div className="text-sm text-muted-foreground">Each card needs an image or video header. Card body text is optional, but if one card uses it, every card should.</div>
                 </div>
                 <Button
                   type="button"
@@ -412,6 +437,7 @@ export function CarouselTemplateSection({
                     onChange({
                       ...draft,
                       carousel: {
+                        ...draft.carousel,
                         cards:
                           draft.carousel.cards.length > 2
                             ? draft.carousel.cards.filter((_, cardIndex) => cardIndex !== index)
@@ -427,23 +453,30 @@ export function CarouselTemplateSection({
               <div className="space-y-4">
                 <HeaderFields
                   headerFormat={card.headerFormat}
-                  headerText={card.headerText}
+                  headerText=""
+                  headerTextExamples={[]}
                   headerMedia={card.headerMedia}
-                  label={`Card ${index + 1} header`}
+                  label={`Card ${index + 1} media header`}
+                  allowedFormats={['IMAGE', 'VIDEO']}
                   onFormatChange={(value) =>
                     onChange({
                       ...draft,
                       carousel: {
+                        ...draft.carousel,
                         cards: updateCarouselCard(
                           draft.carousel.cards,
                           index,
-                          applyHeaderFormat(card, value)
+                          {
+                            headerFormat: value,
+                            headerMedia: card.headerFormat === value ? card.headerMedia : null,
+                          }
                         ),
                       },
                     })
                   }
-                  onTextChange={(value) => onChange({ ...draft, carousel: { cards: updateCarouselCard(draft.carousel.cards, index, { headerText: value }) } })}
-                  onMediaChange={(value) => onChange({ ...draft, carousel: { cards: updateCarouselCard(draft.carousel.cards, index, { headerMedia: value }) } })}
+                  onTextChange={() => {}}
+                  onTextExamplesChange={() => {}}
+                  onMediaChange={(value) => onChange({ ...draft, carousel: { ...draft.carousel, cards: updateCarouselCard(draft.carousel.cards, index, { headerMedia: value }) } })}
                 />
                 <VariableTextareaField
                   label="Card body text"
@@ -451,20 +484,19 @@ export function CarouselTemplateSection({
                   onChange={(value) =>
                     onChange({
                       ...draft,
-                      carousel: { cards: updateCarouselCard(draft.carousel.cards, index, { bodyText: value }) },
+                      carousel: { ...draft.carousel, cards: updateCarouselCard(draft.carousel.cards, index, { bodyText: value }) },
+                    })
+                  }
+                  examples={card.bodyTextExamples}
+                  onExamplesChange={(value) =>
+                    onChange({
+                      ...draft,
+                      carousel: { ...draft.carousel, cards: updateCarouselCard(draft.carousel.cards, index, { bodyTextExamples: value }) },
                     })
                   }
                   rows={4}
                   placeholder="Highlight this offer, product, or step."
                 />
-                <div className="space-y-2">
-                  <Label>Card footer text</Label>
-                  <Input
-                    value={card.footerText}
-                    onChange={(event) => onChange({ ...draft, carousel: { cards: updateCarouselCard(draft.carousel.cards, index, { footerText: event.target.value }) } })}
-                    placeholder="Limited-time offer"
-                  />
-                </div>
                 <StandardButtonsEditor
                   buttons={card.buttons}
                   maxButtons={2}
@@ -473,6 +505,7 @@ export function CarouselTemplateSection({
                     onChange({
                       ...draft,
                       carousel: {
+                        ...draft.carousel,
                         cards: updateCarouselCard(
                           draft.carousel.cards,
                           index,

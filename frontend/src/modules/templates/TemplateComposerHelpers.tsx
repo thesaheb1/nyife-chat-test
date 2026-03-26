@@ -33,6 +33,7 @@ import type {
   TemplateMediaAsset,
 } from './templateBuilder';
 import { addStandardButton } from './templateBuilder';
+import { describeTemplateVariables, syncTemplateExampleValues } from './templateExamples';
 import type { ValidationIssue } from './templateComposerUtils';
 import {
   extractTemplateMediaMetadata,
@@ -44,6 +45,7 @@ import {
 } from './templateMediaRules';
 import { runTemplateActionToast } from './templateToast';
 import { useUploadTemplateMedia } from './useTemplates';
+import { useAuthenticatedImageSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
 
 export function FieldError({ message }: { message?: string }) {
   if (!message) {
@@ -134,9 +136,62 @@ export function TypeCard({
 }
 
 function getNextVariableToken(value: string) {
-  const matches = Array.from(value.matchAll(/\{\{(\d+)\}\}/g));
-  const highest = matches.reduce((max, match) => Math.max(max, Number(match[1] || 0)), 0);
+  const variables = describeTemplateVariables(value);
+  const highest = variables.uniqueNumbers[variables.uniqueNumbers.length - 1] || 0;
   return `{{${highest + 1}}}`;
+}
+
+function TemplateVariableExamplesField({
+  label,
+  text,
+  values,
+  onChange,
+}: {
+  label: string;
+  text: string;
+  values: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const variables = describeTemplateVariables(text);
+
+  if (!variables.count) {
+    return null;
+  }
+
+  if (!variables.isSequential) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+        Use sequential variable tokens starting at {`{{1}}`} before adding sample values.
+      </div>
+    );
+  }
+
+  const sampleValues = syncTemplateExampleValues(values, variables.count);
+
+  return (
+    <div className="rounded-2xl border bg-muted/20 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="font-medium">{label}</div>
+        <Badge variant="secondary">{variables.count} sample value{variables.count === 1 ? '' : 's'}</Badge>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {sampleValues.map((value, index) => (
+          <div key={`${label}-${index}`} className="space-y-1.5">
+            <Label>Sample for {`{{${index + 1}}}`}</Label>
+            <Input
+              value={value}
+              onChange={(event) => {
+                const nextValues = [...sampleValues];
+                nextValues[index] = event.target.value;
+                onChange(nextValues);
+              }}
+              placeholder={`Example value ${index + 1}`}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function MediaPreviewCard({
@@ -146,7 +201,11 @@ function MediaPreviewCard({
   asset: TemplateMediaAsset;
   format: HeaderFormat;
 }) {
-  const isImage = format === 'IMAGE' && asset.preview_url;
+  const resolvedImageSrc = useAuthenticatedImageSrc(
+    format === 'IMAGE' ? asset.preview_url : undefined,
+    asset.file_id || asset.header_handle || null
+  );
+  const isImage = format === 'IMAGE' && resolvedImageSrc;
   const Icon = format === 'VIDEO' ? Video : format === 'DOCUMENT' ? FileText : ImageIcon;
 
   return (
@@ -154,7 +213,7 @@ function MediaPreviewCard({
       <div className="flex items-start gap-3">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-background shadow-inner">
           {isImage ? (
-            <img src={asset.preview_url} alt={asset.original_name} className="h-full w-full object-cover" />
+            <img src={resolvedImageSrc} alt={asset.original_name} className="h-full w-full object-cover" />
           ) : (
             <Icon className="h-6 w-6 text-muted-foreground" />
           )}
@@ -185,19 +244,25 @@ function MediaPreviewCard({
 export function HeaderFields({
   headerFormat,
   headerText,
+  headerTextExamples,
   headerMedia,
   onFormatChange,
   onTextChange,
+  onTextExamplesChange,
   onMediaChange,
   label = 'Header',
+  allowedFormats = ['NONE', 'TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT', 'LOCATION'],
 }: {
   headerFormat: HeaderFormat;
   headerText: string;
+  headerTextExamples: string[];
   headerMedia: TemplateMediaAsset | null;
   onFormatChange: (value: HeaderFormat) => void;
   onTextChange: (value: string) => void;
+  onTextExamplesChange: (value: string[]) => void;
   onMediaChange: (value: TemplateMediaAsset | null) => void;
   label?: string;
+  allowedFormats?: HeaderFormat[];
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -268,20 +333,26 @@ export function HeaderFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="NONE">No header</SelectItem>
-              <SelectItem value="TEXT">Text</SelectItem>
-              <SelectItem value="IMAGE">Image</SelectItem>
-              <SelectItem value="VIDEO">Video</SelectItem>
-              <SelectItem value="DOCUMENT">Document</SelectItem>
-              <SelectItem value="LOCATION">Location</SelectItem>
+              {allowedFormats.includes('NONE') ? <SelectItem value="NONE">No header</SelectItem> : null}
+              {allowedFormats.includes('TEXT') ? <SelectItem value="TEXT">Text</SelectItem> : null}
+              {allowedFormats.includes('IMAGE') ? <SelectItem value="IMAGE">Image</SelectItem> : null}
+              {allowedFormats.includes('VIDEO') ? <SelectItem value="VIDEO">Video</SelectItem> : null}
+              {allowedFormats.includes('DOCUMENT') ? <SelectItem value="DOCUMENT">Document</SelectItem> : null}
+              {allowedFormats.includes('LOCATION') ? <SelectItem value="LOCATION">Location</SelectItem> : null}
             </SelectContent>
           </Select>
         </div>
 
         {headerFormat === 'TEXT' ? (
-          <div className="space-y-2">
+          <div className="space-y-3">
             <Label>Header text</Label>
             <Input value={headerText} onChange={(event) => onTextChange(event.target.value)} placeholder="Order update for {{1}}" />
+            <TemplateVariableExamplesField
+              label="Header samples"
+              text={headerText}
+              values={headerTextExamples}
+              onChange={onTextExamplesChange}
+            />
           </div>
         ) : null}
 
@@ -335,12 +406,16 @@ export function VariableTextareaField({
   label,
   value,
   onChange,
+  examples = [],
+  onExamplesChange,
   placeholder,
   rows = 6,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  examples?: string[];
+  onExamplesChange?: (value: string[]) => void;
   placeholder?: string;
   rows?: number;
 }) {
@@ -390,6 +465,14 @@ export function VariableTextareaField({
           Add {nextToken}
         </Button>
       </div>
+      {onExamplesChange ? (
+        <TemplateVariableExamplesField
+          label={`${label} samples`}
+          text={value}
+          values={examples}
+          onChange={onExamplesChange}
+        />
+      ) : null}
     </div>
   );
 }
@@ -437,7 +520,7 @@ export function StandardButtonsEditor({
         <div>
           <div className="font-semibold">{label}</div>
           <p className="text-sm text-muted-foreground">
-            Use quick replies, website CTAs, or phone call buttons. Meta allows at most 2 URL or phone CTAs in one template.
+            Use quick replies, website CTAs, or phone call buttons. Meta allows at most 2 URL or phone CTAs in one template, and quick replies must stay grouped together.
           </p>
         </div>
         {buttons.length < maxButtons ? (
@@ -467,6 +550,7 @@ export function StandardButtonsEditor({
                       type: value as StandardButtonDraft['type'],
                       url: value === 'URL' ? button.url : '',
                       phone_number: value === 'PHONE_NUMBER' ? button.phone_number : '',
+                      example: value === 'URL' ? button.example : [],
                     })
                   }
                 >
@@ -486,9 +570,15 @@ export function StandardButtonsEditor({
               </div>
             </div>
             {button.type === 'URL' ? (
-              <div className="mt-4 space-y-2">
+              <div className="mt-4 space-y-3">
                 <Label>Destination URL</Label>
                 <Input value={button.url} onChange={(event) => updateButton(index, { url: event.target.value })} placeholder="https://example.com/orders/{{1}}" />
+                <TemplateVariableExamplesField
+                  label="URL samples"
+                  text={button.url}
+                  values={button.example}
+                  onChange={(value) => updateButton(index, { example: value })}
+                />
               </div>
             ) : null}
             {button.type === 'PHONE_NUMBER' ? (

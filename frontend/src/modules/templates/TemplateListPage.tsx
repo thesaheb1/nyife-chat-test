@@ -60,6 +60,7 @@ export function TemplateListPage() {
   });
 
   const lifecycle = useTemplateLifecycleActions();
+  const { busyKey, setDeleteTarget, setPublishTarget } = lifecycle;
   const canCreateTemplates = canOrganization('templates', 'create');
   const canUpdateTemplates = canOrganization('templates', 'update');
   const canDeleteTemplates = canOrganization('templates', 'delete');
@@ -79,8 +80,8 @@ export function TemplateListPage() {
     if (!canUpdateTemplates) {
       return;
     }
-    lifecycle.setPublishTarget(template);
-  }, [canUpdateTemplates, lifecycle]);
+    setPublishTarget(template);
+  }, [canUpdateTemplates, setPublishTarget]);
 
   const openPreview = useCallback((template: Template) => {
     setPreviewTarget(template);
@@ -139,7 +140,7 @@ export function TemplateListPage() {
           return (
             <TemplateStatusBadges
               template={template}
-              showMetaStatus={effectiveMetaStatus === 'PENDING_DELETION' || effectiveMetaStatus === 'APPEAL_REQUESTED'}
+              showMetaStatus={Boolean(effectiveMetaStatus)}
             />
           );
         },
@@ -178,11 +179,11 @@ export function TemplateListPage() {
             <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
               <TemplateActionsMenu
                 actions={actions}
-                isBusy={lifecycle.busyKey === `publish:${template.id}` || lifecycle.busyKey === `delete:${template.id}`}
+                isBusy={busyKey === `publish:${template.id}` || busyKey === `delete:${template.id}`}
                 onView={() => openPreview(template)}
                 onEdit={() => navigate(`/templates/${template.id}/edit`)}
                 onPublish={() => openPublishDialog(template)}
-                onDelete={() => lifecycle.setDeleteTarget(template)}
+                onDelete={() => setDeleteTarget(template)}
               />
             </div>
           );
@@ -192,10 +193,11 @@ export function TemplateListPage() {
     [
       canDeleteTemplates,
       canUpdateTemplates,
-      lifecycle.busyKey,
+      busyKey,
       navigate,
       openPreview,
       openPublishDialog,
+      setDeleteTarget,
     ]
   );
 

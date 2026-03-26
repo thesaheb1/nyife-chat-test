@@ -18,8 +18,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { Template } from '@/core/types';
-import { Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { TEMPLATE_TYPE_LABELS, resolveTemplateMetaStatus } from './templateCatalog';
+import { getTemplatePublishPreflight } from './templatePreflight';
 
 function getDeleteCaveat(template: Template | null) {
   if (!template) {
@@ -34,6 +35,10 @@ function getDeleteCaveat(template: Template | null) {
 
   if (effectiveMetaStatus === 'APPROVED') {
     return 'Deleting an approved template on Meta blocks recreating the same template name for 30 days.';
+  }
+
+  if (['DISABLED', 'DELETED', 'ARCHIVED', 'LIMIT_EXCEEDED'].includes(effectiveMetaStatus || '')) {
+    return 'Nyife will clean up the local record only. Meta already treats this template as inactive in its current lifecycle state.';
   }
 
   return 'If the template exists on Meta, Nyife will also attempt the matching Meta cleanup where supported.';
@@ -60,6 +65,8 @@ export function TemplateActionDialogs({
   onConfirmPublish: () => Promise<unknown>;
   onConfirmDelete: () => Promise<unknown>;
 }) {
+  const publishChecks = getTemplatePublishPreflight(publishTarget);
+
   return (
     <>
       <Dialog open={!!publishTarget} onOpenChange={onPublishOpenChange}>
@@ -67,14 +74,32 @@ export function TemplateActionDialogs({
           <DialogHeader>
             <DialogTitle>Submit template to Meta</DialogTitle>
             <DialogDescription>
-              Only unpublished drafts can be submitted. Nyife will use the connected WhatsApp account automatically.
+              Only unpublished drafts can be submitted. Nyife will create the template on Meta and immediately send it for review.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-2xl border bg-muted/30 p-4">
               <div className="font-semibold">{publishTarget?.display_name || publishTarget?.name}</div>
               <div className="mt-1 text-sm text-muted-foreground">
-                {publishTarget ? TEMPLATE_TYPE_LABELS[publishTarget.type] : ''} template
+                {publishTarget ? `${TEMPLATE_TYPE_LABELS[publishTarget.type]} · ${publishTarget.language} · ${publishTarget.category}` : ''}
+              </div>
+            </div>
+            <div className="rounded-2xl border p-4">
+              <div className="mb-3 text-sm font-semibold">Publish preflight</div>
+              <div className="space-y-3">
+                {publishChecks.map((check) => (
+                  <div key={check.label} className="flex items-start gap-3">
+                    {check.tone === 'ready' ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    )}
+                    <div className="space-y-0.5">
+                      <div className="text-sm font-medium">{check.label}</div>
+                      <div className="text-xs text-muted-foreground">{check.detail}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

@@ -2,6 +2,7 @@
 
 const templateService = require('../services/template.service');
 const { successResponse } = require('@nyife/shared-utils');
+const { resolveTemplateRequestContext } = require('../helpers/templateRequestContext');
 const {
   createTemplateSchema,
   updateTemplateSchema,
@@ -16,10 +17,10 @@ const {
  * Create a new template in draft status.
  */
 async function createTemplate(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveTemplateRequestContext(req);
   const data = createTemplateSchema.parse(req.body);
 
-  const template = await templateService.createTemplate(userId, data);
+  const template = await templateService.createTemplate(requestContext, data);
 
   return successResponse(res, { template }, 'Template created successfully', 201);
 }
@@ -29,10 +30,10 @@ async function createTemplate(req, res) {
  * List templates with optional filtering and pagination.
  */
 async function listTemplates(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveTemplateRequestContext(req);
   const filters = listTemplatesSchema.parse(req.query);
 
-  const { templates, meta } = await templateService.listTemplates(userId, filters);
+  const { templates, meta } = await templateService.listTemplates(requestContext, filters);
 
   return successResponse(res, { templates }, 'Templates retrieved successfully', 200, meta);
 }
@@ -42,10 +43,10 @@ async function listTemplates(req, res) {
  * Get a single template by ID.
  */
 async function getTemplate(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveTemplateRequestContext(req);
   const { id } = templateIdSchema.parse(req.params);
 
-  const template = await templateService.getTemplate(userId, id);
+  const template = await templateService.getTemplate(requestContext, id);
 
   return successResponse(res, { template }, 'Template retrieved successfully');
 }
@@ -55,11 +56,11 @@ async function getTemplate(req, res) {
  * Update a draft or rejected template.
  */
 async function updateTemplate(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveTemplateRequestContext(req);
   const { id } = templateIdSchema.parse(req.params);
   const data = updateTemplateSchema.parse(req.body);
 
-  const template = await templateService.updateTemplate(userId, id, data);
+  const template = await templateService.updateTemplate(requestContext, id, data);
 
   return successResponse(res, { template }, 'Template updated successfully');
 }
@@ -69,11 +70,11 @@ async function updateTemplate(req, res) {
  * Delete a template (soft delete locally, also deletes from Meta if published).
  */
 async function deleteTemplate(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveTemplateRequestContext(req);
   const { id } = templateIdSchema.parse(req.params);
   const accessToken = req.headers['x-wa-access-token'] || null;
 
-  await templateService.deleteTemplate(userId, id, accessToken);
+  await templateService.deleteTemplate(requestContext, id, accessToken);
 
   return successResponse(res, null, 'Template deleted successfully');
 }
@@ -83,13 +84,13 @@ async function deleteTemplate(req, res) {
  * Publish a draft template to Meta WhatsApp Cloud API.
  */
 async function publishTemplate(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveTemplateRequestContext(req);
   const { id } = templateIdSchema.parse(req.params);
   const body = publishTemplateSchema.parse(req.body || {});
   const accessToken = req.headers['x-wa-access-token'] || null;
 
   const template = await templateService.publishTemplate(
-    userId,
+    requestContext,
     id,
     accessToken,
     body.wa_account_id || null
@@ -103,11 +104,11 @@ async function publishTemplate(req, res) {
  * Sync templates from Meta WhatsApp Cloud API for a given WABA ID.
  */
 async function syncTemplates(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveTemplateRequestContext(req);
   const { wa_account_id } = syncTemplatesSchema.parse(req.body || {});
   const accessToken = req.headers['x-wa-access-token'] || null;
 
-  const result = await templateService.syncTemplates(userId, wa_account_id, accessToken);
+  const result = await templateService.syncTemplates(requestContext, wa_account_id, accessToken);
 
   return successResponse(
     res,

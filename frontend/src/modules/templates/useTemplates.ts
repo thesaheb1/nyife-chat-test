@@ -28,7 +28,7 @@ interface TemplateListResponse {
   meta: PaginationMeta;
 }
 
-const AUTO_REFRESH_META_STATUSES = new Set(['PENDING', 'APPEAL_REQUESTED', 'PENDING_DELETION']);
+const AUTO_REFRESH_META_STATUSES = new Set(['PENDING', 'IN_APPEAL', 'APPEAL_REQUESTED', 'PENDING_DELETION']);
 
 function shouldAutoRefreshTemplate(
   template: Pick<Template, 'status' | 'meta_status_raw' | 'meta_template_id'> | null | undefined

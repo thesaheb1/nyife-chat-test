@@ -6,6 +6,13 @@ const {
   META_TEMPLATE_STATUSES,
   TEMPLATE_QUALITY_SCORES,
 } = require('../constants/template.constants');
+const {
+  readBodyTextExamples,
+  readButtonExampleValues,
+  readHeaderTextExamples,
+  validateButtonUrlExamples,
+  validateTextExamples,
+} = require('./templateExamples');
 
 const BODY_TEXT_LIMIT = 1024;
 const HEADER_TEXT_LIMIT = 60;
@@ -15,7 +22,16 @@ const MAX_STANDARD_BUTTONS = 10;
 const MAX_CAROUSEL_BUTTONS = 2;
 const MAX_CAROUSEL_CARDS = 10;
 const MIN_CAROUSEL_CARDS = 2;
+const MAX_URL_BUTTONS = 2;
+const MAX_PHONE_NUMBER_BUTTONS = 1;
 const EDITABLE_META_STATUSES = new Set(['APPROVED', 'REJECTED', 'PAUSED']);
+const PENDING_META_STATUSES = new Set(['PENDING', 'IN_APPEAL', 'APPEAL_REQUESTED', 'PENDING_DELETION']);
+const DISABLED_META_STATUSES = new Set(['DISABLED', 'DELETED', 'ARCHIVED', 'LIMIT_EXCEEDED']);
+const DELETE_ALLOWED_META_STATUSES = new Set([
+  ...EDITABLE_META_STATUSES,
+  ...PENDING_META_STATUSES,
+  ...DISABLED_META_STATUSES,
+]);
 const TEMPLATE_MEDIA_RULES = {
   IMAGE: {
     label: 'Image',
@@ -51,6 +67,52 @@ function textValue(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function isQuickReplyButton(button) {
+  return normalizeComponentType(button?.type) === 'QUICK_REPLY';
+}
+
+function normalizeMetaButtonOrder(buttons) {
+  const list = Array.isArray(buttons) ? buttons : [];
+  if (list.length < 2) {
+    return list;
+  }
+
+  const quickReplies = [];
+  const otherButtons = [];
+
+  for (const button of list) {
+    if (isQuickReplyButton(button)) {
+      quickReplies.push(button);
+    } else {
+      otherButtons.push(button);
+    }
+  }
+
+  if (!quickReplies.length || !otherButtons.length) {
+    return list;
+  }
+
+  return isQuickReplyButton(list[0])
+    ? [...quickReplies, ...otherButtons]
+    : [...otherButtons, ...quickReplies];
+}
+
+function hasSupportedQuickReplyGrouping(buttons) {
+  const list = Array.isArray(buttons) ? buttons : [];
+  let groupTransitions = 0;
+  let previousGroup = null;
+
+  for (const button of list) {
+    const nextGroup = isQuickReplyButton(button) ? 'quick_reply' : 'non_quick_reply';
+    if (previousGroup && previousGroup !== nextGroup) {
+      groupTransitions += 1;
+    }
+    previousGroup = nextGroup;
+  }
+
+  return groupTransitions <= 1;
+}
+
 function normalizeMetaTemplateStatus(status) {
   const normalized = textValue(status).toUpperCase();
   return META_TEMPLATE_STATUSES.includes(normalized) ? normalized : null;
@@ -65,6 +127,11 @@ function resolveTemplateMetaStatus(template) {
   const normalizedMetaStatus = normalizeMetaTemplateStatus(template?.meta_status_raw);
   if (normalizedMetaStatus) {
     return normalizedMetaStatus;
+  }
+
+  const rawMetaStatus = textValue(template?.meta_status_raw).toUpperCase();
+  if (rawMetaStatus) {
+    return rawMetaStatus;
   }
 
   const status = textValue(template?.status).toLowerCase();
@@ -102,10 +169,10 @@ function deriveLocalTemplateStatus(metaStatus, fallbackStatus = null) {
   if (normalizedMetaStatus === 'PAUSED') {
     return 'paused';
   }
-  if (normalizedMetaStatus === 'DISABLED') {
+  if (DISABLED_META_STATUSES.has(normalizedMetaStatus)) {
     return 'disabled';
   }
-  if (normalizedMetaStatus === 'PENDING' || normalizedMetaStatus === 'PENDING_DELETION' || normalizedMetaStatus === 'APPEAL_REQUESTED') {
+  if (PENDING_META_STATUSES.has(normalizedMetaStatus)) {
     return 'pending';
   }
 
@@ -134,11 +201,21 @@ function canEditTemplate(template) {
 }
 
 function canDeleteTemplate(template) {
-  return resolveTemplateMetaStatus(template) !== 'DISABLED';
+  const metaStatus = resolveTemplateMetaStatus(template);
+  if (!metaStatus) {
+    return true;
+  }
+
+  return DELETE_ALLOWED_META_STATUSES.has(metaStatus);
 }
 
 function canSyncTemplate(template) {
-  return Boolean(template?.wa_account_id || template?.waba_id);
+  return Boolean(
+    resolveTemplateMetaStatus(template)
+    || template?.meta_template_id
+    || template?.wa_account_id
+    || template?.waba_id
+  );
 }
 
 function addError(errors, field, message) {
@@ -194,6 +271,14 @@ function validateHeader(component, field, errors) {
     } else if (text.length > HEADER_TEXT_LIMIT) {
       addError(errors, `${field}.text`, `Header text must be ${HEADER_TEXT_LIMIT} characters or fewer.`);
     }
+    validateTextExamples({
+      text,
+      exampleValues: readHeaderTextExamples(component),
+      field: `${field}.example.header_text`,
+      label: 'Header text',
+      errors,
+      addError,
+    });
     return;
   }
 
@@ -214,6 +299,15 @@ function validateStandardBody(component, field, errors) {
   if (text.length > BODY_TEXT_LIMIT) {
     addError(errors, `${field}.text`, `Body text must be ${BODY_TEXT_LIMIT} characters or fewer.`);
   }
+
+  validateTextExamples({
+    text,
+    exampleValues: readBodyTextExamples(component),
+    field: `${field}.example.body_text`,
+    label: 'Body text',
+    errors,
+    addError,
+  });
 }
 
 function validateStandardFooter(component, field, errors) {
@@ -266,6 +360,8 @@ function validateButtons(buttons, options, field, errors) {
   }
 
   let urlPhoneCount = 0;
+  let urlCount = 0;
+  let phoneNumberCount = 0;
 
   list.forEach((button, index) => {
     const type = normalizeComponentType(button.type);
@@ -285,13 +381,24 @@ function validateButtons(buttons, options, field, errors) {
 
     if (type === 'URL') {
       urlPhoneCount += 1;
-      if (!textValue(button.url)) {
+      urlCount += 1;
+      const buttonUrl = textValue(button.url);
+      if (!buttonUrl) {
         addError(errors, `${buttonField}.url`, 'URL buttons require a destination URL.');
+      } else {
+        validateButtonUrlExamples({
+          url: buttonUrl,
+          exampleValues: readButtonExampleValues(button),
+          field: `${buttonField}.example`,
+          errors,
+          addError,
+        });
       }
     }
 
     if (type === 'PHONE_NUMBER') {
       urlPhoneCount += 1;
+      phoneNumberCount += 1;
       const phoneNumber = textValue(button.phone_number);
       if (!phoneNumber) {
         addError(errors, `${buttonField}.phone_number`, 'Phone buttons require a phone number.');
@@ -352,6 +459,38 @@ function validateButtons(buttons, options, field, errors) {
   if (urlPhoneCount > 2) {
     addError(errors, field, 'A template can include at most 2 URL and phone CTA buttons.');
   }
+
+  if (urlCount > MAX_URL_BUTTONS) {
+    addError(errors, field, `A template can include at most ${MAX_URL_BUTTONS} URL button(s).`);
+  }
+
+  if (phoneNumberCount > MAX_PHONE_NUMBER_BUTTONS) {
+    addError(errors, field, 'A template can include at most 1 phone number button.');
+  }
+
+  const supportsMixedStandardButtons = allowedTypes.includes('QUICK_REPLY')
+    && (allowedTypes.includes('URL') || allowedTypes.includes('PHONE_NUMBER'));
+
+  if (supportsMixedStandardButtons && !hasSupportedQuickReplyGrouping(list)) {
+    addError(
+      errors,
+      field,
+      'Quick reply buttons must stay grouped together. Use quick replies first or last when mixing them with URL or phone CTA buttons.'
+    );
+  }
+}
+
+function buildCarouselCardSignature(cardComponents) {
+  const normalizedCardComponents = Array.isArray(cardComponents) ? cardComponents : [];
+  const componentTypes = normalizedCardComponents
+    .map((component) => normalizeComponentType(component.type))
+    .filter(Boolean);
+  const buttons = getComponent(normalizedCardComponents, 'BUTTONS')?.buttons;
+  const buttonTypes = Array.isArray(buttons)
+    ? buttons.map((button) => normalizeComponentType(button.type)).filter(Boolean)
+    : [];
+
+  return `${componentTypes.join('|')}::${buttonTypes.join('|')}`;
 }
 
 function assertTemplateBusinessRules(template) {
@@ -431,13 +570,23 @@ function assertTemplateBusinessRules(template) {
       break;
 
     case 'carousel':
+      if (template.category !== 'MARKETING') {
+        addError(errors, 'category', 'Carousel templates must use the MARKETING category.');
+      }
+
       if (!carousel) {
         addError(errors, 'components.carousel', 'Carousel templates require a CAROUSEL component.');
         break;
       }
 
-      if (header || body || footer || buttons.length) {
-        addError(errors, 'components', 'Carousel templates in Nyife should contain only carousel cards at the top level.');
+      if (!body) {
+        addError(errors, 'components.body', 'Carousel templates require a top-level BODY component.');
+      } else {
+        validateStandardBody(body, 'components.body', errors);
+      }
+
+      if (header || footer || buttons.length) {
+        addError(errors, 'components', 'Carousel templates can include only BODY and CAROUSEL at the top level.');
       }
 
       if (!Array.isArray(carousel.cards) || carousel.cards.length < MIN_CAROUSEL_CARDS || carousel.cards.length > MAX_CAROUSEL_CARDS) {
@@ -449,6 +598,9 @@ function assertTemplateBusinessRules(template) {
         break;
       }
 
+      const cardBodyPresence = [];
+      let baselineCardSignature = null;
+
       carousel.cards.forEach((card, index) => {
         const cardComponents = Array.isArray(card.components) ? card.components : [];
         const cardHeader = getComponent(cardComponents, 'HEADER');
@@ -457,14 +609,53 @@ function assertTemplateBusinessRules(template) {
         const cardButtons = getComponent(cardComponents, 'BUTTONS')?.buttons;
         const baseField = `components.carousel.cards.${index}`;
 
-        validateHeader(cardHeader, `${baseField}.header`, errors);
-        validateStandardBody(cardBody, `${baseField}.body`, errors);
-        validateStandardFooter(cardFooter, `${baseField}.footer`, errors);
+        if (!cardHeader) {
+          addError(errors, `${baseField}.header`, 'Each carousel card requires a media header.');
+        } else {
+          const headerFormat = normalizeComponentType(cardHeader.format);
+          if (!['IMAGE', 'VIDEO'].includes(headerFormat)) {
+            addError(errors, `${baseField}.header.format`, 'Carousel card headers must use IMAGE or VIDEO.');
+          }
+          if (textValue(cardHeader.text)) {
+            addError(errors, `${baseField}.header.text`, 'Carousel card headers do not support text.');
+          }
+          if (!hasHeaderMedia(cardHeader)) {
+            addError(errors, `${baseField}.header`, 'Each carousel card header requires an uploaded sample file.');
+          }
+          validateHeaderMediaAsset(cardHeader, `${baseField}.header`, errors);
+        }
+
+        if (cardFooter) {
+          addError(errors, `${baseField}.footer`, 'Carousel cards do not support footer text.');
+        }
+
+        cardBodyPresence.push(Boolean(cardBody && textValue(cardBody.text)));
+        if (cardBody && textValue(cardBody.text)) {
+          validateStandardBody(cardBody, `${baseField}.body`, errors);
+        }
+
         validateButtons(cardButtons, {
           allowedTypes: ['QUICK_REPLY', 'URL', 'PHONE_NUMBER'],
           maxButtons: MAX_CAROUSEL_BUTTONS,
         }, `${baseField}.buttons`, errors);
+
+        const cardSignature = buildCarouselCardSignature(cardComponents);
+        if (!baselineCardSignature) {
+          baselineCardSignature = cardSignature;
+        } else if (cardSignature !== baselineCardSignature) {
+          addError(
+            errors,
+            baseField,
+            'All carousel cards must use the same component structure and button combination.'
+          );
+        }
       });
+
+      const hasAnyCardBody = cardBodyPresence.some(Boolean);
+      const hasMissingCardBody = cardBodyPresence.some((present) => !present);
+      if (hasAnyCardBody && hasMissingCardBody) {
+        addError(errors, 'components.carousel.cards', 'If one carousel card has body text, every carousel card must have body text.');
+      }
       break;
 
     case 'flow':
@@ -539,4 +730,5 @@ module.exports = {
   canDeleteTemplate,
   canSyncTemplate,
   isLegacyRejectedDraft,
+  normalizeMetaButtonOrder,
 };

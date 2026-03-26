@@ -9,10 +9,14 @@ const TEMPLATE_STATUSES = ['draft', 'pending', 'approved', 'rejected', 'paused',
 const META_TEMPLATE_STATUSES = [
   'APPROVED',
   'PENDING',
+  'IN_APPEAL',
   'PENDING_DELETION',
   'REJECTED',
   'PAUSED',
   'DISABLED',
+  'DELETED',
+  'LIMIT_EXCEEDED',
+  'ARCHIVED',
   'APPEAL_REQUESTED',
 ];
 

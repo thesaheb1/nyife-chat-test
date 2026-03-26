@@ -32,7 +32,7 @@ import type {
   StandardButtonDraft,
   TemplateMediaAsset,
 } from './templateBuilder';
-import { addStandardButton, buildTemplateMediaPreviewUrl } from './templateBuilder';
+import { addStandardButton, buildTemplateMediaPreviewUrl, resolveTemplateMediaSourceUrl } from './templateBuilder';
 import { describeTemplateVariables, syncTemplateExampleValues } from './templateExamples';
 import type { ValidationIssue } from './templateComposerUtils';
 import {
@@ -194,6 +194,23 @@ function TemplateVariableExamplesField({
   );
 }
 
+function looksLikePdfPreviewUrl(url: string) {
+  try {
+    return new URL(url, window.location.origin).pathname.toLowerCase().endsWith('.pdf');
+  } catch {
+    return /\.pdf(?:$|[?#])/i.test(url);
+  }
+}
+
+function looksLikeImagePreviewUrl(url: string) {
+  try {
+    const pathname = new URL(url, window.location.origin).pathname.toLowerCase();
+    return ['.jpg', '.jpeg', '.png', '.webp', '.gif'].some((extension) => pathname.endsWith(extension));
+  } catch {
+    return /\.(jpe?g|png|webp|gif)(?:$|[?#])/i.test(url);
+  }
+}
+
 function MediaPreviewCard({
   asset,
   format,
@@ -201,20 +218,33 @@ function MediaPreviewCard({
   asset: TemplateMediaAsset;
   format: HeaderFormat;
 }) {
+  const previewSourceUrl = resolveTemplateMediaSourceUrl(asset) || buildTemplateMediaPreviewUrl(asset.file_id);
   const resolvedPreviewSrc = useAuthenticatedAssetSrc(
-    asset.preview_url,
+    previewSourceUrl,
     asset.file_id || asset.header_handle || null
   );
-  const isImage = format === 'IMAGE' && Boolean(resolvedPreviewSrc);
-  const isVideo = format === 'VIDEO' && Boolean(resolvedPreviewSrc);
-  const isPdfDocument = format === 'DOCUMENT' && asset.mime_type === 'application/pdf' && Boolean(resolvedPreviewSrc);
+  const hasResolvedPreview = typeof resolvedPreviewSrc === 'string' && resolvedPreviewSrc.length > 0;
+  const showsVideoThumbnail = format === 'VIDEO'
+    && hasResolvedPreview
+    && !asset.mime_type?.startsWith('video/')
+    && looksLikeImagePreviewUrl(resolvedPreviewSrc);
+  const isImage = hasResolvedPreview && (format === 'IMAGE' || showsVideoThumbnail);
+  const isVideo = format === 'VIDEO' && hasResolvedPreview && !showsVideoThumbnail;
+  const isPdfDocument = format === 'DOCUMENT'
+    && hasResolvedPreview
+    && (asset.mime_type === 'application/pdf' || looksLikePdfPreviewUrl(resolvedPreviewSrc));
   const Icon = format === 'VIDEO' ? Video : format === 'DOCUMENT' ? FileText : ImageIcon;
 
   return (
     <div className="rounded-2xl border bg-muted/20 p-3">
       {isImage ? (
-        <div className="mb-3 overflow-hidden rounded-2xl bg-background shadow-inner">
-          <img src={resolvedPreviewSrc} alt={asset.original_name} className="h-40 w-full object-cover" />
+        <div className="relative mb-3 overflow-hidden rounded-2xl bg-background shadow-inner">
+          <img src={resolvedPreviewSrc} alt={asset.original_name || 'Uploaded media preview'} className="h-40 w-full object-cover" />
+          {showsVideoThumbnail ? (
+            <div className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white shadow-sm">
+              <Video className="h-4 w-4" />
+            </div>
+          ) : null}
         </div>
       ) : null}
 

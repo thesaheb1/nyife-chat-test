@@ -267,7 +267,217 @@ function normalizeMessageSendTtl(value) {
   return parsed;
 }
 
+function cloneJsonValue(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return JSON.parse(JSON.stringify(value));
+}
+
+function extractComponentHeaderHandle(component) {
+  return trimString(component?.media_asset?.header_handle)
+    || trimString(component?.example?.header_handle?.[0])
+    || null;
+}
+
+function findMatchingLocalComponent(localComponents, remoteComponent, index) {
+  if (!Array.isArray(localComponents)) {
+    return null;
+  }
+
+  const normalizedType = normalizeComponentType(remoteComponent?.type);
+  const sameTypeMatches = localComponents.filter(
+    (candidate) => normalizeComponentType(candidate?.type) === normalizedType
+  );
+
+  if (sameTypeMatches.length === 1) {
+    return sameTypeMatches[0];
+  }
+
+  const indexedMatch = localComponents[index];
+  if (normalizeComponentType(indexedMatch?.type) === normalizedType) {
+    return indexedMatch;
+  }
+
+  return sameTypeMatches[0] || null;
+}
+
+function mergeHeaderComponentWithLocalMedia(remoteComponent, localComponent) {
+  const mergedComponent = {
+    ...(remoteComponent && typeof remoteComponent === 'object' ? remoteComponent : {}),
+  };
+  const normalizedFormat = normalizeComponentType(mergedComponent.format);
+
+  if (!['IMAGE', 'VIDEO', 'DOCUMENT'].includes(normalizedFormat)) {
+    return mergedComponent;
+  }
+
+  const localMediaAsset = localComponent?.media_asset && typeof localComponent.media_asset === 'object'
+    ? cloneJsonValue(localComponent.media_asset)
+    : null;
+  const remoteHeaderHandle = extractComponentHeaderHandle(remoteComponent);
+  const localHeaderHandle = extractComponentHeaderHandle(localComponent);
+  const resolvedHeaderHandle = remoteHeaderHandle || localHeaderHandle || null;
+
+  if (localMediaAsset) {
+    mergedComponent.media_asset = {
+      ...localMediaAsset,
+      ...(resolvedHeaderHandle ? { header_handle: resolvedHeaderHandle } : {}),
+    };
+  }
+
+  if (resolvedHeaderHandle) {
+    mergedComponent.example = {
+      ...(mergedComponent.example && typeof mergedComponent.example === 'object' ? mergedComponent.example : {}),
+      header_handle: [resolvedHeaderHandle],
+    };
+  }
+
+  return mergedComponent;
+}
+
+function mergeMetaComponentsWithLocalMedia(remoteComponents, localComponents) {
+  if (!Array.isArray(remoteComponents)) {
+    return Array.isArray(localComponents) ? cloneJsonValue(localComponents) : [];
+  }
+
+  return remoteComponents.map((remoteComponent, index) => {
+    const normalizedType = normalizeComponentType(remoteComponent?.type);
+    const localComponent = findMatchingLocalComponent(localComponents, remoteComponent, index);
+
+    if (normalizedType === 'HEADER') {
+      return mergeHeaderComponentWithLocalMedia(remoteComponent, localComponent);
+    }
+
+    if (normalizedType === 'CAROUSEL') {
+      const remoteCards = Array.isArray(remoteComponent?.cards) ? remoteComponent.cards : [];
+      const localCards = Array.isArray(localComponent?.cards) ? localComponent.cards : [];
+
+      return {
+        ...(remoteComponent && typeof remoteComponent === 'object' ? remoteComponent : {}),
+        cards: remoteCards.map((card, cardIndex) => ({
+          ...(card && typeof card === 'object' ? card : {}),
+          components: mergeMetaComponentsWithLocalMedia(
+            Array.isArray(card?.components) ? card.components : [],
+            Array.isArray(localCards[cardIndex]?.components) ? localCards[cardIndex].components : []
+          ),
+        })),
+      };
+    }
+
+    return cloneJsonValue(remoteComponent);
+  });
+}
+
+function isRemoteTemplatePreviewUrl(value) {
+  return /^https?:\/\//i.test(trimString(value));
+}
+
+function inferPreviewMediaTypeFromFormat(format) {
+  switch (normalizeComponentType(format)) {
+    case 'IMAGE':
+      return 'image';
+    case 'VIDEO':
+      return 'video';
+    case 'DOCUMENT':
+      return 'document';
+    default:
+      return 'other';
+  }
+}
+
+function derivePreviewAssetName(previewUrl, format) {
+  const normalizedPreviewUrl = trimString(previewUrl);
+  if (normalizedPreviewUrl) {
+    try {
+      const pathname = new URL(normalizedPreviewUrl).pathname;
+      const fileName = decodeURIComponent(pathname.split('/').pop() || '');
+      if (fileName) {
+        return fileName;
+      }
+    } catch {
+      // Ignore URL parsing errors and fall back to a descriptive label.
+    }
+  }
+
+  return `${String(format || 'media').toLowerCase()} sample`;
+}
+
+function enrichHeaderComponentForPreview(component) {
+  const clonedComponent = cloneJsonValue(component) || {};
+  const normalizedFormat = normalizeComponentType(clonedComponent.format);
+
+  if (!['IMAGE', 'VIDEO', 'DOCUMENT'].includes(normalizedFormat)) {
+    return clonedComponent;
+  }
+
+  const headerHandle = extractComponentHeaderHandle(clonedComponent);
+  const existingMediaAsset = clonedComponent.media_asset && typeof clonedComponent.media_asset === 'object'
+    ? cloneJsonValue(clonedComponent.media_asset)
+    : null;
+
+  if (!existingMediaAsset && !headerHandle) {
+    return clonedComponent;
+  }
+
+  const previewUrl = trimString(existingMediaAsset?.preview_url)
+    || (isRemoteTemplatePreviewUrl(headerHandle) ? headerHandle : null);
+  const inferredType = inferPreviewMediaTypeFromFormat(normalizedFormat);
+
+  clonedComponent.media_asset = {
+    file_id: trimString(existingMediaAsset?.file_id),
+    original_name: trimString(existingMediaAsset?.original_name) || derivePreviewAssetName(previewUrl, normalizedFormat),
+    mime_type: trimString(existingMediaAsset?.mime_type),
+    size: typeof existingMediaAsset?.size === 'number' ? existingMediaAsset.size : 0,
+    type: trimString(existingMediaAsset?.type) || inferredType,
+    ...(previewUrl ? { preview_url: previewUrl } : {}),
+    ...(existingMediaAsset?.width ? { width: existingMediaAsset.width } : {}),
+    ...(existingMediaAsset?.height ? { height: existingMediaAsset.height } : {}),
+    ...(existingMediaAsset?.aspect_ratio ? { aspect_ratio: existingMediaAsset.aspect_ratio } : {}),
+    ...(headerHandle ? { header_handle: headerHandle } : {}),
+  };
+
+  if (headerHandle) {
+    clonedComponent.example = {
+      ...(clonedComponent.example && typeof clonedComponent.example === 'object' ? clonedComponent.example : {}),
+      header_handle: [headerHandle],
+    };
+  }
+
+  return clonedComponent;
+}
+
+function enrichTemplateComponentsForPreview(components) {
+  if (!Array.isArray(components)) {
+    return [];
+  }
+
+  return components.map((component) => {
+    const normalizedType = normalizeComponentType(component?.type);
+
+    if (normalizedType === 'HEADER') {
+      return enrichHeaderComponentForPreview(component);
+    }
+
+    if (normalizedType === 'CAROUSEL') {
+      const clonedComponent = cloneJsonValue(component) || {};
+      clonedComponent.cards = Array.isArray(component?.cards)
+        ? component.cards.map((card) => ({
+            ...(cloneJsonValue(card) || {}),
+            components: enrichTemplateComponentsForPreview(Array.isArray(card?.components) ? card.components : []),
+          }))
+        : [];
+      return clonedComponent;
+    }
+
+    return cloneJsonValue(component);
+  });
+}
 function mapMetaTemplateToLocalState(metaTemplate, context = {}) {
+  const remoteComponents = Array.isArray(metaTemplate?.components) ? metaTemplate.components : [];
+  const mergedComponents = mergeMetaComponentsWithLocalMedia(remoteComponents, context.existingComponents);
+  const previewReadyComponents = enrichTemplateComponentsForPreview(mergedComponents);
   const rawMetaStatus = trimString(metaTemplate?.status || metaTemplate?.meta_status_raw).toUpperCase();
   const metaStatusRaw = normalizeMetaTemplateStatus(rawMetaStatus) || rawMetaStatus || null;
   const qualityScore = extractQualityScore(metaTemplate);
@@ -279,9 +489,9 @@ function mapMetaTemplateToLocalState(metaTemplate, context = {}) {
     name: metaTemplate?.name,
     language: metaTemplate?.language,
     category: metaTemplate?.category,
-    type: detectTemplateType(metaTemplate?.components || []),
+    type: detectTemplateType(remoteComponents),
     status: deriveLocalTemplateStatus(metaStatusRaw, 'pending'),
-    components: metaTemplate?.components || [],
+    components: previewReadyComponents,
     meta_template_id: metaTemplate?.id || context.metaTemplateId || null,
     meta_status_raw: metaStatusRaw,
     quality_score: qualityScore,
@@ -1317,6 +1527,7 @@ function assertMetaTemplateUpdateAllowed(template, changes) {
 
 function serializeTemplate(template) {
   const record = typeof template.toJSON === 'function' ? template.toJSON() : { ...template };
+  record.components = enrichTemplateComponentsForPreview(record.components);
   record.meta_status_raw = resolveTemplateMetaStatus(record);
   record.quality_score = extractQualityScore(record);
   record.quality_reasons = extractQualityReasons(record);
@@ -1725,6 +1936,7 @@ async function updateTemplate(requestContext, templateId, data, accessToken = nu
           wabaId,
           waAccountId: accountContext.wa_account_id || template.wa_account_id,
           metaTemplateId: refreshedMetaTemplateId,
+          existingComponents: metaEditableTemplate.components,
         })
       : {
           category: data.category !== undefined ? data.category : template.category,
@@ -2104,6 +2316,7 @@ async function syncTemplates(requestContext, waAccountId, accessToken) {
           wabaId,
           waAccountId: accountContext.wa_account_id,
           metaTemplateId: metaId,
+          existingComponents: localTemplate.components,
         }),
         waba_id: wabaId,
         wa_account_id: accountContext.wa_account_id,

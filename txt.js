@@ -155,3 +155,7 @@
 
 
 // Read this whatsapp authentication template documentation and compare with our implementation and find the missing parameters and functionality and then implement it. so our authentication template must be fully compatible with meta graph api documentation. so we can't get any error while creating, updating and publishing authentication template. here is the documentation url : https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/authentication-templates/authentication-templates/
+
+// there are few issue in the template module. please understand the issue and find the root cause and fix it with production grade approach not just quick fix. here are the issues :
+// 1. when i upload any media file such as image, video, document etc. then save and publish the template. and then open that template in preview mode or edit mode the media header is not showing. it only showing file name. it must show the media header with media. please fix it.
+// 2. In whatsapp template preview UI the carousel template is not showing properly. it must show exactly like react whatsapp show exactly. i have attached a gif file to understand better how our carousel preview Ui must look like. please fix it.

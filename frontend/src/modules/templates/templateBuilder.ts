@@ -226,12 +226,61 @@ export function buildTemplateMediaPreviewUrl(fileId: string) {
   return fileId ? `/api/v1/media/${encodeURIComponent(fileId)}/download` : undefined;
 }
 
-function resolvePersistedPreviewUrl(asset: Pick<TemplateMediaAsset, 'file_id' | 'preview_url'>) {
+function isRemoteTemplateMediaUrl(value: unknown) {
+  return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+}
+
+function inferTemplateMediaType(format: unknown): TemplateMediaAsset['type'] {
+  switch (String(format || '').toUpperCase()) {
+    case 'IMAGE':
+      return 'image';
+    case 'VIDEO':
+      return 'video';
+    case 'DOCUMENT':
+      return 'document';
+    default:
+      return 'other';
+  }
+}
+
+function deriveRemoteMediaName(format: unknown, url: string) {
+  try {
+    const pathname = new URL(url).pathname;
+    const fileName = decodeURIComponent(pathname.split('/').pop() || '');
+    if (fileName) {
+      return fileName;
+    }
+  } catch {
+    // Ignore URL parsing errors and fall back to a descriptive label.
+  }
+
+  return `${String(format || 'media').toLowerCase()} sample`;
+}
+
+export function resolveTemplateMediaSourceUrl(
+  asset: Pick<TemplateMediaAsset, 'file_id' | 'preview_url' | 'header_handle'> | null | undefined
+) {
+  if (!asset) {
+    return undefined;
+  }
+
   if (asset.preview_url && !asset.preview_url.startsWith('blob:')) {
     return asset.preview_url;
   }
 
-  return buildTemplateMediaPreviewUrl(asset.file_id);
+  if (asset.file_id) {
+    return buildTemplateMediaPreviewUrl(asset.file_id);
+  }
+
+  if (isRemoteTemplateMediaUrl(asset.header_handle)) {
+    return asset.header_handle?.trim();
+  }
+
+  return undefined;
+}
+
+function resolvePersistedPreviewUrl(asset: Pick<TemplateMediaAsset, 'file_id' | 'preview_url' | 'header_handle'>) {
+  return resolveTemplateMediaSourceUrl(asset);
 }
 
 function isQuickReplyButton(button: Pick<StandardButtonDraft, 'type'>) {
@@ -290,31 +339,53 @@ function normalizeHeaderMedia(component: TemplateComponent | null): TemplateMedi
     return null;
   }
 
-  const mediaAsset = component.media_asset;
-  if (mediaAsset && typeof mediaAsset === 'object') {
-    return {
-      ...mediaAsset,
-      preview_url: resolvePersistedPreviewUrl(mediaAsset),
-      header_handle:
-        mediaAsset.header_handle
-        || (Array.isArray(component.example?.header_handle) ? component.example.header_handle[0] || null : null),
-    };
-  }
-
   const headerHandle = Array.isArray(component.example?.header_handle)
     ? component.example.header_handle[0] || null
     : null;
+  const mediaAsset = component.media_asset;
+
+  if (mediaAsset && typeof mediaAsset === 'object') {
+    const resolvedHeaderHandle = mediaAsset.header_handle || headerHandle;
+    const previewUrl = resolvePersistedPreviewUrl({
+      file_id: mediaAsset.file_id,
+      preview_url: mediaAsset.preview_url,
+      header_handle: resolvedHeaderHandle,
+    });
+
+    return {
+      ...mediaAsset,
+      preview_url: previewUrl,
+      original_name:
+        trim(mediaAsset.original_name)
+        || (previewUrl && isRemoteTemplateMediaUrl(previewUrl) ? deriveRemoteMediaName(component.format, previewUrl) : ''),
+      type:
+        mediaAsset.type && mediaAsset.type !== 'other'
+          ? mediaAsset.type
+          : inferTemplateMediaType(component.format),
+      header_handle: resolvedHeaderHandle,
+    };
+  }
 
   if (!headerHandle) {
     return null;
   }
 
+  const previewUrl = resolveTemplateMediaSourceUrl({
+    file_id: '',
+    preview_url: undefined,
+    header_handle: headerHandle,
+  });
+
   return {
     file_id: '',
-    original_name: '',
+    original_name:
+      previewUrl && isRemoteTemplateMediaUrl(previewUrl)
+        ? deriveRemoteMediaName(component.format, previewUrl)
+        : '',
     mime_type: '',
     size: 0,
-    type: 'other',
+    type: inferTemplateMediaType(component.format),
+    ...(previewUrl ? { preview_url: previewUrl } : {}),
     header_handle: headerHandle,
   };
 }
@@ -433,17 +504,17 @@ export function hydrateTemplateDraft(template: Template | null | undefined): Tem
     : undefined;
   const supportedAuthApps = Array.isArray(authButton?.supported_apps)
     ? authButton.supported_apps
-        .map((app) => ({
-          packageName: trim((app as Record<string, unknown>)?.package_name),
-          signatureHash: trim((app as Record<string, unknown>)?.signature_hash),
-        }))
-        .filter((app) => app.packageName || app.signatureHash)
+      .map((app) => ({
+        packageName: trim((app as Record<string, unknown>)?.package_name),
+        signatureHash: trim((app as Record<string, unknown>)?.signature_hash),
+      }))
+      .filter((app) => app.packageName || app.signatureHash)
     : [];
   const legacySupportedApp = trim(authButton?.package_name) || trim(authButton?.signature_hash)
     ? [{
-        packageName: trim(authButton?.package_name),
-        signatureHash: trim(authButton?.signature_hash),
-      }]
+      packageName: trim(authButton?.package_name),
+      signatureHash: trim(authButton?.signature_hash),
+    }]
     : [];
   const hydratedSupportedApps = supportedAuthApps.length ? supportedAuthApps : legacySupportedApp;
   const primarySupportedApp = hydratedSupportedApps[0];
@@ -565,11 +636,11 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
     const usesAutofill = otpType !== 'COPY_CODE';
     const supportedApps = usesAutofill
       ? draft.authentication.supportedApps
-          .map((app) => ({
-            package_name: trim(app.packageName),
-            signature_hash: trim(app.signatureHash),
-          }))
-          .filter((app) => app.package_name || app.signature_hash)
+        .map((app) => ({
+          package_name: trim(app.packageName),
+          signature_hash: trim(app.signatureHash),
+        }))
+        .filter((app) => app.package_name || app.signature_hash)
       : [];
 
     if (!supportedApps.length && usesAutofill && trim(draft.authentication.packageName) && trim(draft.authentication.signatureHash)) {

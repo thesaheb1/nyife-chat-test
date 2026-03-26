@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   FileText,
   Image as ImageIcon,
+  MapPin,
   Mic,
   MoreVertical,
   MoonStar,
@@ -23,11 +24,15 @@ import {
   Workflow,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import type { Template } from '@/core/types';
-import type { TemplateDraft, TemplateMediaAsset } from './templateBuilder';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import type { Template } from '@/core/types';
+import { cn } from '@/lib/utils';
 import { useAuthenticatedAssetSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
+import {
+  resolveTemplateMediaSourceUrl,
+  type TemplateDraft,
+  type TemplateMediaAsset,
+} from './templateBuilder';
 
 interface TemplateComponent {
   type: string;
@@ -51,6 +56,9 @@ interface WhatsAppTemplatePreviewProps {
   className?: string;
 }
 
+type PreviewTheme = 'light' | 'dark';
+type MediaPreviewVariant = 'message' | 'carousel';
+
 function getComponent(components: TemplateComponent[], type: string) {
   return components.find((component) => String(component.type).toUpperCase() === type.toUpperCase()) || null;
 }
@@ -66,6 +74,27 @@ function getInitials(name: string) {
   }
 
   return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('') || 'NB';
+}
+
+function resolveHeaderMediaPreviewUrl(media: TemplateMediaAsset | null | undefined) {
+  return resolveTemplateMediaSourceUrl(media);
+}
+
+function looksLikePdfPreviewUrl(url: string) {
+  try {
+    return new URL(url, window.location.origin).pathname.toLowerCase().endsWith('.pdf');
+  } catch {
+    return /\.pdf(?:$|[?#])/i.test(url);
+  }
+}
+
+function looksLikeImagePreviewUrl(url: string) {
+  try {
+    const pathname = new URL(url, window.location.origin).pathname.toLowerCase();
+    return ['.jpg', '.jpeg', '.png', '.webp', '.gif'].some((extension) => pathname.endsWith(extension));
+  } catch {
+    return /\.(jpe?g|png|webp|gif)(?:$|[?#])/i.test(url);
+  }
 }
 
 function getDraftHeaderMedia(draft: TemplateDraft | undefined, type: Template['type'], cardIndex?: number) {
@@ -128,44 +157,88 @@ function HeaderMediaPreview({
   format,
   media,
   theme,
+  variant = 'message',
 }: {
   format: string;
   media: TemplateMediaAsset | null;
-  theme: 'light' | 'dark';
+  theme: PreviewTheme;
+  variant?: MediaPreviewVariant;
 }) {
   const normalized = String(format).toUpperCase();
+  const previewUrl = resolveHeaderMediaPreviewUrl(media);
   const resolvedPreviewSrc = useAuthenticatedAssetSrc(
-    media?.preview_url,
+    previewUrl,
     media?.file_id || media?.header_handle || null
   );
-  const isImage = normalized === 'IMAGE' && Boolean(resolvedPreviewSrc);
-  const isVideo = normalized === 'VIDEO' && Boolean(resolvedPreviewSrc);
-  const isPdfDocument = normalized === 'DOCUMENT' && media?.mime_type === 'application/pdf' && Boolean(resolvedPreviewSrc);
+  const isDark = theme === 'dark';
+  const isCarousel = variant === 'carousel';
+  const imageHeightClass = isCarousel ? 'h-[144px]' : 'h-[136px]';
+  const videoHeightClass = isCarousel ? 'h-[144px]' : 'h-[160px]';
+  const frameRadiusClass = isCarousel ? 'rounded-t-[16px]' : 'rounded-[14px]';
+  const hasResolvedPreview = typeof resolvedPreviewSrc === 'string' && resolvedPreviewSrc.length > 0;
+  const showsVideoThumbnail = normalized === 'VIDEO'
+    && hasResolvedPreview
+    && !media?.mime_type?.startsWith('video/')
+    && looksLikeImagePreviewUrl(resolvedPreviewSrc);
+  const isImage = hasResolvedPreview && (normalized === 'IMAGE' || showsVideoThumbnail);
+  const isVideo = normalized === 'VIDEO' && hasResolvedPreview && !showsVideoThumbnail;
+  const isPdfDocument = normalized === 'DOCUMENT'
+    && hasResolvedPreview
+    && (media?.mime_type === 'application/pdf' || looksLikePdfPreviewUrl(resolvedPreviewSrc));
+
+  if (normalized === 'LOCATION') {
+    return (
+      <div
+        className={cn(
+          'overflow-hidden border',
+          frameRadiusClass,
+          isDark ? 'border-white/8 bg-[#111b21]' : 'border-black/8 bg-[#f5f6f6]'
+        )}
+      >
+        <div className={cn('flex items-center gap-3 px-3 py-3', isDark ? 'text-[#e9edef]' : 'text-[#111b21]')}>
+          <div className={cn('flex h-10 w-10 items-center justify-center rounded-2xl', isDark ? 'bg-[#202c33]' : 'bg-white')}>
+            <MapPin className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="text-sm font-medium">Location header</div>
+            <div className={cn('text-xs', isDark ? 'text-[#aebac1]' : 'text-[#667781]')}>
+              WhatsApp renders this as a map card.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isImage) {
     return (
-      <div className="overflow-hidden rounded-[14px] bg-[#d8d8d8]">
-        <img src={resolvedPreviewSrc} alt={media?.original_name || 'Header media'} className="h-32 w-full object-cover" />
+      <div className={cn('relative overflow-hidden bg-[#d8d8d8]', frameRadiusClass)}>
+        <img src={resolvedPreviewSrc} alt={media?.original_name || 'Header media'} className={cn(imageHeightClass, 'w-full object-cover')} />
+        {showsVideoThumbnail ? (
+          <div className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white shadow-sm">
+            <Video className="h-4 w-4" />
+          </div>
+        ) : null}
       </div>
     );
   }
 
   if (isVideo) {
     return (
-      <div className="overflow-hidden rounded-[14px] bg-black">
+      <div className={cn('overflow-hidden bg-black', frameRadiusClass)}>
         <video
           src={resolvedPreviewSrc}
           controls
           preload="metadata"
-          className="h-40 w-full bg-black object-contain"
+          className={cn(videoHeightClass, 'w-full bg-black object-contain')}
         />
       </div>
     );
   }
 
-  if (isPdfDocument) {
+  if (isPdfDocument && !isCarousel) {
     return (
-      <div className="overflow-hidden rounded-[14px] bg-white">
+      <div className={cn('overflow-hidden bg-white', frameRadiusClass)}>
         <iframe
           title={media?.original_name || 'Header document'}
           src={resolvedPreviewSrc}
@@ -180,17 +253,16 @@ function HeaderMediaPreview({
   return (
     <div
       className={cn(
-        'rounded-2xl border px-3 py-2.5',
-        theme === 'dark'
-          ? 'border-white/8 bg-[#111b21] text-[#aebac1]'
-          : 'border-black/8 bg-[#f0f2f5] text-[#667781]'
+        'border px-3 py-3',
+        frameRadiusClass,
+        isDark ? 'border-white/8 bg-[#111b21] text-[#aebac1]' : 'border-black/8 bg-[#f0f2f5] text-[#667781]'
       )}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         <div
           className={cn(
-            'flex h-10 w-10 items-center justify-center rounded-[14px]',
-            theme === 'dark' ? 'bg-[#202c33]' : 'bg-white'
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px]',
+            isDark ? 'bg-[#202c33]' : 'bg-white'
           )}
         >
           <Icon className="h-5 w-5" />
@@ -199,12 +271,58 @@ function HeaderMediaPreview({
           <div className="truncate text-sm font-medium">
             {media?.original_name || `${normalized.toLowerCase()} sample`}
           </div>
-          <div className="text-xs">{media?.mime_type || normalized}</div>
-          {normalized === 'DOCUMENT' && resolvedPreviewSrc ? (
-            <div className="mt-1 text-[11px]">PDF files render inline. Other document types show a file card.</div>
+          <div className="mt-1 text-xs">{media?.mime_type || normalized}</div>
+          {media?.size ? <div className="mt-1 text-[11px]">{Math.max(1, Math.round(media.size / 1024))} KB</div> : null}
+          {normalized === 'DOCUMENT' ? (
+            <div className="mt-1 text-[11px]">
+              PDF files can render inline. Other documents appear as downloadable files in WhatsApp.
+            </div>
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function MessageActionButtons({
+  buttons,
+  theme,
+  compact = false,
+}: {
+  buttons: Array<Record<string, unknown>>;
+  theme: PreviewTheme;
+  compact?: boolean;
+}) {
+  if (!buttons.length) {
+    return null;
+  }
+
+  const isDark = theme === 'dark';
+  const otpButton = buttons.find((button) => String(button.type || '').toUpperCase() === 'OTP') || null;
+
+  return (
+    <div className={cn('border-t', isDark ? 'border-white/8' : 'border-black/8')}>
+      {buttons.map((button, index) => {
+        const buttonType = String(button.type || '').toUpperCase();
+        const Icon = getButtonIcon(buttonType);
+        const buttonLabel = buttonType === 'OTP' && otpButton
+          ? renderButtonLabel(otpButton)
+          : renderButtonLabel(button);
+
+        return (
+          <div
+            key={index}
+            className={cn(
+              'flex items-center justify-center gap-2 border-b px-3 text-center font-medium last:border-b-0',
+              compact ? 'py-2 text-[12px]' : 'py-2.5 text-[12px]',
+              isDark ? 'border-white/8 text-[#53bdeb]' : 'border-black/8 text-[#027eb5]'
+            )}
+          >
+            {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
+            <span className="truncate">{buttonLabel}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -220,7 +338,7 @@ function TemplateMessageCard({
   type: Template['type'];
   components: TemplateComponent[];
   draft?: TemplateDraft;
-  theme: 'light' | 'dark';
+  theme: PreviewTheme;
   cardIndex?: number;
   showTimestamp?: boolean;
 }) {
@@ -233,7 +351,6 @@ function TemplateMessageCard({
   const bodyText = trim(body?.text) || 'Preview text appears here';
   const footerText = trim(footer?.text);
   const isDark = theme === 'dark';
-  const otpButton = buttons.find((button) => String(button.type || '').toUpperCase() === 'OTP') || null;
   const showSecurityRecommendation = body?.add_security_recommendation ?? draft?.authentication.addSecurityRecommendation ?? false;
   const codeExpirationMinutes =
     typeof footer?.code_expiration_minutes === 'number'
@@ -297,32 +414,7 @@ function TemplateMessageCard({
         ) : null}
       </div>
 
-      {buttons.length ? (
-        <div className={cn('mt-2.5 border-t', isDark ? 'border-white/8' : 'border-black/8')}>
-          {buttons.map((button, index) => {
-            const buttonType = String(button.type || '').toUpperCase();
-            const Icon = getButtonIcon(buttonType);
-            const buttonLabel = buttonType === 'OTP' && otpButton
-              ? renderButtonLabel(otpButton)
-              : renderButtonLabel(button);
-
-            return (
-              <div
-                key={index}
-                className={cn(
-                  'flex items-center justify-center gap-2 border-b px-3 py-2.5 text-center text-[12px] font-medium last:border-b-0',
-                  isDark
-                    ? 'border-white/8 text-[#53bdeb]'
-                    : 'border-black/8 text-[#027eb5]'
-                )}
-              >
-                {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
-                <span className="truncate">{buttonLabel}</span>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+      <MessageActionButtons buttons={buttons} theme={theme} />
 
       {showTimestamp ? (
         <div className="flex justify-end px-3 pb-2 pt-1.5">
@@ -335,6 +427,53 @@ function TemplateMessageCard({
   );
 }
 
+function CarouselCardPreview({
+  components,
+  draft,
+  theme,
+  cardIndex,
+}: {
+  components: TemplateComponent[];
+  draft?: TemplateDraft;
+  theme: PreviewTheme;
+  cardIndex: number;
+}) {
+  const header = getComponent(components, 'HEADER');
+  const body = getComponent(components, 'BODY');
+  const buttons = getComponent(components, 'BUTTONS')?.buttons || [];
+  const headerMedia = getDraftHeaderMedia(draft, 'carousel', cardIndex) || header?.media_asset || null;
+  const bodyText = trim(body?.text) || 'Preview text appears here';
+  const isDark = theme === 'dark';
+
+  return (
+    <div
+      className={cn(
+        'overflow-hidden rounded-[18px] border',
+        isDark ? 'border-white/8 bg-[#202c33]' : 'border-black/8 bg-white'
+      )}
+    >
+      {header?.format ? (
+        <HeaderMediaPreview
+          format={header.format}
+          media={headerMedia}
+          theme={theme}
+          variant="carousel"
+        />
+      ) : null}
+
+      {trim(bodyText) ? (
+        <div className="min-h-[86px] px-3 pb-3 pt-2.5">
+          <div className={cn('line-clamp-4 text-[12.5px] leading-[1.35]', isDark ? 'text-[#e9edef]' : 'text-[#111b21]')}>
+            {bodyText}
+          </div>
+        </div>
+      ) : null}
+
+      <MessageActionButtons buttons={buttons} theme={theme} compact />
+    </div>
+  );
+}
+
 function CarouselMessage({
   components,
   draft,
@@ -342,7 +481,7 @@ function CarouselMessage({
 }: {
   components: TemplateComponent[];
   draft?: TemplateDraft;
-  theme: 'light' | 'dark';
+  theme: PreviewTheme;
 }) {
   const carousel = getComponent(components, 'CAROUSEL');
   const body = getComponent(components, 'BODY');
@@ -357,35 +496,49 @@ function CarouselMessage({
   return (
     <div
       className={cn(
-        'overflow-x-auto rounded-3xl rounded-bl-[6px] w-[50%]',
+        'w-full overflow-hidden rounded-[16px] rounded-bl-[6px]',
         isDark ? 'bg-[#202c33]' : 'bg-white shadow-[0_1px_0_rgba(11,20,26,0.08)]'
       )}
     >
-      {introBodyText ? (
-        <div className="px-3.5 pb-1 pt-3">
+      <div className="px-3.5 pb-2 pt-3">
+        <div className={cn('mb-1 text-[11px] italic', isDark ? 'text-[#8696a0]' : 'text-[#667781]')}>
+          Promotional message
+        </div>
+        {introBodyText ? (
           <div className={cn('text-[13px] leading-[1.45]', isDark ? 'text-[#e9edef]' : 'text-[#111b21]')}>
             {introBodyText}
           </div>
-        </div>
-      ) : null}
-      <div className="-mx-1 flex gap-3 px-3 py-3">
-        {cards.map((card, index) => (
-          <div key={index} className="w-49 shrink-0">
-            <TemplateMessageCard
-              type="carousel"
-              components={Array.isArray(card.components) ? card.components : []}
-              draft={draft}
-              cardIndex={index}
-              theme={theme}
-              showTimestamp={false}
-            />
-          </div>
-        ))}
+        ) : null}
       </div>
-      <div className="flex justify-end px-3.5 pb-2.5">
-        <span className={cn('text-[10px]', isDark ? 'text-[#8696a0]' : 'text-[#667781]')}>
-          10:08 AM
-        </span>
+
+      <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex gap-2.5 px-2.5 pb-2">
+          {cards.map((card, index) => (
+            <div key={index} className="w-[210px] shrink-0">
+              <CarouselCardPreview
+                components={Array.isArray(card.components) ? card.components : []}
+                draft={draft}
+                cardIndex={index}
+                theme={theme}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-3.5 pb-2 pt-0.5">
+        <div className="flex justify-end">
+          <span className={cn('text-[10px]', isDark ? 'text-[#8696a0]' : 'text-[#667781]')}>
+            11:59
+          </span>
+        </div>
+      </div>
+
+      <div className={cn('border-t px-3.5 py-2', isDark ? 'border-white/8' : 'border-black/8')}>
+        <div className={cn('flex items-center justify-center gap-2 text-[12px] font-medium', isDark ? 'text-[#53bdeb]' : 'text-[#027eb5]')}>
+          <Reply className="h-3.5 w-3.5" />
+          <span>Send more like this</span>
+        </div>
       </div>
     </div>
   );
@@ -400,7 +553,7 @@ export function WhatsAppTemplatePreview({
   accountPhone,
   className,
 }: WhatsAppTemplatePreviewProps) {
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [theme, setTheme] = useState<PreviewTheme>('light');
   const normalizedComponents = useMemo(
     () => (Array.isArray(components) ? (components as TemplateComponent[]) : []),
     [components]
@@ -484,9 +637,7 @@ export function WhatsAppTemplatePreview({
               </div>
             </div>
 
-            <ScrollArea className={cn(
-              'h-90 px-2.5 pb-3 pt-3 overflow-y-auto'
-            )}>
+            <ScrollArea className="h-90 overflow-y-auto px-2.5 pb-3 pt-3">
               <div className="mb-3 flex justify-center">
                 <span
                   className={cn(
@@ -509,14 +660,13 @@ export function WhatsAppTemplatePreview({
                 </div>
               </div>
 
-              <div className="max-w-[84%]">
+              <div className={cn(type === 'carousel' ? 'max-w-[94%]' : 'max-w-[84%]')}>
                 {type === 'carousel' ? (
                   <CarouselMessage components={normalizedComponents} draft={draft} theme={theme} />
                 ) : (
                   <TemplateMessageCard type={type} components={normalizedComponents} draft={draft} theme={theme} />
                 )}
               </div>
-
             </ScrollArea>
 
             <div className={cn('border-t px-2.5 py-2', isDark ? 'border-white/8 bg-[#202c33]' : 'border-black/8 bg-[#f0f2f5]')}>
@@ -532,7 +682,7 @@ export function WhatsAppTemplatePreview({
                   <Paperclip className="h-3.5 w-3.5 shrink-0" />
                   <Camera className="h-3.5 w-3.5 shrink-0" />
                 </div>
-                <div className={cn('flex h-8 w-8 items-center justify-center rounded-full text-white', isDark ? 'bg-[#00a884]' : 'bg-[#00a884]')}>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#00a884] text-white">
                   <Mic className="h-3.5 w-3.5" />
                 </div>
               </div>

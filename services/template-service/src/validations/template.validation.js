@@ -12,6 +12,7 @@ const templateNameRegex = /^[a-z][a-z0-9_]*$/;
 const HEADER_FORMATS = ['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT', 'LOCATION'];
 const BUTTON_TYPES = ['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'OTP', 'FLOW', 'CATALOG', 'MPM'];
 const FLOW_ACTIONS = ['navigate', 'data_exchange'];
+const MAX_AUTH_SUPPORTED_APPS = 5;
 
 const metaLanguageSchema = z.enum(META_TEMPLATE_LANGUAGE_CODES, {
   errorMap: () => ({ message: 'Language must be one of the Meta-supported WhatsApp template locales' }),
@@ -38,7 +39,7 @@ const mediaAssetSchema = z.object({
 const buttonSchema = z.object({
   type: z.enum(BUTTON_TYPES),
   text: z.string().trim().min(1).max(25).optional(),
-  url: z.string().trim().url().max(2000).optional(),
+  url: z.string().trim().max(2000).optional(),
   phone_number: z.string().trim().regex(/^\+?[1-9]\d{6,14}$/, 'Phone number must be in international format').optional(),
   example: z.union([z.string(), z.array(z.string())]).optional(),
   flow_id: z.string().optional(),
@@ -50,6 +51,10 @@ const buttonSchema = z.object({
   autofill_text: z.string().trim().max(25).optional(),
   package_name: z.string().trim().max(255).optional(),
   signature_hash: z.string().trim().max(255).optional(),
+  supported_apps: z.array(z.object({
+    package_name: z.string().trim().max(255).optional(),
+    signature_hash: z.string().trim().max(255).optional(),
+  }).passthrough()).max(MAX_AUTH_SUPPORTED_APPS).optional(),
 }).passthrough();
 
 const componentSchema = z.object({

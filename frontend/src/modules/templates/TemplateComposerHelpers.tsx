@@ -32,7 +32,7 @@ import type {
   StandardButtonDraft,
   TemplateMediaAsset,
 } from './templateBuilder';
-import { addStandardButton } from './templateBuilder';
+import { addStandardButton, buildTemplateMediaPreviewUrl } from './templateBuilder';
 import { describeTemplateVariables, syncTemplateExampleValues } from './templateExamples';
 import type { ValidationIssue } from './templateComposerUtils';
 import {
@@ -45,7 +45,7 @@ import {
 } from './templateMediaRules';
 import { runTemplateActionToast } from './templateToast';
 import { useUploadTemplateMedia } from './useTemplates';
-import { useAuthenticatedImageSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
+import { useAuthenticatedAssetSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
 
 export function FieldError({ message }: { message?: string }) {
   if (!message) {
@@ -201,21 +201,54 @@ function MediaPreviewCard({
   asset: TemplateMediaAsset;
   format: HeaderFormat;
 }) {
-  const resolvedImageSrc = useAuthenticatedImageSrc(
-    format === 'IMAGE' ? asset.preview_url : undefined,
+  const resolvedPreviewSrc = useAuthenticatedAssetSrc(
+    asset.preview_url,
     asset.file_id || asset.header_handle || null
   );
-  const isImage = format === 'IMAGE' && resolvedImageSrc;
+  const isImage = format === 'IMAGE' && Boolean(resolvedPreviewSrc);
+  const isVideo = format === 'VIDEO' && Boolean(resolvedPreviewSrc);
+  const isPdfDocument = format === 'DOCUMENT' && asset.mime_type === 'application/pdf' && Boolean(resolvedPreviewSrc);
   const Icon = format === 'VIDEO' ? Video : format === 'DOCUMENT' ? FileText : ImageIcon;
 
   return (
     <div className="rounded-2xl border bg-muted/20 p-3">
+      {isImage ? (
+        <div className="mb-3 overflow-hidden rounded-2xl bg-background shadow-inner">
+          <img src={resolvedPreviewSrc} alt={asset.original_name} className="h-40 w-full object-cover" />
+        </div>
+      ) : null}
+
+      {isVideo ? (
+        <div className="mb-3 overflow-hidden rounded-2xl bg-black shadow-inner">
+          <video
+            src={resolvedPreviewSrc}
+            controls
+            preload="metadata"
+            className="h-40 w-full bg-black object-contain"
+          />
+        </div>
+      ) : null}
+
+      {isPdfDocument ? (
+        <div className="mb-3 overflow-hidden rounded-2xl border bg-background shadow-inner">
+          <iframe
+            title={asset.original_name || 'Uploaded PDF sample'}
+            src={resolvedPreviewSrc}
+            className="h-56 w-full bg-background"
+          />
+        </div>
+      ) : null}
+
       <div className="flex items-start gap-3">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-background shadow-inner">
-          {isImage ? (
-            <img src={resolvedImageSrc} alt={asset.original_name} className="h-full w-full object-cover" />
-          ) : (
+          {!isImage && !isVideo && !isPdfDocument ? (
             <Icon className="h-6 w-6 text-muted-foreground" />
+          ) : format === 'IMAGE' ? (
+            <ImageIcon className="h-6 w-6 text-muted-foreground" />
+          ) : format === 'VIDEO' ? (
+            <Video className="h-6 w-6 text-muted-foreground" />
+          ) : (
+            <FileText className="h-6 w-6 text-muted-foreground" />
           )}
         </div>
         <div className="min-w-0 flex-1">
@@ -228,6 +261,11 @@ function MediaPreviewCard({
           {asset.width && asset.height ? (
             <div className="mt-1 text-xs text-muted-foreground">
               {asset.width} x {asset.height}
+            </div>
+          ) : null}
+          {format === 'DOCUMENT' && resolvedPreviewSrc && !isPdfDocument ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              Inline preview is available for PDF documents. Other document formats stay downloadable for review.
             </div>
           ) : null}
           {asset.header_handle ? (
@@ -292,7 +330,7 @@ export function HeaderFields({
         success: 'Header sample uploaded.',
         error: 'Failed to upload the header sample.',
       });
-      const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+      const previewUrl = buildTemplateMediaPreviewUrl(uploaded.id);
       onMediaChange({
         file_id: uploaded.id,
         original_name: uploaded.original_name,
@@ -573,6 +611,9 @@ export function StandardButtonsEditor({
               <div className="mt-4 space-y-3">
                 <Label>Destination URL</Label>
                 <Input value={button.url} onChange={(event) => updateButton(index, { url: event.target.value })} placeholder="https://example.com/orders/{{1}}" />
+                <p className="text-xs text-muted-foreground">
+                  Meta supports one optional URL variable only, and it must be appended at the very end as {'{{1}}'}.
+                </p>
                 <TemplateVariableExamplesField
                   label="URL samples"
                   text={button.url}

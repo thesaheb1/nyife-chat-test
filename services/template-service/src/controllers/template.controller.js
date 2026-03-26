@@ -59,8 +59,9 @@ async function updateTemplate(req, res) {
   const requestContext = resolveTemplateRequestContext(req);
   const { id } = templateIdSchema.parse(req.params);
   const data = updateTemplateSchema.parse(req.body);
+  const accessToken = req.headers['x-wa-access-token'] || null;
 
-  const template = await templateService.updateTemplate(requestContext, id, data);
+  const template = await templateService.updateTemplate(requestContext, id, data, accessToken);
 
   return successResponse(res, { template }, 'Template updated successfully');
 }

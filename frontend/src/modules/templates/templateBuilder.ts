@@ -3,6 +3,7 @@ import type { Template } from '@/core/types';
 import {
   buildBodyTextExample,
   buildHeaderTextExample,
+  buildUrlButtonExample,
   readBodyTextExamples,
   readButtonExampleValues,
   readHeaderTextExamples,
@@ -33,6 +34,11 @@ export interface StandardButtonDraft {
   url: string;
   phone_number: string;
   example: string[];
+}
+
+export interface AuthenticationSupportedAppDraft {
+  packageName: string;
+  signatureHash: string;
 }
 
 export interface CarouselCardDraft {
@@ -69,6 +75,7 @@ export interface TemplateDraft {
     autofillText: string;
     packageName: string;
     signatureHash: string;
+    supportedApps: AuthenticationSupportedAppDraft[];
   };
   carousel: {
     bodyText: string;
@@ -139,6 +146,10 @@ const DEFAULT_CAROUSEL_CARD = (): CarouselCardDraft => ({
   ],
 });
 
+const DEFAULT_AUTH_SUPPORTED_APP = (): AuthenticationSupportedAppDraft => ({
+  packageName: '',
+  signatureHash: '',
+});
 
 export function createEmptyTemplateDraft(): TemplateDraft {
   return {
@@ -167,6 +178,7 @@ export function createEmptyTemplateDraft(): TemplateDraft {
       autofillText: '',
       packageName: '',
       signatureHash: '',
+      supportedApps: [DEFAULT_AUTH_SUPPORTED_APP()],
     },
     carousel: {
       bodyText: '',
@@ -210,7 +222,7 @@ function getComponent(components: TemplateComponent[], type: string) {
   return components.find((component) => String(component.type).toUpperCase() === type) || null;
 }
 
-function buildStoredMediaPreviewUrl(fileId: string) {
+export function buildTemplateMediaPreviewUrl(fileId: string) {
   return fileId ? `/api/v1/media/${encodeURIComponent(fileId)}/download` : undefined;
 }
 
@@ -219,7 +231,7 @@ function resolvePersistedPreviewUrl(asset: Pick<TemplateMediaAsset, 'file_id' | 
     return asset.preview_url;
   }
 
-  return buildStoredMediaPreviewUrl(asset.file_id);
+  return buildTemplateMediaPreviewUrl(asset.file_id);
 }
 
 function isQuickReplyButton(button: Pick<StandardButtonDraft, 'type'>) {
@@ -250,8 +262,8 @@ function buildStandardButtonsPayload(buttons: StandardButtonDraft[]) {
       type: button.type,
       text: trim(button.text),
       ...(button.type === 'URL' ? { url: trim(button.url) } : {}),
-      ...(button.type === 'URL' && button.example.some((value) => trim(value))
-        ? { example: button.example.map((value) => trim(value)).filter(Boolean) }
+      ...(button.type === 'URL' && buildUrlButtonExample(button.url, button.example)
+        ? { example: buildUrlButtonExample(button.url, button.example) }
         : {}),
       ...(button.type === 'PHONE_NUMBER' ? { phone_number: trim(button.phone_number) } : {}),
     }));
@@ -419,6 +431,22 @@ export function hydrateTemplateDraft(template: Template | null | undefined): Tem
   const authButton = Array.isArray(buttonsComponent?.buttons)
     ? (buttonsComponent.buttons[0] as Record<string, unknown> | undefined)
     : undefined;
+  const supportedAuthApps = Array.isArray(authButton?.supported_apps)
+    ? authButton.supported_apps
+        .map((app) => ({
+          packageName: trim((app as Record<string, unknown>)?.package_name),
+          signatureHash: trim((app as Record<string, unknown>)?.signature_hash),
+        }))
+        .filter((app) => app.packageName || app.signatureHash)
+    : [];
+  const legacySupportedApp = trim(authButton?.package_name) || trim(authButton?.signature_hash)
+    ? [{
+        packageName: trim(authButton?.package_name),
+        signatureHash: trim(authButton?.signature_hash),
+      }]
+    : [];
+  const hydratedSupportedApps = supportedAuthApps.length ? supportedAuthApps : legacySupportedApp;
+  const primarySupportedApp = hydratedSupportedApps[0];
 
   draft.authentication = {
     addSecurityRecommendation: Boolean(body?.add_security_recommendation),
@@ -427,8 +455,9 @@ export function hydrateTemplateDraft(template: Template | null | undefined): Tem
     otpType: (authButton?.otp_type as TemplateDraft['authentication']['otpType']) || 'COPY_CODE',
     buttonText: trim(authButton?.text) || 'Copy code',
     autofillText: trim(authButton?.autofill_text),
-    packageName: trim(authButton?.package_name),
-    signatureHash: trim(authButton?.signature_hash),
+    packageName: primarySupportedApp?.packageName || '',
+    signatureHash: primarySupportedApp?.signatureHash || '',
+    supportedApps: hydratedSupportedApps,
   };
 
   draft.flow = {
@@ -532,6 +561,24 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
   }
 
   if (draft.type === 'authentication') {
+    const otpType = draft.authentication.otpType;
+    const usesAutofill = otpType !== 'COPY_CODE';
+    const supportedApps = usesAutofill
+      ? draft.authentication.supportedApps
+          .map((app) => ({
+            package_name: trim(app.packageName),
+            signature_hash: trim(app.signatureHash),
+          }))
+          .filter((app) => app.package_name || app.signature_hash)
+      : [];
+
+    if (!supportedApps.length && usesAutofill && trim(draft.authentication.packageName) && trim(draft.authentication.signatureHash)) {
+      supportedApps.push({
+        package_name: trim(draft.authentication.packageName),
+        signature_hash: trim(draft.authentication.signatureHash),
+      });
+    }
+
     payload.category = 'AUTHENTICATION';
     payload.components.push({
       type: 'BODY',
@@ -550,11 +597,8 @@ export function buildTemplatePayload(draft: TemplateDraft): CreateTemplateFormDa
       buttons: [
         {
           type: 'OTP',
-          otp_type: draft.authentication.otpType,
-          text: trim(draft.authentication.buttonText),
-          autofill_text: trim(draft.authentication.autofillText) || undefined,
-          package_name: trim(draft.authentication.packageName) || undefined,
-          signature_hash: trim(draft.authentication.signatureHash) || undefined,
+          otp_type: otpType,
+          ...(usesAutofill && supportedApps.length ? { supported_apps: supportedApps } : {}),
         },
       ],
     });

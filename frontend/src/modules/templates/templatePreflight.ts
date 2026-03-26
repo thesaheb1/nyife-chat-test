@@ -1,5 +1,5 @@
 import type { Template } from '@/core/types';
-import { normalizeTemplateExampleValues, validateTemplateVariableExamples } from './templateExamples';
+import { normalizeTemplateExampleValues, validateTemplateVariableExamples, validateUrlButtonExamples } from './templateExamples';
 
 export interface TemplatePublishCheck {
   label: string;
@@ -74,7 +74,7 @@ function collectVariableWarnings(components: Array<Record<string, unknown>> | un
           continue;
         }
 
-        const message = validateTemplateVariableExamples(
+        const message = validateUrlButtonExamples(
           button.url,
           normalizeTemplateExampleValues(button.example),
           'URL button'
@@ -116,6 +116,18 @@ export function getTemplatePublishPreflight(template: Template | null | undefine
       detail: 'Meta can auto-adjust the template category during review if needed.',
     },
   ];
+
+  if (String(template.type || '').toLowerCase() === 'carousel') {
+    const carousel = components.find((component) => normalizeComponentType(component.type) === 'CAROUSEL') as { cards?: unknown[] } | undefined;
+    const cardCount = Array.isArray(carousel?.cards) ? carousel.cards.length : 0;
+    checks.push({
+      label: 'Card count',
+      tone: cardCount >= 2 && cardCount <= 10 ? 'ready' : 'warning',
+      detail: cardCount >= 2 && cardCount <= 10
+        ? `Meta will lock this carousel to ${cardCount} card${cardCount === 1 ? '' : 's'} after approval.`
+        : 'Carousel templates must define between 2 and 10 cards before publish.',
+    });
+  }
 
   const mediaHeaderStats = { total: 0, missing: 0 };
   collectMediaHeaderStats(components, mediaHeaderStats);

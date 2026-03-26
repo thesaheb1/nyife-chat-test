@@ -25,6 +25,7 @@ const {
 const {
   buildBodyTextExample,
   buildHeaderTextExample,
+  buildUrlButtonExample,
 } = require('../helpers/templateExamples');
 const { buildInternalOrganizationHeaders } = require('../helpers/templateRequestContext');
 const {
@@ -480,6 +481,288 @@ function pickDefinedEntries(entries) {
   return Object.fromEntries(entries.filter(([, value]) => value !== undefined && value !== null && value !== ''));
 }
 
+function isAuthenticationTemplate(template) {
+  return String(template?.type || '').toLowerCase() === 'authentication'
+    || String(template?.category || '').toUpperCase() === 'AUTHENTICATION';
+}
+
+function normalizeAuthenticationSupportedApps(button) {
+  const apps = Array.isArray(button?.supported_apps)
+    ? button.supported_apps
+        .map((app) => pickDefinedEntries([
+          ['package_name', trimString(app?.package_name)],
+          ['signature_hash', trimString(app?.signature_hash)],
+        ]))
+        .filter((app) => Object.keys(app).length)
+    : [];
+
+  if (apps.length) {
+    return apps;
+  }
+
+  const legacyApp = pickDefinedEntries([
+    ['package_name', trimString(button?.package_name)],
+    ['signature_hash', trimString(button?.signature_hash)],
+  ]);
+
+  return Object.keys(legacyApp).length ? [legacyApp] : undefined;
+}
+
+function extractAuthenticationUpsertResult(responseData, templateLanguage) {
+  const entries = [
+    ...(Array.isArray(responseData?.data) ? responseData.data : []),
+    ...(Array.isArray(responseData?.templates) ? responseData.templates : []),
+    ...(Array.isArray(responseData?.results) ? responseData.results : []),
+  ];
+
+  if (!entries.length && responseData && typeof responseData === 'object') {
+    const singleEntryLanguage = trimString(responseData?.language || responseData?.locale);
+    if (singleEntryLanguage || responseData?.id || responseData?.message_template_id || responseData?.template_id) {
+      entries.push(responseData);
+    }
+  }
+
+  if (!entries.length) {
+    return null;
+  }
+
+  const normalizedLanguage = trimString(templateLanguage);
+  return entries.find((entry) => trimString(entry?.language || entry?.locale) === normalizedLanguage) || entries[0] || null;
+}
+
+function extractMetaTemplateIdentifier(value) {
+  return trimString(
+    value?.id
+      || value?.message_template_id
+      || value?.template_id
+      || value?.hsm_id
+  ) || null;
+}
+
+async function submitAuthenticationTemplateUpsert(accessToken, wabaId, payload, templateLanguage) {
+  const response = await axios.post(
+    `${config.meta.baseUrl}/${wabaId}/upsert_message_templates`,
+    payload,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 15000,
+    }
+  );
+
+  return {
+    responseData: response.data,
+    result: extractAuthenticationUpsertResult(response.data, templateLanguage),
+  };
+}
+
+async function listMetaTemplatesForWaba(wabaId, accessToken) {
+  let metaTemplates = [];
+  let nextUrl = `${config.meta.baseUrl}/${wabaId}/message_templates`;
+  let requestParams = {
+    limit: 100,
+    fields: META_TEMPLATE_FIELDS,
+  };
+
+  try {
+    while (nextUrl) {
+      const response = await axios.get(nextUrl, {
+        params: requestParams,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        timeout: 15000,
+      });
+
+      if (response.data?.data) {
+        metaTemplates = metaTemplates.concat(response.data.data);
+      }
+
+      nextUrl = response.data?.paging?.next || null;
+      requestParams = undefined;
+    }
+  } catch (err) {
+    const metaError = err.response?.data?.error;
+    if (metaError) {
+      throw AppError.badRequest(
+        `Meta API error while fetching templates: ${metaError.message || 'Unknown error'}`
+      );
+    }
+
+    throw AppError.badRequest(`Failed to fetch templates from Meta: ${err.message}`);
+  }
+
+  return metaTemplates;
+}
+
+function matchesRemoteTemplate(remoteTemplate, templateName, templateLanguage) {
+  const normalizedName = trimString(templateName);
+  const normalizedLanguage = trimString(templateLanguage);
+
+  if (!normalizedName) {
+    return false;
+  }
+
+  if (trimString(remoteTemplate?.name) !== normalizedName) {
+    return false;
+  }
+
+  if (normalizedLanguage && trimString(remoteTemplate?.language) !== normalizedLanguage) {
+    return false;
+  }
+
+  return true;
+}
+
+async function findRemoteMetaTemplate({
+  accessToken,
+  wabaId,
+  metaTemplateId = null,
+  templateName = null,
+  templateLanguage = null,
+}) {
+  const normalizedMetaTemplateId = trimString(metaTemplateId);
+
+  if (normalizedMetaTemplateId) {
+    try {
+      const remoteTemplate = await fetchMetaTemplateById(normalizedMetaTemplateId, accessToken);
+      if (!templateName || matchesRemoteTemplate(remoteTemplate, templateName, templateLanguage)) {
+        return remoteTemplate;
+      }
+    } catch (err) {
+      const metaError = err.response?.data?.error;
+      if (!metaError || Number(metaError.code) !== 100) {
+        throw err;
+      }
+    }
+  }
+
+  const normalizedWabaId = trimString(wabaId);
+  if (!normalizedWabaId || !trimString(templateName)) {
+    return null;
+  }
+
+  const remoteTemplates = await listMetaTemplatesForWaba(normalizedWabaId, accessToken);
+  const matches = remoteTemplates.filter((remoteTemplate) =>
+    matchesRemoteTemplate(remoteTemplate, templateName, templateLanguage)
+  );
+
+  if (!matches.length) {
+    return null;
+  }
+
+  if (normalizedMetaTemplateId) {
+    const exactIdMatch = matches.find((remoteTemplate) => trimString(remoteTemplate?.id) === normalizedMetaTemplateId);
+    if (exactIdMatch) {
+      return exactIdMatch;
+    }
+  }
+
+  return matches[0];
+}
+
+function hasMetaManagementHint(template) {
+  return Boolean(
+    template?.meta_template_id
+    || resolveTemplateMetaStatus(template)
+    || template?.source === 'meta_sync'
+  );
+}
+
+async function reconcileMetaTemplateLinkage(requestContext, template, accessToken = null, options = {}) {
+  const {
+    requireAccountContext = false,
+    requireRemoteTemplate = false,
+  } = options;
+
+  const existingMetaStatus = resolveTemplateMetaStatus(template);
+  const existingMetaTemplateId = trimString(template?.meta_template_id) || null;
+  const existingWabaId = trimString(template?.waba_id) || null;
+
+  if (!hasMetaManagementHint(template) && !requireAccountContext && !requireRemoteTemplate) {
+    return {
+      accountContext: null,
+      remoteTemplate: null,
+      metaTemplateId: existingMetaTemplateId,
+      metaStatusRaw: existingMetaStatus,
+      wabaId: existingWabaId,
+    };
+  }
+
+  const userId = resolveScopeId(requestContext);
+  const accountContext = await resolveAccountContext(userId, {
+    waAccountId: template?.wa_account_id,
+    wabaId: template?.waba_id,
+    providedAccessToken: accessToken,
+    allowFallbackByWaba: true,
+  });
+
+  if (!accountContext) {
+    if (requireAccountContext || requireRemoteTemplate) {
+      throw AppError.badRequest(
+        'WhatsApp access token is required to verify and manage this Meta template. Configure META_SYSTEM_USER_ACCESS_TOKEN, connect an active WhatsApp account for this WABA, or provide x-wa-access-token.'
+      );
+    }
+
+    return {
+      accountContext: null,
+      remoteTemplate: null,
+      metaTemplateId: existingMetaTemplateId,
+      metaStatusRaw: existingMetaStatus,
+      wabaId: existingWabaId,
+    };
+  }
+
+  const wabaId = trimString(accountContext.waba_id) || existingWabaId;
+  const remoteTemplate = await findRemoteMetaTemplate({
+    accessToken: accountContext.access_token,
+    wabaId,
+    metaTemplateId: existingMetaTemplateId,
+    templateName: template?.name,
+    templateLanguage: template?.language,
+  });
+
+  if (!remoteTemplate && requireRemoteTemplate) {
+    throw AppError.badRequest(
+      'Could not verify this template on Meta. Sync templates from Meta and try again.'
+    );
+  }
+
+  const remoteMetaTemplateId = trimString(remoteTemplate?.id) || existingMetaTemplateId;
+  const remoteMetaStatus = normalizeMetaTemplateStatus(remoteTemplate?.status)
+    || trimString(remoteTemplate?.status).toUpperCase()
+    || existingMetaStatus;
+
+  if (remoteTemplate) {
+    const linkagePatch = pickDefinedEntries([
+      ['meta_template_id', remoteMetaTemplateId !== existingMetaTemplateId ? remoteMetaTemplateId : undefined],
+      ['meta_status_raw', remoteMetaStatus && remoteMetaStatus !== template?.meta_status_raw ? remoteMetaStatus : undefined],
+      ['waba_id', wabaId && wabaId !== existingWabaId ? wabaId : undefined],
+      [
+        'wa_account_id',
+        accountContext.wa_account_id && accountContext.wa_account_id !== template?.wa_account_id
+          ? accountContext.wa_account_id
+          : undefined,
+      ],
+    ]);
+
+    if (Object.keys(linkagePatch).length) {
+      linkagePatch.last_synced_at = new Date();
+      await template.update(linkagePatch);
+    }
+  }
+
+  return {
+    accountContext,
+    remoteTemplate,
+    metaTemplateId: remoteMetaTemplateId || null,
+    metaStatusRaw: remoteMetaStatus || null,
+    wabaId: wabaId || null,
+  };
+}
+
 function assertMediaRecordCompatible(format, mediaRecord) {
   const rule = TEMPLATE_MEDIA_RULES[normalizeComponentType(format)];
   if (!rule) {
@@ -682,14 +965,15 @@ function sanitizeButtonForMeta(button) {
   const cleaned = { type };
   const text = trimString(button.text);
 
-  if (text) {
+  if (text && type !== 'OTP') {
     cleaned.text = text;
   }
 
   if (type === 'URL') {
+    const buttonUrl = trimString(button.url);
     Object.assign(cleaned, pickDefinedEntries([
-      ['url', trimString(button.url)],
-      ['example', normalizeButtonExample(button.example)],
+      ['url', buttonUrl],
+      ['example', buildUrlButtonExample(buttonUrl, button.example)],
     ]));
   }
 
@@ -700,11 +984,10 @@ function sanitizeButtonForMeta(button) {
   }
 
   if (type === 'OTP') {
+    const otpType = trimString(button.otp_type);
     Object.assign(cleaned, pickDefinedEntries([
-      ['otp_type', trimString(button.otp_type)],
-      ['autofill_text', trimString(button.autofill_text)],
-      ['package_name', trimString(button.package_name)],
-      ['signature_hash', trimString(button.signature_hash)],
+      ['otp_type', otpType],
+      ['supported_apps', otpType !== 'COPY_CODE' ? normalizeAuthenticationSupportedApps(button) : undefined],
     ]));
   }
 
@@ -872,6 +1155,24 @@ async function buildMetaTemplatePayload(userId, accessToken, template, wabaId, o
     template.components
   );
   const normalizedComponents = normalizeTemplateComponentsForMetaCompatibility(resolvedComponents);
+  const sanitizedComponents = await sanitizeTemplateComponentsForMeta(
+    userId,
+    accessToken,
+    template.type,
+    normalizedComponents
+  );
+
+  if (isAuthenticationTemplate(template)) {
+    return {
+      name: template.name,
+      languages: [template.language],
+      category: 'AUTHENTICATION',
+      components: sanitizedComponents,
+      ...(normalizeMessageSendTtl(template.message_send_ttl_seconds)
+        ? { message_send_ttl_seconds: normalizeMessageSendTtl(template.message_send_ttl_seconds) }
+        : {}),
+    };
+  }
 
   return {
     ...(includeIdentity
@@ -882,12 +1183,7 @@ async function buildMetaTemplatePayload(userId, accessToken, template, wabaId, o
         }
       : {}),
     category: template.category,
-    components: await sanitizeTemplateComponentsForMeta(
-      userId,
-      accessToken,
-      template.type,
-      normalizedComponents
-    ),
+    components: sanitizedComponents,
     ...(normalizeMessageSendTtl(template.message_send_ttl_seconds)
       ? { message_send_ttl_seconds: normalizeMessageSendTtl(template.message_send_ttl_seconds) }
       : {}),
@@ -1198,7 +1494,7 @@ async function getTemplate(requestContext, templateId) {
  * @param {object} data - Validated update data
  * @returns {Promise<object>} The updated template
  */
-async function updateTemplate(requestContext, templateId, data) {
+async function updateTemplate(requestContext, templateId, data, accessToken = null) {
   const userId = resolveScopeId(requestContext);
   const template = await Template.findOne({
     where: { id: templateId, user_id: userId },
@@ -1276,13 +1572,25 @@ async function updateTemplate(requestContext, templateId, data) {
   if (data.display_name !== undefined) localOnlyUpdateFields.display_name = data.display_name;
   if (data.example_values !== undefined) localOnlyUpdateFields.example_values = data.example_values;
 
-  const effectiveMetaStatus = resolveTemplateMetaStatus(template);
   const managedChanges = getMetaManagedTemplateChanges(template, data, nextWaAccountId);
-  const isMetaLifecycleTemplate = Boolean(template.meta_template_id || effectiveMetaStatus);
-  const hasMetaLinkageGap = Boolean(effectiveMetaStatus && !template.meta_template_id);
-  const isMetaLinkedTemplate = Boolean(
-    template.meta_template_id && effectiveMetaStatus
-  );
+  let effectiveMetaStatus = resolveTemplateMetaStatus(template);
+  let resolvedMetaTemplateId = trimString(template.meta_template_id) || null;
+  let linkedAccountContext = null;
+
+  if (hasMetaManagementHint(template)) {
+    const linkage = await reconcileMetaTemplateLinkage(requestContext, template, accessToken, {
+      requireAccountContext: false,
+      requireRemoteTemplate: false,
+    });
+
+    effectiveMetaStatus = linkage.metaStatusRaw || effectiveMetaStatus;
+    resolvedMetaTemplateId = linkage.metaTemplateId || resolvedMetaTemplateId;
+    linkedAccountContext = linkage.accountContext || null;
+  }
+
+  const isMetaLifecycleTemplate = Boolean(resolvedMetaTemplateId || effectiveMetaStatus);
+  const hasMetaLinkageGap = Boolean(effectiveMetaStatus && !resolvedMetaTemplateId);
+  const isMetaLinkedTemplate = Boolean(resolvedMetaTemplateId && effectiveMetaStatus);
 
   if (isMetaLifecycleTemplate) {
     assertMetaTemplateUpdateAllowed(template, managedChanges);
@@ -1293,7 +1601,7 @@ async function updateTemplate(requestContext, templateId, data) {
     && (managedChanges.categoryChanged || managedChanges.componentsChanged || managedChanges.messageSendTtlChanged)
   ) {
     throw AppError.badRequest(
-      'This template looks Meta-managed, but its Meta template ID is missing locally. Sync from Meta before editing the live template content.'
+      'This template looks Meta-managed, but its Meta template ID could not be verified. Sync from Meta before editing the live template content.'
     );
   }
 
@@ -1310,15 +1618,16 @@ async function updateTemplate(requestContext, templateId, data) {
       return serializeTemplate(template);
     }
 
-    const accountContext = await resolveAccountContext(userId, {
+    const accountContext = linkedAccountContext || await resolveAccountContext(userId, {
       waAccountId: template.wa_account_id,
       wabaId: template.waba_id,
+      providedAccessToken: accessToken,
       allowFallbackByWaba: true,
     });
 
     if (!accountContext) {
       throw AppError.badRequest(
-        'WhatsApp access token is required for editing a Meta template. Configure META_SYSTEM_USER_ACCESS_TOKEN or connect an active WhatsApp account for this WABA.'
+        'WhatsApp access token is required for editing a Meta template. Configure META_SYSTEM_USER_ACCESS_TOKEN, connect an active WhatsApp account for this WABA, or provide x-wa-access-token.'
       );
     }
 
@@ -1339,6 +1648,8 @@ async function updateTemplate(requestContext, templateId, data) {
           : normalizeMessageSendTtl(template.message_send_ttl_seconds),
       wa_account_id: accountContext.wa_account_id || template.wa_account_id,
       waba_id: wabaId,
+      meta_template_id: resolvedMetaTemplateId,
+      meta_status_raw: effectiveMetaStatus || template.meta_status_raw,
     };
 
     const payload = await buildMetaTemplatePayload(
@@ -1348,19 +1659,31 @@ async function updateTemplate(requestContext, templateId, data) {
       wabaId,
       { includeIdentity: false }
     );
+    const isAuthenticationMetaTemplate = isAuthenticationTemplate(metaEditableTemplate);
+    let authUpsertResult = null;
 
     try {
-      await axios.post(
-        `${config.meta.baseUrl}/${template.meta_template_id}`,
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${accountContext.access_token}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 15000,
-        }
-      );
+      if (isAuthenticationMetaTemplate) {
+        const upsertResponse = await submitAuthenticationTemplateUpsert(
+          accountContext.access_token,
+          wabaId,
+          payload,
+          metaEditableTemplate.language
+        );
+        authUpsertResult = upsertResponse.result;
+      } else {
+        await axios.post(
+          `${config.meta.baseUrl}/${resolvedMetaTemplateId}`,
+          payload,
+          {
+            headers: {
+              Authorization: `Bearer ${accountContext.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 15000,
+          }
+        );
+      }
     } catch (err) {
       const metaError = err.response?.data?.error;
       throw AppError.badRequest(
@@ -1368,12 +1691,23 @@ async function updateTemplate(requestContext, templateId, data) {
       );
     }
 
+    const authUpsertMetaTemplateId = extractMetaTemplateIdentifier(authUpsertResult);
     let refreshedTemplate = null;
     try {
-      refreshedTemplate = await fetchMetaTemplateById(
-        template.meta_template_id,
-        accountContext.access_token
-      );
+      if (isAuthenticationMetaTemplate) {
+        refreshedTemplate = await findRemoteMetaTemplate({
+          accessToken: accountContext.access_token,
+          wabaId,
+          metaTemplateId: authUpsertMetaTemplateId || resolvedMetaTemplateId,
+          templateName: metaEditableTemplate.name,
+          templateLanguage: metaEditableTemplate.language,
+        });
+      } else {
+        refreshedTemplate = await fetchMetaTemplateById(
+          resolvedMetaTemplateId,
+          accountContext.access_token
+        );
+      }
     } catch (err) {
       console.warn(
         '[template-service] Could not refresh edited template from Meta:',
@@ -1381,11 +1715,16 @@ async function updateTemplate(requestContext, templateId, data) {
       );
     }
 
+    const refreshedMetaTemplateId = trimString(refreshedTemplate?.id) || authUpsertMetaTemplateId || resolvedMetaTemplateId;
+    const nextMetaStatus = normalizeMetaTemplateStatus(refreshedTemplate?.status || authUpsertResult?.status)
+      || trimString(refreshedTemplate?.status || authUpsertResult?.status).toUpperCase()
+      || 'PENDING';
+
     const updateFields = refreshedTemplate
       ? mapMetaTemplateToLocalState(refreshedTemplate, {
           wabaId,
           waAccountId: accountContext.wa_account_id || template.wa_account_id,
-          metaTemplateId: template.meta_template_id,
+          metaTemplateId: refreshedMetaTemplateId,
         })
       : {
           category: data.category !== undefined ? data.category : template.category,
@@ -1394,13 +1733,13 @@ async function updateTemplate(requestContext, templateId, data) {
             data.message_send_ttl_seconds !== undefined
               ? normalizeMessageSendTtl(data.message_send_ttl_seconds)
               : normalizeMessageSendTtl(template.message_send_ttl_seconds),
-          status: 'pending',
-          meta_status_raw: 'PENDING',
+          status: deriveLocalTemplateStatus(nextMetaStatus, 'pending'),
+          meta_template_id: refreshedMetaTemplateId,
+          meta_status_raw: nextMetaStatus,
           waba_id: wabaId,
           wa_account_id: accountContext.wa_account_id || template.wa_account_id,
           last_synced_at: new Date(),
         };
-
     await template.update({
       ...updateFields,
       ...localOnlyUpdateFields,
@@ -1447,7 +1786,59 @@ async function updateTemplate(requestContext, templateId, data) {
  * @returns {Promise<void>}
  */
 function shouldDeleteFromMeta(metaStatus) {
-  return !['PENDING_DELETION', 'DISABLED', 'DELETED', 'ARCHIVED', 'LIMIT_EXCEEDED'].includes(metaStatus);
+  return !['PENDING_DELETION', 'DELETED'].includes(metaStatus);
+}
+
+async function deleteTemplateFromMeta(accountContext, template, remoteTemplate = null) {
+  const wabaId = String(accountContext.waba_id);
+  const remoteTemplateId = trimString(remoteTemplate?.id) || trimString(template.meta_template_id) || null;
+  const remoteTemplateName = trimString(remoteTemplate?.name) || trimString(template.name);
+  const remoteTemplateLanguage = trimString(remoteTemplate?.language) || trimString(template.language);
+
+  try {
+    await axios.delete(
+      `${config.meta.baseUrl}/${wabaId}/message_templates`,
+      {
+        params: pickDefinedEntries([
+          ['name', remoteTemplateName],
+          ['hsm_id', remoteTemplateId || undefined],
+        ]),
+        headers: {
+          Authorization: `Bearer ${accountContext.access_token}`,
+        },
+        timeout: 10000,
+      }
+    );
+  } catch (err) {
+    const metaError = err.response?.data?.error;
+    if (!metaError || Number(metaError.code) !== 100) {
+      throw AppError.badRequest(
+        `Failed to delete template from Meta: ${metaError?.message || err.message}`
+      );
+    }
+
+    const refreshedRemoteTemplate = await findRemoteMetaTemplate({
+      accessToken: accountContext.access_token,
+      wabaId,
+      metaTemplateId: remoteTemplateId,
+      templateName: remoteTemplateName,
+      templateLanguage: remoteTemplateLanguage,
+    });
+    const refreshedRemoteStatus = normalizeMetaTemplateStatus(refreshedRemoteTemplate?.status)
+      || trimString(refreshedRemoteTemplate?.status).toUpperCase()
+      || null;
+
+    if (refreshedRemoteTemplate && shouldDeleteFromMeta(refreshedRemoteStatus)) {
+      throw AppError.badRequest(
+        `Failed to delete template from Meta: ${metaError.message || err.message}`
+      );
+    }
+
+    console.warn(
+      '[template-service] Meta template deletion warning:',
+      metaError?.message || err.message
+    );
+  }
 }
 
 async function deleteTemplate(requestContext, templateId, accessToken) {
@@ -1466,48 +1857,16 @@ async function deleteTemplate(requestContext, templateId, accessToken) {
 
   const metaStatusRaw = resolveTemplateMetaStatus(template);
 
-  // If the template has been published to Meta, delete from Meta first
-  if (template.meta_template_id && template.waba_id && shouldDeleteFromMeta(metaStatusRaw)) {
-    const accountContext = await resolveAccountContext(userId, {
-      waAccountId: template.wa_account_id,
-      wabaId: template.waba_id,
-      providedAccessToken: accessToken,
-      allowFallbackByWaba: true,
+  if (hasMetaManagementHint(template)) {
+    const linkage = await reconcileMetaTemplateLinkage(requestContext, template, accessToken, {
+      requireAccountContext: true,
+      requireRemoteTemplate: false,
     });
+    const remoteTemplate = linkage.remoteTemplate;
+    const remoteMetaStatus = linkage.metaStatusRaw || metaStatusRaw;
 
-    if (!accountContext) {
-      throw AppError.badRequest(
-        'WhatsApp access token is required to delete a published template. Configure META_SYSTEM_USER_ACCESS_TOKEN, connect an active WhatsApp account for this WABA, or provide x-wa-access-token.'
-      );
-    }
-
-    try {
-      await axios.delete(
-        `${config.meta.baseUrl}/${accountContext.waba_id}/message_templates`,
-        {
-          params: pickDefinedEntries([
-            ['name', template.name],
-            ['hsm_id', template.meta_template_id || undefined],
-          ]),
-          headers: {
-            Authorization: `Bearer ${accountContext.access_token}`,
-          },
-          timeout: 10000,
-        }
-      );
-    } catch (err) {
-      const metaError = err.response?.data?.error;
-      // If Meta returns 100 (invalid parameter) it likely means template was already deleted
-      if (metaError && metaError.code !== 100) {
-        throw AppError.badRequest(
-          `Failed to delete template from Meta: ${metaError.message || err.message}`
-        );
-      }
-      // Otherwise log and continue with local deletion
-      console.warn(
-        '[template-service] Meta template deletion warning:',
-        metaError?.message || err.message
-      );
+    if (remoteTemplate && shouldDeleteFromMeta(remoteMetaStatus)) {
+      await deleteTemplateFromMeta(linkage.accountContext, template, remoteTemplate);
     }
   }
 
@@ -1590,35 +1949,47 @@ async function publishTemplate(requestContext, templateId, accessToken, waAccoun
     wabaId
   );
 
-  const publishPath = normalizeMessageSendTtl(template.message_send_ttl_seconds)
-    ? accountContext.account?.phone_number_id
-      ? `${config.meta.baseUrl}/${accountContext.account.phone_number_id}/message_templates`
-      : null
-    : `${config.meta.baseUrl}/${wabaId}/message_templates`;
+  const isAuthenticationPublish = isAuthenticationTemplate(normalizedTemplate);
+  const publishPath = isAuthenticationPublish
+    ? `${config.meta.baseUrl}/${wabaId}/upsert_message_templates`
+    : normalizeMessageSendTtl(template.message_send_ttl_seconds)
+      ? accountContext.account?.phone_number_id
+        ? `${config.meta.baseUrl}/${accountContext.account.phone_number_id}/message_templates`
+        : null
+      : `${config.meta.baseUrl}/${wabaId}/message_templates`;
 
-  if (normalizeMessageSendTtl(template.message_send_ttl_seconds) && !publishPath) {
+  if (!isAuthenticationPublish && normalizeMessageSendTtl(template.message_send_ttl_seconds) && !publishPath) {
     throw AppError.badRequest(
       'Select an active WhatsApp phone number before publishing a template with a custom delivery TTL.'
     );
   }
 
-  // Include example values if present (needed for templates with media headers or variables)
-  // Meta expects examples within components, but some are passed at the top level
-  // The components array should already contain any example fields within each component
-
-  let metaResponse;
+  let metaResponseData;
+  let authUpsertResult = null;
   try {
-    metaResponse = await axios.post(
-      publishPath,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${accountContext.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 15000,
-      }
-    );
+    if (isAuthenticationPublish) {
+      const upsertResponse = await submitAuthenticationTemplateUpsert(
+        accountContext.access_token,
+        wabaId,
+        payload,
+        normalizedTemplate.language
+      );
+      metaResponseData = upsertResponse.responseData;
+      authUpsertResult = upsertResponse.result;
+    } else {
+      const metaResponse = await axios.post(
+        publishPath,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accountContext.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
+        }
+      );
+      metaResponseData = metaResponse.data;
+    }
   } catch (err) {
     const metaError = err.response?.data?.error;
     if (metaError) {
@@ -1630,18 +2001,37 @@ async function publishTemplate(requestContext, templateId, accessToken, waAccoun
     throw AppError.badRequest(`Failed to publish template to Meta: ${err.message}`);
   }
 
+  const authUpsertMetaTemplateId = extractMetaTemplateIdentifier(authUpsertResult);
+  const publishedRemoteTemplate = isAuthenticationPublish
+    ? await findRemoteMetaTemplate({
+        accessToken: accountContext.access_token,
+        wabaId,
+        metaTemplateId: authUpsertMetaTemplateId || null,
+        templateName: template.name,
+        templateLanguage: template.language,
+      })
+    : metaResponseData?.id
+      ? metaResponseData
+      : await findRemoteMetaTemplate({
+          accessToken: accountContext.access_token,
+          wabaId,
+          templateName: template.name,
+          templateLanguage: template.language,
+        });
+
   // Extract template ID from Meta response
-  const metaTemplateId = metaResponse.data?.id;
-  const metaStatus = normalizeMetaTemplateStatus(metaResponse.data?.status) || 'PENDING';
+  const metaTemplateId = trimString(publishedRemoteTemplate?.id) || authUpsertMetaTemplateId || trimString(metaResponseData?.id) || null;
+  const metaStatus = normalizeMetaTemplateStatus(publishedRemoteTemplate?.status || authUpsertResult?.status || metaResponseData?.status)
+    || trimString(publishedRemoteTemplate?.status || authUpsertResult?.status || metaResponseData?.status).toUpperCase()
+    || 'PENDING';
   const nextStatus = deriveLocalTemplateStatus(metaStatus, 'pending');
   const rejectionReason = metaStatus === 'REJECTED'
-    ? extractRejectionReason(metaResponse.data)
+    ? extractRejectionReason(publishedRemoteTemplate || authUpsertResult || metaResponseData)
     : null;
-
   // Update local template record
   const updateData = {
     status: nextStatus,
-    meta_template_id: metaTemplateId || null,
+    meta_template_id: metaTemplateId,
     meta_status_raw: metaStatus,
     quality_score: null,
     quality_reasons: null,
@@ -1691,40 +2081,7 @@ async function syncTemplates(requestContext, waAccountId, accessToken) {
   }
 
   // Fetch all templates from Meta
-  let metaTemplates = [];
-  let nextUrl = `${config.meta.baseUrl}/${wabaId}/message_templates`;
-  let requestParams = {
-    limit: 100,
-    fields: META_TEMPLATE_FIELDS,
-  };
-
-  try {
-    while (nextUrl) {
-      const response = await axios.get(nextUrl, {
-        params: requestParams,
-        headers: {
-          Authorization: `Bearer ${accountContext.access_token}`,
-        },
-        timeout: 15000,
-      });
-
-      if (response.data?.data) {
-        metaTemplates = metaTemplates.concat(response.data.data);
-      }
-
-      // Handle pagination from Meta API
-      nextUrl = response.data?.paging?.next || null;
-      requestParams = undefined;
-    }
-  } catch (err) {
-    const metaError = err.response?.data?.error;
-    if (metaError) {
-      throw AppError.badRequest(
-        `Meta API error while fetching templates: ${metaError.message || 'Unknown error'}`
-      );
-    }
-    throw AppError.badRequest(`Failed to fetch templates from Meta: ${err.message}`);
-  }
+  const metaTemplates = await listMetaTemplatesForWaba(wabaId, accountContext.access_token);
 
   let created = 0;
   let updated = 0;

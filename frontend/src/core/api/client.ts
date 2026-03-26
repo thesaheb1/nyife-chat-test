@@ -26,6 +26,7 @@ const ORGANIZATION_HEADER_ALLOWED_PREFIXES = [
   '/api/v1/analytics/',
   '/api/v1/contacts',
   '/api/v1/templates',
+  '/api/v1/media',
   '/api/v1/flows',
   '/api/v1/campaigns',
   '/api/v1/chat',

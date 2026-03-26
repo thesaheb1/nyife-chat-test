@@ -19,7 +19,7 @@ function appendVersion(url: string, version?: string | number | null) {
   }
 }
 
-export function useAuthenticatedImageSrc(
+export function useAuthenticatedAssetSrc(
   src?: string | null,
   version?: string | number | null
 ) {
@@ -47,7 +47,7 @@ export function useAuthenticatedImageSrc(
     let objectUrl: string | null = null;
     let cancelled = false;
 
-    const loadImage = async () => {
+    const loadAsset = async () => {
       try {
         const response = await apiClient.get<Blob>(versionedSrc, {
           responseType: 'blob',
@@ -64,7 +64,7 @@ export function useAuthenticatedImageSrc(
       }
     };
 
-    void loadImage();
+    void loadAsset();
 
     return () => {
       cancelled = true;
@@ -75,4 +75,11 @@ export function useAuthenticatedImageSrc(
   }, [src, version]);
 
   return resolvedSrc;
+}
+
+export function useAuthenticatedImageSrc(
+  src?: string | null,
+  version?: string | number | null
+) {
+  return useAuthenticatedAssetSrc(src, version);
 }

@@ -125,3 +125,33 @@
 
 // When i open a draft template to edit and When i uploaded any media file such as image, video, document etc in the header component then the media is not showing. it only showing file name. please fix it.
 // I have attached the screenshot of the issue.
+
+
+
+// When i try to publish a authentication template it gives me error.
+
+// API Gateway :
+// Request URL : https://localhost:5173/api/v1/templates/227f09b9-80dd-494e-8c69-67305c4c0dd1/publish
+// Request Method : POST
+// Status Code : 400 Bad Request
+
+// Payload : {"wa_account_id":"15bf50f1-2ad6-4fd5-ab62-a41894fe7932"}
+
+// response error :
+// {
+//     "success": false,
+//     "message": "Meta API error: Invalid parameter - Button format is incorrect. Buttons can't have any variables, newlines, emojis or formatting characters.",
+//     "stack": "AppError: Meta API error: Invalid parameter - Button format is incorrect. Buttons can't have any variables, newlines, emojis or formatting characters.\n    at AppError.badRequest (/app/shared/shared-utils/src/AppError.js:37:12)\n    at Object.publishTemplate (/app/services/template-service/src/services/template.service.js:1625:22)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async publishTemplate (/app/services/template-service/src/controllers/template.controller.js:92:20)"
+// }
+
+// FIXES : 
+// 1. Review template creation/updation code and compare with meta graph api documentation and find the root cause of the error.
+// 2. When a template is created/updated as draft and when i try to publish it must not give me error. it must give me success response.
+// All checks & validations must be done at the time of template draft creation/updation. so when we try to publish it must not give any error.
+
+// I deleted a authentication template and then i created a new authentication template named auth_testing but it only deleted from locally from my DB not from meta. it must be deleted from meta also. please fix it. when we delete a template then it must be deleted from meta also. and when we update a template then it must be updated on meta also. and when we publish a template then it must be published on meta. so all the action must be performed on meta also not just locally on our DB. because our system is just a middleware between user and meta. so all the action must be performed on meta also not just locally on our DB. please fix it with production grade approach not just quick fix. find the root cause and fix it with production grade approach.
+
+// Read this whatsapp carousel template documentation and compare with our implementation and find the missing parameters and functionality and then implement it. so our carousel template must be fully compatible with meta graph api documentation. so we can't get any error while creating, updating and publishing carousel template. here is the documentation url : https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/marketing-templates/media-card-carousel-templates/
+
+
+// Read this whatsapp authentication template documentation and compare with our implementation and find the missing parameters and functionality and then implement it. so our authentication template must be fully compatible with meta graph api documentation. so we can't get any error while creating, updating and publishing authentication template. here is the documentation url : https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/authentication-templates/authentication-templates/

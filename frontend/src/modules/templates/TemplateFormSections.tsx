@@ -106,6 +106,26 @@ export function AuthenticationTemplateSection({
   onChange: (next: TemplateDraft) => void;
 }) {
   const usesAutofill = draft.authentication.otpType !== 'COPY_CODE';
+  const supportedApps = draft.authentication.supportedApps.length
+    ? draft.authentication.supportedApps
+    : draft.authentication.packageName || draft.authentication.signatureHash
+      ? [{ packageName: draft.authentication.packageName, signatureHash: draft.authentication.signatureHash }]
+      : [{ packageName: '', signatureHash: '' }];
+
+  const updateSupportedApps = (nextSupportedApps: Array<{ packageName: string; signatureHash: string }>) => {
+    const normalizedSupportedApps = nextSupportedApps.filter((app) => app.packageName || app.signatureHash);
+    const primarySupportedApp = normalizedSupportedApps[0] || { packageName: '', signatureHash: '' };
+
+    onChange({
+      ...draft,
+      authentication: {
+        ...draft.authentication,
+        packageName: primarySupportedApp.packageName,
+        signatureHash: primarySupportedApp.signatureHash,
+        supportedApps: normalizedSupportedApps,
+      },
+    });
+  };
 
   return (
     <Card>
@@ -144,7 +164,28 @@ export function AuthenticationTemplateSection({
             <Label>OTP type</Label>
             <Select
               value={draft.authentication.otpType}
-              onValueChange={(value) => onChange({ ...draft, authentication: { ...draft.authentication, otpType: value as TemplateDraft['authentication']['otpType'] } })}
+              onValueChange={(value) => {
+                const otpType = value as TemplateDraft['authentication']['otpType'];
+                onChange({
+                  ...draft,
+                  authentication: {
+                    ...draft.authentication,
+                    otpType,
+                    ...(otpType === 'COPY_CODE'
+                      ? {
+                          autofillText: '',
+                          packageName: '',
+                          signatureHash: '',
+                          supportedApps: [],
+                        }
+                      : draft.authentication.supportedApps.length
+                        ? {}
+                        : {
+                            supportedApps: [{ packageName: '', signatureHash: '' }],
+                          }),
+                  },
+                });
+              }}
             >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -155,43 +196,71 @@ export function AuthenticationTemplateSection({
             </Select>
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Button text</Label>
-            <Input
-              value={draft.authentication.buttonText}
-              onChange={(event) => onChange({ ...draft, authentication: { ...draft.authentication, buttonText: event.target.value } })}
-              placeholder={usesAutofill ? 'Autofill code' : 'Copy code'}
-            />
-          </div>
-          {usesAutofill ? (
-            <div className="space-y-2">
-              <Label>Autofill text</Label>
-              <Input
-                value={draft.authentication.autofillText}
-                onChange={(event) => onChange({ ...draft, authentication: { ...draft.authentication, autofillText: event.target.value } })}
-                placeholder="Autofill"
-              />
-            </div>
-          ) : null}
+        <div className="rounded-2xl border bg-muted/10 p-4 text-sm text-muted-foreground">
+          {usesAutofill
+            ? 'Meta manages the authentication button label automatically. For one-tap and zero-tap templates, provide up to 5 Android app package and signature hash pairs in supported_apps.'
+            : 'Meta manages the copy code button label automatically, so no custom button text is needed.'}
         </div>
         {usesAutofill ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Android package name</Label>
-              <Input
-                value={draft.authentication.packageName}
-                onChange={(event) => onChange({ ...draft, authentication: { ...draft.authentication, packageName: event.target.value } })}
-                placeholder="com.example.app"
-              />
+          <div className="space-y-4 rounded-2xl border p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Supported Android apps</div>
+                <div className="text-xs text-muted-foreground">Meta supports up to 5 app bindings for one-tap and zero-tap authentication templates.</div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => updateSupportedApps([...supportedApps, { packageName: '', signatureHash: '' }])}
+                disabled={supportedApps.length >= 5}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add app
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label>Signature hash</Label>
-              <Input
-                value={draft.authentication.signatureHash}
-                onChange={(event) => onChange({ ...draft, authentication: { ...draft.authentication, signatureHash: event.target.value } })}
-                placeholder="K8a%2FAINcGX7"
-              />
+            <div className="space-y-4">
+              {supportedApps.map((app, index) => (
+                <div key={index} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+                  <div className="space-y-2">
+                    <Label>Android package name</Label>
+                    <Input
+                      value={app.packageName}
+                      onChange={(event) => {
+                        const nextSupportedApps = supportedApps.map((current, currentIndex) =>
+                          currentIndex === index ? { ...current, packageName: event.target.value } : current
+                        );
+                        updateSupportedApps(nextSupportedApps);
+                      }}
+                      placeholder="com.example.app"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Signature hash</Label>
+                    <Input
+                      value={app.signatureHash}
+                      onChange={(event) => {
+                        const nextSupportedApps = supportedApps.map((current, currentIndex) =>
+                          currentIndex === index ? { ...current, signatureHash: event.target.value } : current
+                        );
+                        updateSupportedApps(nextSupportedApps);
+                      }}
+                      placeholder="K8a%2FAINcGX7"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="md:self-center"
+                    onClick={() => updateSupportedApps(supportedApps.filter((_, currentIndex) => currentIndex !== index))}
+                    disabled={supportedApps.length === 1}
+                    aria-label={`Remove supported app ${index + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
             </div>
           </div>
         ) : null}
@@ -394,7 +463,7 @@ export function CarouselTemplateSection({
     <Card>
       <CardHeader>
         <CardTitle>Carousel template builder</CardTitle>
-        <CardDescription>Build a marketing carousel with one intro body plus 2 to 10 media cards and consistent CTA structure.</CardDescription>
+        <CardDescription>Build a marketing carousel with one intro body plus 2 to 10 media cards and consistent CTA structure. Meta locks the card count once the template is approved.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="flex items-center justify-between gap-3 rounded-2xl border p-4">

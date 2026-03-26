@@ -80,6 +80,38 @@ function buildBodyTextExample(bodyText, exampleValues) {
   return normalizedValues.length ? [normalizedValues] : undefined;
 }
 
+function hasSupportedUrlButtonVariable(url) {
+  const normalizedUrl = trimString(url);
+  const placeholders = describePlaceholders(normalizedUrl);
+
+  if (!placeholders.count) {
+    return false;
+  }
+
+  return placeholders.count === 1
+    && placeholders.occurrences.length === 1
+    && placeholders.isSequential
+    && normalizedUrl.endsWith('{{1}}');
+}
+
+function isValidAbsoluteUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function buildUrlButtonExample(url, exampleValues) {
+  if (!hasSupportedUrlButtonVariable(url)) {
+    return undefined;
+  }
+
+  const normalizedValues = normalizeExampleValues(exampleValues).filter(Boolean);
+  return normalizedValues.length ? [normalizedValues[0]] : undefined;
+}
+
 function validateTextExamples({
   text,
   exampleValues,
@@ -119,19 +151,50 @@ function validateButtonUrlExamples({
   errors,
   addError,
 }) {
-  validateTextExamples({
-    text: url,
-    exampleValues,
-    field,
-    label: 'URL button',
-    errors,
-    addError,
-  });
+  const normalizedUrl = trimString(url);
+  const placeholders = describePlaceholders(normalizedUrl);
+  const hasTrailingVariable = hasSupportedUrlButtonVariable(normalizedUrl);
+
+  if (placeholders.count && !hasTrailingVariable) {
+    addError(
+      errors,
+      field,
+      'URL button supports only one variable, and it must be appended to the end of the URL as {{1}}.'
+    );
+    return;
+  }
+
+  const urlToValidate = hasTrailingVariable
+    ? normalizedUrl.slice(0, -'{{1}}'.length)
+    : normalizedUrl;
+
+  if (urlToValidate && !isValidAbsoluteUrl(urlToValidate)) {
+    addError(
+      errors,
+      field,
+      'URL button must be a valid absolute URL.'
+    );
+    return;
+  }
+
+  if (!hasTrailingVariable) {
+    return;
+  }
+
+  const normalizedValues = normalizeExampleValues(exampleValues);
+  if (normalizedValues.length !== 1 || !normalizedValues[0]) {
+    addError(
+      errors,
+      field,
+      'URL button uses 1 variable, so provide 1 non-empty sample value.'
+    );
+  }
 }
 
 module.exports = {
   buildBodyTextExample,
   buildHeaderTextExample,
+  buildUrlButtonExample,
   describePlaceholders,
   normalizeExampleValues,
   readBodyTextExamples,

@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 import type { Template } from '@/core/types';
 import type { TemplateDraft, TemplateMediaAsset } from './templateBuilder';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useAuthenticatedImageSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
+import { useAuthenticatedAssetSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
 
 interface TemplateComponent {
   type: string;
@@ -89,6 +89,18 @@ function getDraftHeaderMedia(draft: TemplateDraft | undefined, type: Template['t
 }
 
 function renderButtonLabel(button: Record<string, unknown>) {
+  const buttonType = trim(button.type).toUpperCase();
+  if (buttonType === 'OTP') {
+    const otpType = trim(button.otp_type).toUpperCase();
+    if (otpType === 'ZERO_TAP') {
+      return 'Zero-tap';
+    }
+    if (otpType === 'ONE_TAP') {
+      return 'Autofill';
+    }
+    return 'Copy code';
+  }
+
   return trim(button.text) || trim(button.flow_name) || 'Action';
 }
 
@@ -122,15 +134,43 @@ function HeaderMediaPreview({
   theme: 'light' | 'dark';
 }) {
   const normalized = String(format).toUpperCase();
-  const resolvedImageSrc = useAuthenticatedImageSrc(
-    normalized === 'IMAGE' ? media?.preview_url : undefined,
+  const resolvedPreviewSrc = useAuthenticatedAssetSrc(
+    media?.preview_url,
     media?.file_id || media?.header_handle || null
   );
+  const isImage = normalized === 'IMAGE' && Boolean(resolvedPreviewSrc);
+  const isVideo = normalized === 'VIDEO' && Boolean(resolvedPreviewSrc);
+  const isPdfDocument = normalized === 'DOCUMENT' && media?.mime_type === 'application/pdf' && Boolean(resolvedPreviewSrc);
 
-  if (normalized === 'IMAGE' && resolvedImageSrc) {
+  if (isImage) {
     return (
       <div className="overflow-hidden rounded-[14px] bg-[#d8d8d8]">
-        <img src={resolvedImageSrc} alt={media?.original_name || 'Header media'} className="h-32 w-full object-cover" />
+        <img src={resolvedPreviewSrc} alt={media?.original_name || 'Header media'} className="h-32 w-full object-cover" />
+      </div>
+    );
+  }
+
+  if (isVideo) {
+    return (
+      <div className="overflow-hidden rounded-[14px] bg-black">
+        <video
+          src={resolvedPreviewSrc}
+          controls
+          preload="metadata"
+          className="h-40 w-full bg-black object-contain"
+        />
+      </div>
+    );
+  }
+
+  if (isPdfDocument) {
+    return (
+      <div className="overflow-hidden rounded-[14px] bg-white">
+        <iframe
+          title={media?.original_name || 'Header document'}
+          src={resolvedPreviewSrc}
+          className="h-48 w-full bg-white"
+        />
       </div>
     );
   }
@@ -160,6 +200,9 @@ function HeaderMediaPreview({
             {media?.original_name || `${normalized.toLowerCase()} sample`}
           </div>
           <div className="text-xs">{media?.mime_type || normalized}</div>
+          {normalized === 'DOCUMENT' && resolvedPreviewSrc ? (
+            <div className="mt-1 text-[11px]">PDF files render inline. Other document types show a file card.</div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -314,7 +357,7 @@ function CarouselMessage({
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-3xl rounded-bl-[6px]',
+        'overflow-x-auto rounded-3xl rounded-bl-[6px] w-[50%]',
         isDark ? 'bg-[#202c33]' : 'bg-white shadow-[0_1px_0_rgba(11,20,26,0.08)]'
       )}
     >
@@ -325,7 +368,7 @@ function CarouselMessage({
           </div>
         </div>
       ) : null}
-      <div className="-mx-1 flex gap-3 overflow-x-auto px-3 py-3">
+      <div className="-mx-1 flex gap-3 px-3 py-3">
         {cards.map((card, index) => (
           <div key={index} className="w-49 shrink-0">
             <TemplateMessageCard

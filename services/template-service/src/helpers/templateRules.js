@@ -18,12 +18,17 @@ const BODY_TEXT_LIMIT = 1024;
 const HEADER_TEXT_LIMIT = 60;
 const FOOTER_TEXT_LIMIT = 60;
 const BUTTON_TEXT_LIMIT = 25;
+const BUTTON_TEXT_VARIABLE_REGEX = /\{\{[^{}]+\}\}/;
+const BUTTON_TEXT_NEWLINE_REGEX = /[\r\n]/;
+const BUTTON_TEXT_FORMATTING_REGEX = /[*_~`]/;
+const BUTTON_TEXT_EMOJI_REGEX = /[\p{Extended_Pictographic}\uFE0F]/u;
 const MAX_STANDARD_BUTTONS = 10;
 const MAX_CAROUSEL_BUTTONS = 2;
 const MAX_CAROUSEL_CARDS = 10;
 const MIN_CAROUSEL_CARDS = 2;
 const MAX_URL_BUTTONS = 2;
 const MAX_PHONE_NUMBER_BUTTONS = 1;
+const MAX_AUTH_SUPPORTED_APPS = 5;
 const EDITABLE_META_STATUSES = new Set(['APPROVED', 'REJECTED', 'PAUSED']);
 const PENDING_META_STATUSES = new Set(['PENDING', 'IN_APPEAL', 'APPEAL_REQUESTED', 'PENDING_DELETION']);
 const DISABLED_META_STATUSES = new Set(['DISABLED', 'DELETED', 'ARCHIVED', 'LIMIT_EXCEEDED']);
@@ -65,6 +70,33 @@ function normalizeComponentType(type) {
 
 function textValue(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function getButtonLabelFormatError(value, label = 'Button text') {
+  const raw = typeof value === 'string' ? value : '';
+  const normalized = raw.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (BUTTON_TEXT_NEWLINE_REGEX.test(raw)) {
+    return `${label} cannot include line breaks.`;
+  }
+
+  if (BUTTON_TEXT_VARIABLE_REGEX.test(raw)) {
+    return `${label} cannot include variables like {{1}}.`;
+  }
+
+  if (BUTTON_TEXT_EMOJI_REGEX.test(raw)) {
+    return `${label} cannot include emojis.`;
+  }
+
+  if (BUTTON_TEXT_FORMATTING_REGEX.test(raw)) {
+    return `${label} cannot include formatting characters such as *, _, ~, or \``;
+  }
+
+  return null;
 }
 
 function isQuickReplyButton(button) {
@@ -373,10 +405,26 @@ function validateButtons(buttons, options, field, errors) {
     }
 
     const text = textValue(button.text);
-    if (!text) {
-      addError(errors, `${buttonField}.text`, 'Button text is required.');
-    } else if (text.length > BUTTON_TEXT_LIMIT) {
-      addError(errors, `${buttonField}.text`, `Button text must be ${BUTTON_TEXT_LIMIT} characters or fewer.`);
+    if (type !== 'OTP') {
+      if (!text) {
+        addError(errors, `${buttonField}.text`, 'Button text is required.');
+      } else if (text.length > BUTTON_TEXT_LIMIT) {
+        addError(errors, `${buttonField}.text`, `Button text must be ${BUTTON_TEXT_LIMIT} characters or fewer.`);
+      }
+
+      const buttonTextFormatError = getButtonLabelFormatError(button.text);
+      if (buttonTextFormatError) {
+        addError(errors, `${buttonField}.text`, buttonTextFormatError);
+      }
+    }
+
+    if (type === 'OTP') {
+      if (text) {
+        addError(errors, `${buttonField}.text`, 'Authentication OTP button text is managed by Meta and is not supported.');
+      }
+      if (textValue(button.autofill_text)) {
+        addError(errors, `${buttonField}.autofill_text`, 'Authentication autofill_text is managed by Meta previews and is not supported in template creation.');
+      }
     }
 
     if (type === 'URL') {
@@ -445,13 +493,36 @@ function validateButtons(buttons, options, field, errors) {
         addError(errors, `${buttonField}.otp_type`, 'OTP type must be COPY_CODE, ONE_TAP, or ZERO_TAP.');
       }
 
+      const supportedApps = Array.isArray(button.supported_apps) ? button.supported_apps : [];
+      const hasLegacySupportedApp = textValue(button.package_name) || textValue(button.signature_hash);
+
+      if (supportedApps.length > MAX_AUTH_SUPPORTED_APPS) {
+        addError(errors, `${buttonField}.supported_apps`, `Meta allows up to ${MAX_AUTH_SUPPORTED_APPS} supported Android apps per authentication button.`);
+      }
+
+      if (otpType === 'COPY_CODE') {
+        if (supportedApps.some((app) => textValue(app.package_name) || textValue(app.signature_hash)) || hasLegacySupportedApp) {
+          addError(errors, `${buttonField}.supported_apps`, 'Copy code authentication templates do not support Android app bindings.');
+        }
+      }
+
       if (otpType && otpType !== 'COPY_CODE') {
-        if (!textValue(button.package_name)) {
-          addError(errors, `${buttonField}.package_name`, 'One-tap and zero-tap OTP buttons require an Android package name.');
+        const effectiveApps = supportedApps.length
+          ? supportedApps
+          : [{ package_name: button.package_name, signature_hash: button.signature_hash }];
+
+        if (!effectiveApps.length) {
+          addError(errors, `${buttonField}.supported_apps`, 'One-tap and zero-tap authentication templates require at least one supported Android app.');
         }
-        if (!textValue(button.signature_hash)) {
-          addError(errors, `${buttonField}.signature_hash`, 'One-tap and zero-tap OTP buttons require a signature hash.');
-        }
+
+        effectiveApps.forEach((app, appIndex) => {
+          if (!textValue(app.package_name)) {
+            addError(errors, `${buttonField}.supported_apps.${appIndex}.package_name`, 'One-tap and zero-tap OTP buttons require an Android package name.');
+          }
+          if (!textValue(app.signature_hash)) {
+            addError(errors, `${buttonField}.supported_apps.${appIndex}.signature_hash`, 'One-tap and zero-tap OTP buttons require a signature hash.');
+          }
+        });
       }
     }
   });
@@ -539,18 +610,11 @@ function assertTemplateBusinessRules(template) {
 
       if (!body) {
         addError(errors, 'components.body', 'Authentication templates require a BODY component.');
-      } else {
-        if (body.text !== undefined && textValue(body.text)) {
-          addError(errors, 'components.body.text', 'Authentication body text is managed by Meta and should not be customized.');
-        }
-        if (typeof body.add_security_recommendation !== 'boolean') {
-          addError(errors, 'components.body.add_security_recommendation', 'Authentication BODY must declare add_security_recommendation as true or false.');
-        }
+      } else if (body.text !== undefined && textValue(body.text)) {
+        addError(errors, 'components.body.text', 'Authentication body text is managed by Meta and should not be customized.');
       }
 
-      if (!footer) {
-        addError(errors, 'components.footer', 'Authentication templates require a FOOTER component.');
-      } else {
+      if (footer) {
         if (footer.text !== undefined && textValue(footer.text)) {
           addError(errors, 'components.footer.text', 'Authentication footer text is managed through code_expiration_minutes only.');
         }

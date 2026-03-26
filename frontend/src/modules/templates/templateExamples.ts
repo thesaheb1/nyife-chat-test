@@ -28,6 +28,7 @@ export function describeTemplateVariables(text: string) {
 
   return {
     numbers,
+    occurrences: numbers,
     uniqueNumbers,
     count: uniqueNumbers.length,
     isSequential,
@@ -50,6 +51,38 @@ export function buildBodyTextExample(text: string, values: string[]) {
   return describeTemplateVariables(text).count && normalized.length ? [normalized] : undefined;
 }
 
+function hasSupportedUrlButtonVariable(url: string) {
+  const normalizedUrl = trimValue(url);
+  const variables = describeTemplateVariables(normalizedUrl);
+
+  if (!variables.count) {
+    return false;
+  }
+
+  return variables.count === 1
+    && variables.occurrences.length === 1
+    && variables.isSequential
+    && normalizedUrl.endsWith('{{1}}');
+}
+
+function isValidAbsoluteUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function buildUrlButtonExample(url: string, values: string[]) {
+  if (!hasSupportedUrlButtonVariable(url)) {
+    return undefined;
+  }
+
+  const normalized = normalizeTemplateExampleValues(values).filter(Boolean);
+  return normalized.length ? [normalized[0]] : undefined;
+}
+
 export function readHeaderTextExamples(component: {
   example?: { header_text?: string[] };
 } | null | undefined) {
@@ -66,6 +99,35 @@ export function readButtonExampleValues(button: {
   example?: string | string[];
 } | null | undefined) {
   return normalizeTemplateExampleValues(button?.example);
+}
+
+export function validateUrlButtonExamples(url: string, values: string[], label = 'URL button') {
+  const normalizedUrl = trimValue(url);
+  const variables = describeTemplateVariables(normalizedUrl);
+  const hasTrailingVariable = hasSupportedUrlButtonVariable(normalizedUrl);
+
+  if (variables.count && !hasTrailingVariable) {
+    return `${label} supports only one variable, and it must be appended to the end of the URL as {{1}}.`;
+  }
+
+  const urlToValidate = hasTrailingVariable
+    ? normalizedUrl.slice(0, -'{{1}}'.length)
+    : normalizedUrl;
+
+  if (urlToValidate && !isValidAbsoluteUrl(urlToValidate)) {
+    return `${label} must be a valid absolute URL.`;
+  }
+
+  if (!hasTrailingVariable) {
+    return null;
+  }
+
+  const normalizedValues = normalizeTemplateExampleValues(values);
+  if (normalizedValues.length !== 1 || !normalizedValues[0]) {
+    return `${label} uses 1 variable, so provide 1 non-empty sample value.`;
+  }
+
+  return null;
 }
 
 export function validateTemplateVariableExamples(text: string, values: string[], label: string) {

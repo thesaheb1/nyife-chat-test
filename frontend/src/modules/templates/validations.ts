@@ -1,7 +1,7 @@
 import { z } from 'zod/v4';
 import { optionalPhoneSchema } from '@/shared/utils/phone';
 import { META_TEMPLATE_LANGUAGES, TEMPLATE_CATEGORY_OPTIONS, TEMPLATE_TYPE_OPTIONS } from './templateCatalog';
-import { normalizeTemplateExampleValues, validateTemplateVariableExamples } from './templateExamples';
+import { normalizeTemplateExampleValues, validateTemplateVariableExamples, validateUrlButtonExamples } from './templateExamples';
 import { getTemplateMediaRule } from './templateMediaRules';
 
 const TEMPLATE_CATEGORIES = TEMPLATE_CATEGORY_OPTIONS.map((option) => option.value) as [string, ...string[]];
@@ -9,8 +9,10 @@ const TEMPLATE_TYPES = TEMPLATE_TYPE_OPTIONS.map((option) => option.value) as [s
 const META_LANGUAGE_CODES = META_TEMPLATE_LANGUAGES.map((language) => language.value) as [string, ...string[]];
 const HEADER_TEXT_LIMIT = 60;
 const FOOTER_TEXT_LIMIT = 60;
+const BUTTON_TEXT_LIMIT = 25;
 const MAX_URL_BUTTONS = 2;
 const MAX_PHONE_NUMBER_BUTTONS = 1;
+const MAX_AUTH_SUPPORTED_APPS = 5;
 
 const metaLanguageSchema = z.enum(META_LANGUAGE_CODES, {
   error: 'Language must match a Meta-supported WhatsApp template locale.',
@@ -22,8 +24,8 @@ const waAccountSchema = z
 
 const buttonSchema = z.object({
   type: z.enum(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'OTP', 'FLOW', 'CATALOG', 'MPM']),
-  text: z.string().trim().max(25).optional(),
-  url: z.string().trim().url().max(2000).optional(),
+  text: z.string().trim().max(BUTTON_TEXT_LIMIT).optional(),
+  url: z.string().trim().max(2000).optional(),
   phone_number: optionalPhoneSchema,
   example: z.union([z.string(), z.array(z.string())]).optional(),
   flow_id: z.string().trim().optional(),
@@ -32,9 +34,13 @@ const buttonSchema = z.object({
   flow_json: z.string().trim().optional(),
   navigate_screen: z.string().trim().optional(),
   otp_type: z.enum(['COPY_CODE', 'ONE_TAP', 'ZERO_TAP']).optional(),
-  autofill_text: z.string().trim().max(25).optional(),
+  autofill_text: z.string().trim().max(BUTTON_TEXT_LIMIT).optional(),
   package_name: z.string().trim().max(255).optional(),
   signature_hash: z.string().trim().max(255).optional(),
+  supported_apps: z.array(z.object({
+    package_name: z.string().trim().max(255).optional(),
+    signature_hash: z.string().trim().max(255).optional(),
+  })).max(MAX_AUTH_SUPPORTED_APPS).optional(),
 });
 
 type TemplateButton = z.infer<typeof buttonSchema>;
@@ -92,6 +98,38 @@ function getComponent(components: Array<z.infer<typeof componentSchema>>, type: 
 
 function textValue(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+const BUTTON_TEXT_VARIABLE_REGEX = /\{\{[^{}]+\}\}/;
+const BUTTON_TEXT_NEWLINE_REGEX = /[\r\n]/;
+const BUTTON_TEXT_FORMATTING_REGEX = /[*_~`]/;
+const BUTTON_TEXT_EMOJI_REGEX = /[\p{Extended_Pictographic}\uFE0F]/u;
+
+function getButtonLabelFormatError(value: unknown, label = 'Button text') {
+  const raw = typeof value === 'string' ? value : '';
+  const normalized = raw.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (BUTTON_TEXT_NEWLINE_REGEX.test(raw)) {
+    return `${label} cannot include line breaks.`;
+  }
+
+  if (BUTTON_TEXT_VARIABLE_REGEX.test(raw)) {
+    return `${label} cannot include variables like {{1}}.`;
+  }
+
+  if (BUTTON_TEXT_EMOJI_REGEX.test(raw)) {
+    return `${label} cannot include emojis.`;
+  }
+
+  if (BUTTON_TEXT_FORMATTING_REGEX.test(raw)) {
+    return `${label} cannot include formatting characters such as *, _, ~, or \``;
+  }
+
+  return null;
 }
 
 function normalizeButtonType(value: unknown) {
@@ -214,8 +252,24 @@ function validateButtons(
       pushIssue(ctx, [...basePath, index, 'type'], `Button type ${button.type} is not allowed for this template type.`);
     }
 
-    if (!textValue(button.text)) {
+    if (button.type !== 'OTP' && !textValue(button.text)) {
       pushIssue(ctx, [...basePath, index, 'text'], 'Button text is required.');
+    }
+
+    if (button.type !== 'OTP') {
+      const buttonTextFormatError = getButtonLabelFormatError(button.text);
+      if (buttonTextFormatError) {
+        pushIssue(ctx, [...basePath, index, 'text'], buttonTextFormatError);
+      }
+    }
+
+    if (button.type === 'OTP') {
+      if (textValue(button.text)) {
+        pushIssue(ctx, [...basePath, index, 'text'], 'Authentication OTP button text is managed by Meta and is not supported.');
+      }
+      if (textValue(button.autofill_text)) {
+        pushIssue(ctx, [...basePath, index, 'autofill_text'], 'Authentication autofill_text is managed by Meta previews and is not supported in template creation.');
+      }
     }
 
     if (button.type === 'URL') {
@@ -225,13 +279,14 @@ function validateButtons(
       if (!buttonUrl) {
         pushIssue(ctx, [...basePath, index, 'url'], 'URL buttons require a destination URL.');
       } else {
-        validateVariableExamples(
+        const urlButtonMessage = validateUrlButtonExamples(
           buttonUrl,
-          button.example,
-          ctx,
-          [...basePath, index, 'example'],
+          normalizeTemplateExampleValues(button.example),
           'URL button'
         );
+        if (urlButtonMessage) {
+          pushIssue(ctx, [...basePath, index, 'example'], urlButtonMessage);
+        }
       }
     }
 
@@ -279,13 +334,36 @@ function validateButtons(
         pushIssue(ctx, [...basePath, index, 'otp_type'], 'OTP button type is required.');
       }
 
+      const supportedApps = Array.isArray(button.supported_apps) ? button.supported_apps : [];
+      const hasLegacySupportedApp = textValue(button.package_name) || textValue(button.signature_hash);
+
+      if (supportedApps.length > MAX_AUTH_SUPPORTED_APPS) {
+        pushIssue(ctx, [...basePath, index, 'supported_apps'], `Meta allows up to ${MAX_AUTH_SUPPORTED_APPS} supported Android apps per authentication button.`);
+      }
+
+      if (button.otp_type === 'COPY_CODE') {
+        if (supportedApps.some((app) => textValue(app.package_name) || textValue(app.signature_hash)) || hasLegacySupportedApp) {
+          pushIssue(ctx, [...basePath, index, 'supported_apps'], 'Copy code authentication templates do not support Android app bindings.');
+        }
+      }
+
       if (button.otp_type && button.otp_type !== 'COPY_CODE') {
-        if (!textValue(button.package_name)) {
-          pushIssue(ctx, [...basePath, index, 'package_name'], 'Package name is required for one-tap and zero-tap OTP buttons.');
+        const effectiveApps = supportedApps.length
+          ? supportedApps
+          : [{ package_name: button.package_name, signature_hash: button.signature_hash }];
+
+        if (!effectiveApps.length) {
+          pushIssue(ctx, [...basePath, index, 'supported_apps'], 'One-tap and zero-tap authentication templates require at least one supported Android app.');
         }
-        if (!textValue(button.signature_hash)) {
-          pushIssue(ctx, [...basePath, index, 'signature_hash'], 'Signature hash is required for one-tap and zero-tap OTP buttons.');
-        }
+
+        effectiveApps.forEach((app, appIndex) => {
+          if (!textValue(app.package_name)) {
+            pushIssue(ctx, [...basePath, index, 'supported_apps', appIndex, 'package_name'], 'Package name is required for one-tap and zero-tap OTP buttons.');
+          }
+          if (!textValue(app.signature_hash)) {
+            pushIssue(ctx, [...basePath, index, 'supported_apps', appIndex, 'signature_hash'], 'Signature hash is required for one-tap and zero-tap OTP buttons.');
+          }
+        });
       }
     }
   });
@@ -394,17 +472,14 @@ function templateBusinessRules(schema: typeof baseTemplateSchema) {
         if (header) {
           pushIssue(ctx, ['components'], 'Authentication templates do not support headers.');
         }
-        if (!body || body.add_security_recommendation === undefined) {
-          pushIssue(ctx, ['components'], 'Authentication templates require the BODY security recommendation flag.');
+        if (!body) {
+          pushIssue(ctx, ['components'], 'Authentication templates require a BODY component.');
         }
         if (body?.text) {
           pushIssue(ctx, ['components'], 'Authentication template body text is not user-defined in the Meta API examples.');
         }
-        if (!footer) {
-          pushIssue(ctx, ['components'], 'Authentication templates require a footer with a code expiration value.');
-        }
         if (footer && footer.code_expiration_minutes === undefined) {
-          pushIssue(ctx, ['components'], 'Authentication templates require code_expiration_minutes in the footer.');
+          pushIssue(ctx, ['components'], 'Authentication footer blocks require code_expiration_minutes.');
         }
         if (footer?.text) {
           pushIssue(ctx, ['components'], 'Authentication templates do not use custom footer text.');

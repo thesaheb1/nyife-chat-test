@@ -135,7 +135,7 @@ function HeaderMediaPreview({
   return (
     <div
       className={cn(
-        'rounded-[12px] border px-3 py-2.5',
+        'rounded-2xl border px-3 py-2.5',
         theme === 'dark'
           ? 'border-white/8 bg-[#111b21] text-[#aebac1]'
           : 'border-black/8 bg-[#f0f2f5] text-[#667781]'
@@ -219,7 +219,7 @@ function TemplateMessageCard({
             <p>Use this verification code to continue securely.</p>
             <div
               className={cn(
-                'rounded-[12px] border px-3.5 py-2.5 text-center text-[20px] font-semibold tracking-[0.34em]',
+                'rounded-2xl border px-3.5 py-2.5 text-center text-[20px] font-semibold tracking-[0.34em]',
                 isDark ? 'border-white/8 bg-[#111b21]' : 'border-black/8 bg-[#f5f6f6]'
               )}
             >
@@ -307,13 +307,13 @@ function CarouselMessage({
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-[16px] rounded-bl-[6px]',
+        'overflow-hidden rounded-3xl rounded-bl-[6px]',
         isDark ? 'bg-[#202c33]' : 'bg-white shadow-[0_1px_0_rgba(11,20,26,0.08)]'
       )}
     >
       <div className="-mx-1 flex gap-3 overflow-x-auto px-3 py-3">
         {cards.map((card, index) => (
-          <div key={index} className="w-[196px] shrink-0">
+          <div key={index} className="w-49 shrink-0">
             <TemplateMessageCard
               type="carousel"
               components={Array.isArray(card.components) ? card.components : []}
@@ -391,7 +391,7 @@ export function WhatsAppTemplatePreview({
       </div>
 
       <div className="mx-auto w-full max-w-70">
-        <div className="rounded-[34px] bg-[#111b21] p-[7px] shadow-[0_18px_44px_rgba(15,23,42,0.26)]">
+        <div className="rounded-[34px] bg-[#111b21] p-1.75 shadow-[0_18px_44px_rgba(15,23,42,0.26)]">
           <div className={cn('overflow-hidden rounded-[27px]', isDark ? 'bg-[#0b141a]' : 'bg-[#efeae2]')}>
             <div className="relative">
               <div className="absolute left-1/2 top-2 z-20 h-4 w-16 -translate-x-1/2 rounded-full bg-black" />
@@ -399,11 +399,11 @@ export function WhatsAppTemplatePreview({
               <div className={cn('relative z-10 flex items-center justify-between px-4 pt-2.5 text-[10px] font-semibold', isDark ? 'text-white' : 'text-black')}>
                 <span>10:08</span>
                 <div className="flex items-center gap-1.5">
-                  <div className="flex items-end gap-[2px]">
-                    <span className={`h-[4px] w-[2px] rounded-full ${isDark ? 'bg-white/65' : 'bg-black/65'}`} />
-                    <span className={`h-[6px] w-[2px] rounded-full ${isDark ? 'bg-white/75' : 'bg-black/75'}`} />
-                    <span className={`h-[8px] w-[2px] rounded-full ${isDark ? 'bg-white/85' : 'bg-black/85'}`} />
-                    <span className={`h-[10px] w-[2px] rounded-full ${isDark ? 'bg-white' : 'bg-black'}`} />
+                  <div className="flex items-end gap-0.5">
+                    <span className={`h-1 w-0.5 rounded-full ${isDark ? 'bg-white/65' : 'bg-black/65'}`} />
+                    <span className={`h-1.5 w-0.5 rounded-full ${isDark ? 'bg-white/75' : 'bg-black/75'}`} />
+                    <span className={`h-2 w-0.5 rounded-full ${isDark ? 'bg-white/85' : 'bg-black/85'}`} />
+                    <span className={`h-2.5 w-0.5 rounded-full ${isDark ? 'bg-white' : 'bg-black'}`} />
                   </div>
                   <Wifi className="h-3.5 w-3.5" />
                   <BatteryFull className="h-4 w-4" />
@@ -411,7 +411,7 @@ export function WhatsAppTemplatePreview({
               </div>
 
               <div className={cn('mt-2.5 flex items-center gap-2.5 px-3.5 py-2.5 text-white', isDark ? 'bg-[#202c33]' : 'bg-[#008069]')}>
-                <ChevronLeft className="h-[18px] w-[18px]" />
+                <ChevronLeft className="h-4.5 w-4.5" />
                 <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-[11px] font-semibold">
                   {getInitials(title)}
                   {showVerifiedBadge ? (
@@ -444,7 +444,7 @@ export function WhatsAppTemplatePreview({
               <div className="mb-3 flex justify-center">
                 <div
                   className={cn(
-                    'max-w-[224px] rounded-[10px] px-3 py-2 text-center text-[10px] leading-4 shadow-sm',
+                    'max-w-56 rounded-[10px] px-3 py-2 text-center text-[10px] leading-4 shadow-sm',
                     isDark ? 'bg-[#182229] text-[#d1d7db]' : 'bg-[#fff3c4] text-[#54656f]'
                   )}
                 >

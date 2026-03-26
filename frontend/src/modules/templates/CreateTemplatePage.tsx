@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams, type NavigateFunction } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ChevronDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -332,7 +332,7 @@ function TemplateComposer({
             </p>
           </div>
           {templateLimit !== null ? (
-            <div className="w-full lg:max-w-[14rem]">
+            <div className="w-full lg:max-w-56">
               <Progress value={templateUsagePercent} className="h-1.5" />
             </div>
           ) : null}
@@ -366,7 +366,7 @@ function TemplateComposer({
         </Card>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_356px] 2xl:grid-cols-[minmax(0,1fr)_372px]">
+      <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1fr)_356px] 2xl:grid-cols-[minmax(0,1fr)_372px]">
         <fieldset disabled={formLocked} className={cn('space-y-6', formLocked && 'opacity-70')}>
           {isMetaEditableTemplate ? (
             <Card className="border-sky-200 bg-sky-50/80 dark:border-sky-900 dark:bg-sky-950/30">
@@ -410,6 +410,7 @@ function TemplateComposer({
                   <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold">
                     <AlertTriangle className="h-4 w-4" />
                     Fix these items ({Math.min(validationIssues.length, 8)} shown)
+                    <ChevronDown className="h-4 w-4 shrink-0" />
                   </summary>
                   <div className="mt-2 space-y-1">
                     {validationIssues.slice(0, 8).map((issue) => (
@@ -510,17 +511,17 @@ function TemplateComposer({
           </fieldset>
         </fieldset>
 
-        <div className="space-y-5 xl:self-start">
-          <div className="xl:sticky xl:top-6 xl:z-10">
+        <div className="xl:sticky xl:top-6 xl:z-10 space-y-5 xl:self-start">
+          <div className="">
             <div className="xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto xl:pr-1">
-            <WhatsAppTemplatePreview
-              templateName={draft.name || 'Untitled template'}
-              type={draft.type}
-              components={payload.components}
-              draft={draft}
-              accountName={previewAccount?.verified_name || previewAccount?.display_phone || null}
-              accountPhone={previewAccount?.display_phone}
-            />
+              <WhatsAppTemplatePreview
+                templateName={draft.name || 'Untitled template'}
+                type={draft.type}
+                components={payload.components}
+                draft={draft}
+                accountName={previewAccount?.verified_name || previewAccount?.display_phone || null}
+                accountPhone={previewAccount?.display_phone}
+              />
             </div>
           </div>
         </div>

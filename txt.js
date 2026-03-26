@@ -50,5 +50,35 @@
 // 3. find all the bugs in template module and fix them. compare with meta graph api documentation and fix it.
 // 4. template action dropdown must be consistent Ui like other action dropdown in other pages.
 // 5. Consistency is most important. So please make all the action dropdown consistent.
+// --------------------------------------------------------------------------------------------------------------------------------
 
 
+// CONTEXT: we previously implement template module on user panel where we can create standard, authentication, carousel and list template. but we never tested manually that template creation, updation, deletion and publish is working or not but now when i tested a template by creating a standard template it is created but giving error when publishing to meta. we need to make it fully working, more flexible, dynamic and easy to use.
+// first you have to read complete requirements and cross check with implemented functionality in template codebases.
+// then you have to read meta graph api documentation for manage template such as create, update, delete, publish, etc.
+// create list of their functionality and new requirements with check list so we can verification it after work done if anything is remain we will work again.
+
+// ERRORS:
+// 1. When i try to submit a standard template with language as English(US) and category as MARKETING to meta. it gives me error.
+// basically this template includes header component with media type as image and sample media.
+
+// here is the error response : 
+// {
+//     "success": false,
+//     "message": "Unable to load the selected header sample from Nyife media storage. No accessible organization was found for this account.",
+//     "stack": "AppError: Unable to load the selected header sample from Nyife media storage. No accessible organization was found for this account.\n    at AppError.badRequest (/app/shared/shared-utils/src/AppError.js:37:12)\n    at fetchMediaRecord (/app/services/template-service/src/services/template.service.js:497:20)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async uploadTemplateHeaderSample (/app/services/template-service/src/services/template.service.js:571:23)\n    at async sanitizeTemplateComponentsForMeta (/app/services/template-service/src/services/template.service.js:702:27)\n    at async buildMetaTemplatePayload (/app/services/template-service/src/services/template.service.js:809:17)\n    at async Object.publishTemplate (/app/services/template-service/src/services/template.service.js:1485:19)\n    at async publishTemplate (/app/services/template-service/src/controllers/template.controller.js:91:20)"
+// }
+
+// API GATEWAY :
+
+// Request URL : https://localhost:5173/api/v1/templates/d1d9d98d-72f1-4cde-8c2f-7b77f76b2f02/publish
+// Request Method : POST
+// Status Code : 400 Bad Request
+
+
+// REQUIREMENTS:
+// 1. Read meta graph api documentation for manage template such as create, update, delete, publish, etc.
+// 2. user must be able to create, update, delete, view and publish action on template based on their status. because meta prevent some action on template based on their status.
+// 3. Fixed the error with production grade approach not just quick fix. find the root cause and fix it with production grade approach.
+// 4. code implementation must be clean, readable, maintainable, modular, and most importantly, reusable.
+// 5. don't make one big component. make it many small modular and reusable compoents.

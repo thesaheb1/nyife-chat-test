@@ -462,7 +462,7 @@ function CarouselCardPreview({
       ) : null}
 
       {trim(bodyText) ? (
-        <div className="min-h-[86px] px-3 pb-3 pt-2.5">
+        <div className="px-3 pb-3 pt-2.5">
           <div className={cn('line-clamp-4 text-[12.5px] leading-[1.35]', isDark ? 'text-[#e9edef]' : 'text-[#111b21]')}>
             {bodyText}
           </div>
@@ -496,14 +496,12 @@ function CarouselMessage({
   return (
     <div
       className={cn(
-        'w-full overflow-hidden rounded-[16px] rounded-bl-[6px]',
+        'w-62.5 overflow-x-auto rounded-3xl rounded-bl-[6px] px-3',
         isDark ? 'bg-[#202c33]' : 'bg-white shadow-[0_1px_0_rgba(11,20,26,0.08)]'
       )}
     >
-      <div className="px-3.5 pb-2 pt-3">
-        <div className={cn('mb-1 text-[11px] italic', isDark ? 'text-[#8696a0]' : 'text-[#667781]')}>
-          Promotional message
-        </div>
+      <div className="pb-2 pt-3">
+
         {introBodyText ? (
           <div className={cn('text-[13px] leading-[1.45]', isDark ? 'text-[#e9edef]' : 'text-[#111b21]')}>
             {introBodyText}
@@ -512,9 +510,9 @@ function CarouselMessage({
       </div>
 
       <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex gap-2.5 px-2.5 pb-2">
+        <div className="flex gap-2.5 pb-2">
           {cards.map((card, index) => (
-            <div key={index} className="w-[210px] shrink-0">
+            <div key={index} className="w-40 shrink-0">
               <CarouselCardPreview
                 components={Array.isArray(card.components) ? card.components : []}
                 draft={draft}
@@ -534,12 +532,7 @@ function CarouselMessage({
         </div>
       </div>
 
-      <div className={cn('border-t px-3.5 py-2', isDark ? 'border-white/8' : 'border-black/8')}>
-        <div className={cn('flex items-center justify-center gap-2 text-[12px] font-medium', isDark ? 'text-[#53bdeb]' : 'text-[#027eb5]')}>
-          <Reply className="h-3.5 w-3.5" />
-          <span>Send more like this</span>
-        </div>
-      </div>
+
     </div>
   );
 }

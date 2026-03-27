@@ -122,8 +122,8 @@ export function TypeCard({
       onClick={onClick}
       disabled={disabled}
       className={`rounded-2xl border p-4 text-left transition ${active
-          ? 'border-primary bg-primary/5 shadow-sm'
-          : 'border-border hover:border-primary/40 hover:bg-muted/40'
+        ? 'border-primary bg-primary/5 shadow-sm'
+        : 'border-border hover:border-primary/40 hover:bg-muted/40'
         } ${disabled ? 'cursor-not-allowed opacity-60 hover:border-border hover:bg-transparent' : ''}`}
     >
       <div className="flex items-center justify-between gap-3">

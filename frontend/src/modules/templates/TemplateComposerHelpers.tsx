@@ -6,6 +6,7 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  Play,
   Plus,
   Trash2,
   Upload,
@@ -46,6 +47,7 @@ import {
 import { runTemplateActionToast } from './templateToast';
 import { useUploadTemplateMedia } from './useTemplates';
 import { useAuthenticatedAssetSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
+import { useVideoPoster } from '@/shared/hooks/useVideoPoster';
 
 export function FieldError({ message }: { message?: string }) {
   if (!message) {
@@ -211,6 +213,10 @@ function looksLikeImagePreviewUrl(url: string) {
   }
 }
 
+function isRemotePreviewUrl(url: string | null | undefined) {
+  return typeof url === 'string' && /^https?:\/\//i.test(url);
+}
+
 function MediaPreviewCard({
   asset,
   format,
@@ -221,15 +227,20 @@ function MediaPreviewCard({
   const previewSourceUrl = resolveTemplateMediaSourceUrl(asset) || buildTemplateMediaPreviewUrl(asset.file_id);
   const resolvedPreviewSrc = useAuthenticatedAssetSrc(
     previewSourceUrl,
-    asset.file_id || asset.header_handle || null
+    asset.file_id || null,
+    {
+      fallbackSrc: isRemotePreviewUrl(asset.header_handle) ? asset.header_handle : null,
+    }
   );
   const hasResolvedPreview = typeof resolvedPreviewSrc === 'string' && resolvedPreviewSrc.length > 0;
   const showsVideoThumbnail = format === 'VIDEO'
     && hasResolvedPreview
     && !asset.mime_type?.startsWith('video/')
     && looksLikeImagePreviewUrl(resolvedPreviewSrc);
-  const isImage = hasResolvedPreview && (format === 'IMAGE' || showsVideoThumbnail);
-  const isVideo = format === 'VIDEO' && hasResolvedPreview && !showsVideoThumbnail;
+  const extractedVideoPoster = useVideoPoster(format === 'VIDEO' && hasResolvedPreview && !showsVideoThumbnail ? resolvedPreviewSrc : undefined);
+  const videoPosterSrc = showsVideoThumbnail ? resolvedPreviewSrc : extractedVideoPoster;
+  const isImage = hasResolvedPreview && (format === 'IMAGE' || Boolean(videoPosterSrc));
+  const isVideo = format === 'VIDEO' && hasResolvedPreview && !videoPosterSrc;
   const isPdfDocument = format === 'DOCUMENT'
     && hasResolvedPreview
     && (asset.mime_type === 'application/pdf' || looksLikePdfPreviewUrl(resolvedPreviewSrc));
@@ -239,10 +250,16 @@ function MediaPreviewCard({
     <div className="rounded-2xl border bg-muted/20 p-3">
       {isImage ? (
         <div className="relative mb-3 overflow-hidden rounded-2xl bg-background shadow-inner">
-          <img src={resolvedPreviewSrc} alt={asset.original_name || 'Uploaded media preview'} className="h-40 w-full object-cover" />
-          {showsVideoThumbnail ? (
-            <div className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white shadow-sm">
-              <Video className="h-4 w-4" />
+          <img
+            src={format === 'VIDEO' ? videoPosterSrc || resolvedPreviewSrc : resolvedPreviewSrc}
+            alt={asset.original_name || 'Uploaded media preview'}
+            className="h-40 w-full object-cover"
+          />
+          {format === 'VIDEO' ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/30 via-black/5 to-black/30">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white shadow-sm">
+                <Play className="ml-0.5 h-4 w-4 fill-current" />
+              </div>
             </div>
           ) : null}
         </div>
@@ -383,14 +400,14 @@ export function HeaderFields({
   };
 
   return (
-    <div className="rounded-3xl border p-4">
-      <div className="mb-4">
+    <div className="rounded-[24px] border p-3.5 md:p-4">
+      <div className="mb-3">
         <div className="font-semibold">{label}</div>
         <p className="text-sm text-muted-foreground">
           Match the header format to the real WhatsApp template. Media headers need a sample file for Meta review.
         </p>
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-3.5 lg:grid-cols-2">
         <div className="space-y-2">
           <Label>Header format</Label>
           <Select
@@ -426,7 +443,7 @@ export function HeaderFields({
 
         {isMediaHeader ? (
           <div className="space-y-3 lg:col-span-2">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed p-3.5">
               <div>
                 <div className="font-medium">Sample media upload</div>
                 <p className="text-sm text-muted-foreground">{getTemplateMediaHelper(headerFormat)}</p>
@@ -583,8 +600,8 @@ export function StandardButtonsEditor({
   };
 
   return (
-    <div className="rounded-2xl border p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="rounded-[24px] border p-3.5 md:p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <div className="font-semibold">{label}</div>
           <p className="text-sm text-muted-foreground">
@@ -601,7 +618,7 @@ export function StandardButtonsEditor({
 
       <div className="space-y-3">
         {buttons.map((button, index) => (
-          <div key={`${button.type}-${index}`} className="rounded-2xl border bg-muted/20 p-4">
+          <div key={`${button.type}-${index}`} className="rounded-2xl border bg-muted/20 p-3.5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="font-medium">Button {index + 1}</div>
               <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeButton(index)}>

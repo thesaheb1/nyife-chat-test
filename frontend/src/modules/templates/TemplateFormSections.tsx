@@ -55,11 +55,11 @@ export function StandardTemplateSection({
 }) {
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-3">
         <CardTitle>Standard template builder</CardTitle>
         <CardDescription>Build text or media templates with optional footer and standard CTA buttons.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-5 pt-0">
         <HeaderFields
           headerFormat={draft.standard.headerFormat}
           headerText={draft.standard.headerText}
@@ -129,11 +129,11 @@ export function AuthenticationTemplateSection({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-3">
         <CardTitle>Authentication template builder</CardTitle>
         <CardDescription>Configure OTP delivery using the Meta authentication template structure.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-5 pt-0">
         <div className="rounded-2xl border bg-muted/10 p-4 text-sm text-muted-foreground">
           Meta authentication templates do not use custom body copy. WhatsApp renders the OTP message using the authentication template format.
         </div>
@@ -283,11 +283,11 @@ export function FlowTemplateSection({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-3">
         <CardTitle>Flow launch template builder</CardTitle>
         <CardDescription>Flow templates use only body text plus one CTA button linked to a WhatsApp Flow.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-5 pt-0">
         <div className="rounded-2xl border bg-muted/10 p-4 text-sm text-muted-foreground">
           Official Meta flow template examples do not include a header or footer. This dropdown shows flows available to the current organization.
         </div>
@@ -382,11 +382,11 @@ export function ListMenuTemplateSection({
 }) {
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-3">
         <CardTitle>List menu template builder</CardTitle>
         <CardDescription>Create a commerce-entry template for catalog or multi-product message experiences.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-5 pt-0">
         <HeaderFields
           headerFormat={draft.listMenu.headerFormat}
           headerText={draft.listMenu.headerText}
@@ -461,12 +461,12 @@ export function CarouselTemplateSection({
 }) {
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-3">
         <CardTitle>Carousel template builder</CardTitle>
         <CardDescription>Build a marketing carousel with one intro body plus 2 to 10 media cards and consistent CTA structure. Meta locks the card count once the template is approved.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex items-center justify-between gap-3 rounded-2xl border p-4">
+      <CardContent className="space-y-5 pt-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-3.5 md:p-4">
           <div>
             <div className="font-semibold">Carousel cards</div>
             <p className="text-sm text-muted-foreground">Keep at least 2 cards for Meta approval and user clarity.</p>
@@ -490,9 +490,9 @@ export function CarouselTemplateSection({
           rows={5}
           placeholder="Share the headline or intro that appears above the carousel cards."
         />
-        <div className="space-y-4">
+        <div className="grid gap-4 xl:grid-cols-2">
           {draft.carousel.cards.map((card, index) => (
-            <div key={index} className="rounded-3xl border p-4">
+            <div key={index} className="rounded-[24px] border p-3.5 md:p-4">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <div className="font-semibold">Card {index + 1}</div>

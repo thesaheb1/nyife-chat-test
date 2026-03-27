@@ -68,6 +68,7 @@ const META_TEMPLATE_FIELDS = [
   'quality_score',
   'rejected_reason',
 ].join(',');
+const TEMPLATE_MEDIA_RECOVERY_WINDOW_MS = 60 * 60 * 1000;
 
 function resolveScopeId(requestContext) {
   if (typeof requestContext === 'string') {
@@ -87,6 +88,10 @@ function buildMediaServiceHeaders(requestContext) {
   }
 
   return headers;
+}
+
+function buildTemplateMediaPreviewUrl(fileId) {
+  return fileId ? `/api/v1/media/${encodeURIComponent(fileId)}/download` : undefined;
 }
 
 // ─── Helper: check subscription limit ──────────────────────────────────────
@@ -402,6 +407,196 @@ function derivePreviewAssetName(previewUrl, format) {
   }
 
   return `${String(format || 'media').toLowerCase()} sample`;
+}
+
+function requiresLocalMediaRecovery(component) {
+  const normalizedType = normalizeComponentType(component?.type);
+  const normalizedFormat = normalizeComponentType(component?.format);
+  const fileId = trimString(component?.media_asset?.file_id);
+
+  if (normalizedType !== 'HEADER') {
+    return false;
+  }
+
+  if (!['IMAGE', 'VIDEO', 'DOCUMENT'].includes(normalizedFormat)) {
+    return false;
+  }
+
+  return !fileId;
+}
+
+function hasRecoverableMissingMedia(components) {
+  if (!Array.isArray(components)) {
+    return false;
+  }
+
+  return components.some((component) => {
+    if (requiresLocalMediaRecovery(component)) {
+      return true;
+    }
+
+    if (normalizeComponentType(component?.type) === 'CAROUSEL') {
+      return (Array.isArray(component?.cards) ? component.cards : []).some((card) =>
+        hasRecoverableMissingMedia(Array.isArray(card?.components) ? card.components : [])
+      );
+    }
+
+    return false;
+  });
+}
+
+async function listRecentMediaFiles(requestContext, type, limit = 25) {
+  const response = await axios.get(
+    `${config.mediaServiceUrl}/api/v1/media`,
+    {
+      headers: buildMediaServiceHeaders(requestContext),
+      params: {
+        type,
+        page: 1,
+        limit,
+      },
+      timeout: 10000,
+    }
+  );
+
+  return Array.isArray(response.data?.data) ? response.data.data : [];
+}
+
+function buildRecoveredMediaAsset(mediaFile, format, headerHandle) {
+  const mediaType = trimString(mediaFile?.type) || inferPreviewMediaTypeFromFormat(format);
+  const fileId = trimString(mediaFile?.id);
+
+  return {
+    file_id: fileId,
+    original_name: trimString(mediaFile?.original_name) || `${mediaType} sample`,
+    mime_type: trimString(mediaFile?.mime_type),
+    size: typeof mediaFile?.size === 'number' ? mediaFile.size : 0,
+    type: mediaType || inferPreviewMediaTypeFromFormat(format),
+    ...(fileId ? { preview_url: buildTemplateMediaPreviewUrl(fileId) } : {}),
+    ...(headerHandle ? { header_handle: headerHandle } : {}),
+  };
+}
+
+function recoverTemplateComponentsWithRecentMedia(components, recoveryPools) {
+  if (!Array.isArray(components)) {
+    return [];
+  }
+
+  const clonedComponents = cloneJsonValue(components) || [];
+
+  for (let index = clonedComponents.length - 1; index >= 0; index -= 1) {
+    const component = clonedComponents[index];
+    const normalizedType = normalizeComponentType(component?.type);
+
+    if (normalizedType === 'CAROUSEL') {
+      const cards = Array.isArray(component?.cards) ? component.cards : [];
+      component.cards = cards.map((card) => cloneJsonValue(card) || {});
+
+      for (let cardIndex = component.cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
+        const card = component.cards[cardIndex];
+        card.components = recoverTemplateComponentsWithRecentMedia(
+          Array.isArray(card?.components) ? card.components : [],
+          recoveryPools
+        );
+      }
+      continue;
+    }
+
+    if (!requiresLocalMediaRecovery(component)) {
+      continue;
+    }
+
+    const mediaType = inferPreviewMediaTypeFromFormat(component?.format);
+    const candidates = recoveryPools[mediaType];
+    if (!Array.isArray(candidates) || !candidates.length) {
+      continue;
+    }
+
+    const candidate = candidates.shift();
+    if (!candidate) {
+      continue;
+    }
+
+    const headerHandle = extractComponentHeaderHandle(component);
+    component.media_asset = {
+      ...buildRecoveredMediaAsset(candidate, component?.format, headerHandle),
+      ...(component?.media_asset && typeof component.media_asset === 'object'
+        ? pickDefinedEntries([
+            ['width', component.media_asset.width],
+            ['height', component.media_asset.height],
+            ['aspect_ratio', component.media_asset.aspect_ratio],
+          ])
+        : {}),
+    };
+  }
+
+  return clonedComponents;
+}
+
+async function repairTemplateMediaPreviewLinks(requestContext, template) {
+  if (!template || String(template?.source || '').toLowerCase() !== 'nyife') {
+    return template;
+  }
+
+  const currentComponents = Array.isArray(template.components) ? template.components : [];
+  if (!hasRecoverableMissingMedia(currentComponents)) {
+    return template;
+  }
+
+  const anchorTimestamp = new Date(template.created_at || template.updated_at || Date.now()).getTime();
+  if (!Number.isFinite(anchorTimestamp)) {
+    return template;
+  }
+
+  const mediaTypesNeeded = new Set();
+  const collectNeededTypes = (components) => {
+    for (const component of Array.isArray(components) ? components : []) {
+      if (requiresLocalMediaRecovery(component)) {
+        mediaTypesNeeded.add(inferPreviewMediaTypeFromFormat(component?.format));
+      }
+
+      if (normalizeComponentType(component?.type) === 'CAROUSEL') {
+        for (const card of Array.isArray(component?.cards) ? component.cards : []) {
+          collectNeededTypes(Array.isArray(card?.components) ? card.components : []);
+        }
+      }
+    }
+  };
+  collectNeededTypes(currentComponents);
+
+  const recoveryPools = {};
+
+  try {
+    await Promise.all(
+      Array.from(mediaTypesNeeded).map(async (mediaType) => {
+        const recentFiles = await listRecentMediaFiles(requestContext, mediaType, 40);
+        recoveryPools[mediaType] = recentFiles.filter((file) => {
+          const createdAt = new Date(file?.created_at || file?.createdAt || 0).getTime();
+          return Number.isFinite(createdAt)
+            && createdAt <= anchorTimestamp
+            && (anchorTimestamp - createdAt) <= TEMPLATE_MEDIA_RECOVERY_WINDOW_MS;
+        });
+      })
+    );
+  } catch (error) {
+    console.warn(
+      '[template-service] Could not recover missing template media links:',
+      error.response?.data?.message || error.message
+    );
+    return template;
+  }
+
+  const repairedComponents = recoverTemplateComponentsWithRecentMedia(currentComponents, recoveryPools);
+
+  if (areJsonValuesEqual(repairedComponents, currentComponents)) {
+    return template;
+  }
+
+  await template.update({
+    components: repairedComponents,
+  });
+
+  return template;
 }
 
 function enrichHeaderComponentForPreview(component) {
@@ -1691,6 +1886,8 @@ async function getTemplate(requestContext, templateId) {
     throw AppError.notFound('Template not found');
   }
 
+  await repairTemplateMediaPreviewLinks(requestContext, template);
+
   return serializeTemplate(template);
 }
 
@@ -2214,25 +2411,40 @@ async function publishTemplate(requestContext, templateId, accessToken, waAccoun
   }
 
   const authUpsertMetaTemplateId = extractMetaTemplateIdentifier(authUpsertResult);
-  const publishedRemoteTemplate = isAuthenticationPublish
-    ? await findRemoteMetaTemplate({
+  const publishedMetaTemplateId = trimString(metaResponseData?.id) || authUpsertMetaTemplateId || null;
+  let publishedRemoteTemplate = null;
+
+  try {
+    if (isAuthenticationPublish) {
+      publishedRemoteTemplate = await findRemoteMetaTemplate({
         accessToken: accountContext.access_token,
         wabaId,
         metaTemplateId: authUpsertMetaTemplateId || null,
         templateName: template.name,
         templateLanguage: template.language,
-      })
-    : metaResponseData?.id
-      ? metaResponseData
-      : await findRemoteMetaTemplate({
-          accessToken: accountContext.access_token,
-          wabaId,
-          templateName: template.name,
-          templateLanguage: template.language,
-        });
+      });
+    } else if (publishedMetaTemplateId) {
+      publishedRemoteTemplate = await fetchMetaTemplateById(
+        publishedMetaTemplateId,
+        accountContext.access_token
+      );
+    } else {
+      publishedRemoteTemplate = await findRemoteMetaTemplate({
+        accessToken: accountContext.access_token,
+        wabaId,
+        templateName: template.name,
+        templateLanguage: template.language,
+      });
+    }
+  } catch (err) {
+    console.warn(
+      '[template-service] Could not refresh published template from Meta:',
+      err.response?.data?.error?.message || err.message
+    );
+  }
 
   // Extract template ID from Meta response
-  const metaTemplateId = trimString(publishedRemoteTemplate?.id) || authUpsertMetaTemplateId || trimString(metaResponseData?.id) || null;
+  const metaTemplateId = trimString(publishedRemoteTemplate?.id) || publishedMetaTemplateId || null;
   const metaStatus = normalizeMetaTemplateStatus(publishedRemoteTemplate?.status || authUpsertResult?.status || metaResponseData?.status)
     || trimString(publishedRemoteTemplate?.status || authUpsertResult?.status || metaResponseData?.status).toUpperCase()
     || 'PENDING';
@@ -2240,8 +2452,19 @@ async function publishTemplate(requestContext, templateId, accessToken, waAccoun
   const rejectionReason = metaStatus === 'REJECTED'
     ? extractRejectionReason(publishedRemoteTemplate || authUpsertResult || metaResponseData)
     : null;
+  const publishedTemplateState = publishedRemoteTemplate
+    ? mapMetaTemplateToLocalState(publishedRemoteTemplate, {
+        wabaId,
+        waAccountId: accountContext.wa_account_id || template.wa_account_id,
+        metaTemplateId,
+        existingComponents: normalizedTemplateComponents,
+      })
+    : {
+        components: enrichTemplateComponentsForPreview(normalizedTemplateComponents),
+      };
   // Update local template record
   const updateData = {
+    ...publishedTemplateState,
     status: nextStatus,
     meta_template_id: metaTemplateId,
     meta_status_raw: metaStatus,
@@ -2252,7 +2475,6 @@ async function publishTemplate(requestContext, templateId, accessToken, waAccoun
     waba_id: wabaId,
     wa_account_id: accountContext.wa_account_id || template.wa_account_id,
     last_synced_at: new Date(),
-    components: normalizedTemplateComponents,
   };
 
   await template.update(updateData);

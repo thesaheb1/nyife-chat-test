@@ -159,3 +159,9 @@
 // there are few issue in the template module. please understand the issue and find the root cause and fix it with production grade approach not just quick fix. here are the issues :
 // 1. when i upload any media file such as image, video, document etc. then save and publish the template. and then open that template in preview mode or edit mode the media header is not showing. it only showing file name. it must show the media header with media. please fix it.
 // 2. In whatsapp template preview UI the carousel template is not showing properly. it must show exactly like react whatsapp show exactly. i have attached a gif file to understand better how our carousel preview Ui must look like. please fix it.
+
+
+// 1. Now it become worst even image is not showing in whatsapp template preview and Still video header is not showing in template preview. it only showing file name you can see attached screenshot. please fix it with production grade approach not just quick fix. find the root cause and then fix it with production grade approach.
+// 2. I said that the other UI such Validation checklist and subscription Ui should not hidden and must be visible. please fix it with production grade approach not just quick fix. currently it is hiding behind the whatsapp template preview UI.
+// we should show the validation checklist and subscription Ui at the place where user can see it easily. currently it is bottom of the whatsapp template preview UI and user need to explictly scroll screen in order to find that Ui but i want to show these Ui in one go. please fix it with production grade approach not just quick fix.
+// also i don't like left and right section of from it should be vertically aligned instead of horizontally. please make it vertically aligned instead of horizontally. so it will look more better and more user friendly. please fix it with production grade approach not just quick fix.

@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
+import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
+import type { RootState } from '@/core/store';
 
 function shouldFetchWithAuth(src: string) {
   return src.includes('/api/v1/');
 }
 
+function isRemoteAbsoluteUrl(url: string) {
+  return /^https?:\/\//i.test(url);
+}
+
 function appendVersion(url: string, version?: string | number | null) {
-  if (!version || typeof window === 'undefined') {
+  if (!version || typeof window === 'undefined' || isRemoteAbsoluteUrl(url)) {
     return url;
   }
 
@@ -21,19 +27,29 @@ function appendVersion(url: string, version?: string | number | null) {
 
 export function useAuthenticatedAssetSrc(
   src?: string | null,
-  version?: string | number | null
+  version?: string | number | null,
+  options?: {
+    fallbackSrc?: string | null;
+  }
 ) {
+  const accessToken = useSelector((state: RootState) => state.auth.accessToken);
+  const authIsLoading = useSelector((state: RootState) => state.auth.isLoading);
+  const fallbackSrc = options?.fallbackSrc || undefined;
   const [resolvedSrc, setResolvedSrc] = useState<string | undefined>(() => {
     if (!src) {
-      return undefined;
+      return fallbackSrc;
     }
 
-    return shouldFetchWithAuth(src) ? undefined : appendVersion(src, version);
+    if (shouldFetchWithAuth(src)) {
+      return fallbackSrc;
+    }
+
+    return appendVersion(src, version);
   });
 
   useEffect(() => {
     if (!src) {
-      setResolvedSrc(undefined);
+      setResolvedSrc(fallbackSrc);
       return undefined;
     }
 
@@ -44,8 +60,15 @@ export function useAuthenticatedAssetSrc(
       return undefined;
     }
 
+    if (authIsLoading && !accessToken) {
+      setResolvedSrc(fallbackSrc);
+      return undefined;
+    }
+
     let objectUrl: string | null = null;
     let cancelled = false;
+
+    setResolvedSrc(fallbackSrc);
 
     const loadAsset = async () => {
       try {
@@ -59,7 +82,7 @@ export function useAuthenticatedAssetSrc(
         }
       } catch {
         if (!cancelled) {
-          setResolvedSrc(undefined);
+          setResolvedSrc(fallbackSrc);
         }
       }
     };
@@ -72,7 +95,7 @@ export function useAuthenticatedAssetSrc(
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [src, version]);
+  }, [src, version, fallbackSrc, accessToken, authIsLoading]);
 
   return resolvedSrc;
 }

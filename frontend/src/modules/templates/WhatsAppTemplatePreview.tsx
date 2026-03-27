@@ -13,6 +13,7 @@ import {
   MoonStar,
   Paperclip,
   Phone,
+  Play,
   Reply,
   Search,
   ShieldCheck,
@@ -28,6 +29,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import type { Template } from '@/core/types';
 import { cn } from '@/lib/utils';
 import { useAuthenticatedAssetSrc } from '@/shared/hooks/useAuthenticatedImageSrc';
+import { useVideoPoster } from '@/shared/hooks/useVideoPoster';
 import {
   resolveTemplateMediaSourceUrl,
   type TemplateDraft,
@@ -95,6 +97,10 @@ function looksLikeImagePreviewUrl(url: string) {
   } catch {
     return /\.(jpe?g|png|webp|gif)(?:$|[?#])/i.test(url);
   }
+}
+
+function isRemotePreviewUrl(url: string | null | undefined) {
+  return typeof url === 'string' && /^https?:\/\//i.test(url);
 }
 
 function getDraftHeaderMedia(draft: TemplateDraft | undefined, type: Template['type'], cardIndex?: number) {
@@ -168,7 +174,10 @@ function HeaderMediaPreview({
   const previewUrl = resolveHeaderMediaPreviewUrl(media);
   const resolvedPreviewSrc = useAuthenticatedAssetSrc(
     previewUrl,
-    media?.file_id || media?.header_handle || null
+    media?.file_id || null,
+    {
+      fallbackSrc: isRemotePreviewUrl(media?.header_handle) ? media?.header_handle : null,
+    }
   );
   const isDark = theme === 'dark';
   const isCarousel = variant === 'carousel';
@@ -180,8 +189,12 @@ function HeaderMediaPreview({
     && hasResolvedPreview
     && !media?.mime_type?.startsWith('video/')
     && looksLikeImagePreviewUrl(resolvedPreviewSrc);
-  const isImage = hasResolvedPreview && (normalized === 'IMAGE' || showsVideoThumbnail);
-  const isVideo = normalized === 'VIDEO' && hasResolvedPreview && !showsVideoThumbnail;
+  const extractedVideoPoster = useVideoPoster(
+    normalized === 'VIDEO' && hasResolvedPreview && !showsVideoThumbnail ? resolvedPreviewSrc : undefined
+  );
+  const videoPosterSrc = showsVideoThumbnail ? resolvedPreviewSrc : extractedVideoPoster;
+  const isImage = hasResolvedPreview && (normalized === 'IMAGE' || Boolean(videoPosterSrc));
+  const isVideo = normalized === 'VIDEO' && hasResolvedPreview && !videoPosterSrc;
   const isPdfDocument = normalized === 'DOCUMENT'
     && hasResolvedPreview
     && (media?.mime_type === 'application/pdf' || looksLikePdfPreviewUrl(resolvedPreviewSrc));
@@ -213,10 +226,16 @@ function HeaderMediaPreview({
   if (isImage) {
     return (
       <div className={cn('relative overflow-hidden bg-[#d8d8d8]', frameRadiusClass)}>
-        <img src={resolvedPreviewSrc} alt={media?.original_name || 'Header media'} className={cn(imageHeightClass, 'w-full object-cover')} />
-        {showsVideoThumbnail ? (
-          <div className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white shadow-sm">
-            <Video className="h-4 w-4" />
+        <img
+          src={normalized === 'VIDEO' ? videoPosterSrc || resolvedPreviewSrc : resolvedPreviewSrc}
+          alt={media?.original_name || 'Header media'}
+          className={cn(imageHeightClass, 'w-full object-cover')}
+        />
+        {normalized === 'VIDEO' ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/30 via-black/5 to-black/30">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white shadow-sm">
+              <Play className="ml-0.5 h-4 w-4 fill-current" />
+            </div>
           </div>
         ) : null}
       </div>
@@ -225,13 +244,20 @@ function HeaderMediaPreview({
 
   if (isVideo) {
     return (
-      <div className={cn('overflow-hidden bg-black', frameRadiusClass)}>
+      <div className={cn('relative overflow-hidden bg-black', frameRadiusClass)}>
         <video
           src={resolvedPreviewSrc}
-          controls
+          muted
+          playsInline
           preload="metadata"
+          controls={false}
           className={cn(videoHeightClass, 'w-full bg-black object-contain')}
         />
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/35 via-black/0 to-black/20">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white shadow-sm">
+            <Play className="ml-0.5 h-4 w-4 fill-current" />
+          </div>
+        </div>
       </div>
     );
   }

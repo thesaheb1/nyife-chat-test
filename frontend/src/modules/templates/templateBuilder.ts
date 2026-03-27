@@ -130,6 +130,7 @@ const DEFAULT_STANDARD_BUTTON = (): StandardButtonDraft => ({
   example: [],
 });
 
+
 const DEFAULT_CAROUSEL_CARD = (): CarouselCardDraft => ({
   headerFormat: 'IMAGE',
   headerMedia: null,
@@ -242,6 +243,7 @@ function inferTemplateMediaType(format: unknown): TemplateMediaAsset['type'] {
       return 'other';
   }
 }
+
 
 function deriveRemoteMediaName(format: unknown, url: string) {
   try {

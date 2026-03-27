@@ -165,3 +165,13 @@
 // 2. I said that the other UI such Validation checklist and subscription Ui should not hidden and must be visible. please fix it with production grade approach not just quick fix. currently it is hiding behind the whatsapp template preview UI.
 // we should show the validation checklist and subscription Ui at the place where user can see it easily. currently it is bottom of the whatsapp template preview UI and user need to explictly scroll screen in order to find that Ui but i want to show these Ui in one go. please fix it with production grade approach not just quick fix.
 // also i don't like left and right section of from it should be vertically aligned instead of horizontally. please make it vertically aligned instead of horizontally. so it will look more better and more user friendly. please fix it with production grade approach not just quick fix.
+// can we show Basic information and Template type section Ui combined or horizontally aligned? so it will look more better and more user friendly. currently it is showing in two different section and vertically aligend but we can show it in one section. please fix it with production grade approach not just quick fix.
+
+
+// also make carousel card vertically aligned instead of horizontally in Carousel template builder. so it will look more better and more user friendly. please fix it with production grade approach not just quick fix.
+
+
+// in complete template module and template-service can you please find any code, db columns, fields, functionalty, Ui or any piece of code which is not used in anywhere in whole codebases or if we remove it then there is not a single effect or broken appeare in project.
+
+// first see attached screenshot. 
+// Again there is lots of waste of space. can we combined basic information and template Ui so there should no waste of space i want to make it compact and clean and ui friendly. please make it compact and clean and ui friendly. so it will look more better and more user friendly. please fix it with production grade approach not just quick fix.

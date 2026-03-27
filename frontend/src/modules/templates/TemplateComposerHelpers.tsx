@@ -110,12 +110,14 @@ export function TypeCard({
   description,
   active,
   disabled = false,
+  compact = false,
   onClick,
 }: {
   title: string;
   description: string;
   active: boolean;
   disabled?: boolean;
+  compact?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -123,16 +125,20 @@ export function TypeCard({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-2xl border p-4 text-left transition ${active
+      className={`rounded-2xl border text-left transition ${compact ? 'p-3' : 'p-4'} ${active
         ? 'border-primary bg-primary/5 shadow-sm'
         : 'border-border hover:border-primary/40 hover:bg-muted/40'
         } ${disabled ? 'cursor-not-allowed opacity-60 hover:border-border hover:bg-transparent' : ''}`}
     >
       <div className="flex items-center justify-between gap-3">
-        <div className="font-semibold">{title}</div>
-        {active ? <Badge>Selected</Badge> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        <div className={compact ? 'text-sm font-semibold' : 'font-semibold'}>{title}</div>
+        {active ? (
+          <Badge className={compact ? 'h-5 px-2 text-[10px]' : undefined}>Selected</Badge>
+        ) : (
+          <ChevronRight className={`${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} text-muted-foreground`} />
+        )}
       </div>
-      <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+      <p className={`${compact ? 'mt-1.5 text-xs leading-4' : 'mt-2 text-sm'} text-muted-foreground`}>{description}</p>
     </button>
   );
 }
@@ -245,81 +251,90 @@ function MediaPreviewCard({
     && hasResolvedPreview
     && (asset.mime_type === 'application/pdf' || looksLikePdfPreviewUrl(resolvedPreviewSrc));
   const Icon = format === 'VIDEO' ? Video : format === 'DOCUMENT' ? FileText : ImageIcon;
+  const showsVisualPreview = isImage || isVideo || isPdfDocument;
 
   return (
     <div className="rounded-2xl border bg-muted/20 p-3">
-      {isImage ? (
-        <div className="relative mb-3 overflow-hidden rounded-2xl bg-background shadow-inner">
-          <img
-            src={format === 'VIDEO' ? videoPosterSrc || resolvedPreviewSrc : resolvedPreviewSrc}
-            alt={asset.original_name || 'Uploaded media preview'}
-            className="h-40 w-full object-cover"
-          />
-          {format === 'VIDEO' ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/30 via-black/5 to-black/30">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white shadow-sm">
-                <Play className="ml-0.5 h-4 w-4 fill-current" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        {showsVisualPreview ? (
+          <div className="w-full max-w-[220px] shrink-0">
+            {isImage ? (
+              <div className="relative overflow-hidden rounded-2xl bg-background shadow-inner">
+                <img
+                  src={format === 'VIDEO' ? videoPosterSrc || resolvedPreviewSrc : resolvedPreviewSrc}
+                  alt={asset.original_name || 'Uploaded media preview'}
+                  className="h-28 w-full object-cover"
+                />
+                {format === 'VIDEO' ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/30 via-black/5 to-black/30">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white shadow-sm">
+                      <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+            ) : null}
 
-      {isVideo ? (
-        <div className="mb-3 overflow-hidden rounded-2xl bg-black shadow-inner">
-          <video
-            src={resolvedPreviewSrc}
-            controls
-            preload="metadata"
-            className="h-40 w-full bg-black object-contain"
-          />
-        </div>
-      ) : null}
+            {isVideo ? (
+              <div className="overflow-hidden rounded-2xl bg-black shadow-inner">
+                <video
+                  src={resolvedPreviewSrc}
+                  controls
+                  preload="metadata"
+                  className="h-28 w-full bg-black object-contain"
+                />
+              </div>
+            ) : null}
 
-      {isPdfDocument ? (
-        <div className="mb-3 overflow-hidden rounded-2xl border bg-background shadow-inner">
-          <iframe
-            title={asset.original_name || 'Uploaded PDF sample'}
-            src={resolvedPreviewSrc}
-            className="h-56 w-full bg-background"
-          />
-        </div>
-      ) : null}
-
-      <div className="flex items-start gap-3">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-background shadow-inner">
-          {!isImage && !isVideo && !isPdfDocument ? (
-            <Icon className="h-6 w-6 text-muted-foreground" />
-          ) : format === 'IMAGE' ? (
-            <ImageIcon className="h-6 w-6 text-muted-foreground" />
-          ) : format === 'VIDEO' ? (
-            <Video className="h-6 w-6 text-muted-foreground" />
-          ) : (
-            <FileText className="h-6 w-6 text-muted-foreground" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{asset.original_name || 'Uploaded sample'}</div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {[asset.mime_type || format, formatBytes(asset.size), asset.aspect_ratio || null]
-              .filter(Boolean)
-              .join(' · ')}
+            {isPdfDocument ? (
+              <div className="overflow-hidden rounded-2xl border bg-background shadow-inner">
+                <iframe
+                  title={asset.original_name || 'Uploaded PDF sample'}
+                  src={resolvedPreviewSrc}
+                  className="h-32 w-full bg-background"
+                />
+              </div>
+            ) : null}
           </div>
-          {asset.width && asset.height ? (
-            <div className="mt-1 text-xs text-muted-foreground">
-              {asset.width} x {asset.height}
+        ) : null}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-background shadow-inner">
+              {!showsVisualPreview ? (
+                <Icon className="h-5 w-5 text-muted-foreground" />
+              ) : format === 'IMAGE' ? (
+                <ImageIcon className="h-5 w-5 text-muted-foreground" />
+              ) : format === 'VIDEO' ? (
+                <Video className="h-5 w-5 text-muted-foreground" />
+              ) : (
+                <FileText className="h-5 w-5 text-muted-foreground" />
+              )}
             </div>
-          ) : null}
-          {format === 'DOCUMENT' && resolvedPreviewSrc && !isPdfDocument ? (
-            <div className="mt-1 text-xs text-muted-foreground">
-              Inline preview is available for PDF documents. Other document formats stay downloadable for review.
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{asset.original_name || 'Uploaded sample'}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {[asset.mime_type || format, formatBytes(asset.size), asset.aspect_ratio || null]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </div>
+              {asset.width && asset.height ? (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {asset.width} x {asset.height}
+                </div>
+              ) : null}
+              {format === 'DOCUMENT' && resolvedPreviewSrc && !isPdfDocument ? (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Inline preview is available for PDF documents. Other document formats stay downloadable for review.
+                </div>
+              ) : null}
+              {asset.header_handle ? (
+                <Badge variant="secondary" className="mt-2">Meta-ready sample</Badge>
+              ) : (
+                <Badge variant="outline" className="mt-2">Ready for publish upload</Badge>
+              )}
             </div>
-          ) : null}
-          {asset.header_handle ? (
-            <Badge variant="secondary" className="mt-2">Meta-ready sample</Badge>
-          ) : (
-            <Badge variant="outline" className="mt-2">Ready for publish upload</Badge>
-          )}
+          </div>
         </div>
       </div>
     </div>

@@ -490,7 +490,7 @@ export function CarouselTemplateSection({
           rows={5}
           placeholder="Share the headline or intro that appears above the carousel cards."
         />
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="space-y-4">
           {draft.carousel.cards.map((card, index) => (
             <div key={index} className="rounded-[24px] border p-3.5 md:p-4">
               <div className="mb-4 flex items-center justify-between gap-3">

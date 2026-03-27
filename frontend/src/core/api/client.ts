@@ -7,7 +7,11 @@ import { ENDPOINTS } from '@/core/api/endpoints';
 import { ensureCsrfToken, getCsrfTokenFromCookie } from '@/core/security/csrf';
 import type { ApiResponse, User } from '@/core/types';
 import { getApiErrorMessage } from '@/core/errors/apiError';
-import { getOrganizationIdForCurrentPath, getStoredActiveOrganizationId } from '@/modules/organizations/context';
+import {
+  clearLegacyStoredOrganizationState,
+  getOrganizationIdForCurrentPath,
+  getStoredActiveOrganizationId,
+} from '@/modules/organizations/context';
 
 const API_BASE_URL = resolveApiBaseUrl();
 const PUBLIC_AUTH_PATHS = [
@@ -94,6 +98,16 @@ function isAuthRequest(url?: string) {
   return !!url && url.includes('/api/v1/auth/');
 }
 
+function isUnauthorizedError(error: unknown) {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  return status === 401 || status === 403;
+}
+
+function clearClientSession() {
+  clearLegacyStoredOrganizationState();
+  store.dispatch(logout());
+}
+
 function getRequestPath(url?: string) {
   if (!url) {
     return '';
@@ -147,10 +161,6 @@ export async function refreshSession() {
 
     return data.data;
   })()
-    .catch((error) => {
-      store.dispatch(logout());
-      throw error;
-    })
     .finally(() => {
       refreshSessionPromise = null;
     });
@@ -256,7 +266,12 @@ apiClient.interceptors.response.use(
         headers: retryHeaders,
       });
     } catch (refreshError) {
-      window.location.href = '/login';
+      if (isUnauthorizedError(refreshError)) {
+        clearClientSession();
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          window.location.assign('/login');
+        }
+      }
       applyFriendlyMessage(refreshError);
       return Promise.reject(refreshError);
     }

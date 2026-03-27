@@ -157,22 +157,13 @@ export interface Template {
 }
 
 export type FlowCategory =
+  | 'SIGN_UP'
+  | 'SIGN_IN'
   | 'LEAD_GENERATION'
-  | 'LEAD_QUALIFICATION'
   | 'APPOINTMENT_BOOKING'
-  | 'SLOT_BOOKING'
-  | 'ORDER_PLACEMENT'
-  | 'RE_ORDERING'
+  | 'CONTACT_US'
   | 'CUSTOMER_SUPPORT'
-  | 'TICKET_CREATION'
-  | 'PAYMENTS'
-  | 'COLLECTIONS'
-  | 'REGISTRATIONS'
-  | 'APPLICATIONS'
-  | 'DELIVERY_UPDATES'
-  | 'ADDRESS_CAPTURE'
-  | 'FEEDBACK'
-  | 'SURVEYS'
+  | 'SURVEY'
   | 'OTHER';
 
 export type FlowStatus = 'DRAFT' | 'PUBLISHED' | 'DEPRECATED';
@@ -243,21 +234,90 @@ export interface FlowDefinition {
   screens: FlowScreen[];
 }
 
+export interface MetaFlowAction {
+  name: 'complete' | 'navigate' | string;
+  next?: {
+    name: string;
+  };
+  payload?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface MetaFlowOption {
+  id: string;
+  title: string;
+  description?: string;
+  value?: string | number | boolean;
+  [key: string]: unknown;
+}
+
+export interface MetaFlowComponent {
+  type: string;
+  name?: string;
+  label?: string;
+  text?: string;
+  required?: boolean;
+  placeholder?: string;
+  caption?: string;
+  src?: string;
+  children?: MetaFlowComponent[];
+  'helper-text'?: string;
+  'input-type'?: string;
+  'data-source'?: MetaFlowOption[];
+  'on-click-action'?: MetaFlowAction;
+  [key: string]: unknown;
+}
+
+export interface MetaFlowScreen {
+  id: string;
+  title?: string;
+  terminal?: boolean;
+  refresh_on_back?: boolean;
+  layout: {
+    type: string;
+    children: MetaFlowComponent[];
+  };
+  [key: string]: unknown;
+}
+
+export interface MetaFlowDefinition {
+  version: string;
+  data_api_version?: string;
+  routing_model?: Record<string, string[]>;
+  screens: MetaFlowScreen[];
+  [key: string]: unknown;
+}
+
+export interface FlowValidationDetail {
+  code?: string | null;
+  message: string;
+  line?: number | null;
+  column?: number | null;
+  path?: string | null;
+  raw?: unknown;
+}
+
 export interface WhatsAppFlow {
   id: string;
   user_id: string;
   waba_id: string | null;
   wa_account_id: string | null;
   meta_flow_id: string | null;
+  cloned_from_flow_id?: string | null;
+  cloned_from_meta_flow_id?: string | null;
   name: string;
   categories: FlowCategory[];
   status: FlowStatus;
   json_version: string;
-  json_definition: FlowDefinition;
+  json_definition: MetaFlowDefinition;
   editor_state: Record<string, unknown> | null;
   data_exchange_config: Record<string, unknown> | null;
   preview_url: string | null;
   validation_errors: string[];
+  validation_error_details?: FlowValidationDetail[];
+  meta_status?: string | null;
+  meta_health_status?: Record<string, unknown> | null;
+  can_send_message?: boolean | null;
   has_local_changes: boolean;
   last_synced_at: string | null;
   created_at: string;

@@ -65,6 +65,13 @@ export function FlowComponentInspector({
               onChange={(event) => onChange((current) => ({ ...current, placeholder: event.target.value }))}
             />
           </div>
+          <div className="space-y-2">
+            <Label>Helper text</Label>
+            <Input
+              value={component.helper_text || ''}
+              onChange={(event) => onChange((current) => ({ ...current, helper_text: event.target.value }))}
+            />
+          </div>
           <div className="flex items-center justify-between rounded-lg border p-3">
             <div>
               <p className="text-sm font-medium">Required</p>
@@ -76,6 +83,35 @@ export function FlowComponentInspector({
             />
           </div>
         </>
+      )}
+
+      {(component.type === 'TextInput' || component.type === 'TextArea') && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Min length</Label>
+            <Input
+              type="number"
+              min={0}
+              value={component.min_length ?? ''}
+              onChange={(event) => onChange((current) => ({
+                ...current,
+                min_length: event.target.value === '' ? undefined : Number(event.target.value),
+              }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Max length</Label>
+            <Input
+              type="number"
+              min={0}
+              value={component.max_length ?? ''}
+              onChange={(event) => onChange((current) => ({
+                ...current,
+                max_length: event.target.value === '' ? undefined : Number(event.target.value),
+              }))}
+            />
+          </div>
+        </div>
       )}
 
       {(component.type === 'Dropdown' || component.type === 'RadioButtonsGroup' || component.type === 'CheckboxGroup') && (
@@ -120,6 +156,35 @@ export function FlowComponentInspector({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {component.type === 'CheckboxGroup' && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Min selections</Label>
+            <Input
+              type="number"
+              min={0}
+              value={component.min_selections ?? ''}
+              onChange={(event) => onChange((current) => ({
+                ...current,
+                min_selections: event.target.value === '' ? undefined : Number(event.target.value),
+              }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Max selections</Label>
+            <Input
+              type="number"
+              min={0}
+              value={component.max_selections ?? ''}
+              onChange={(event) => onChange((current) => ({
+                ...current,
+                max_selections: event.target.value === '' ? undefined : Number(event.target.value),
+              }))}
+            />
+          </div>
         </div>
       )}
 

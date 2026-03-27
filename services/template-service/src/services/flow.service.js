@@ -11,6 +11,7 @@ const {
 } = require('@nyife/shared-utils');
 const {
   FLOW_CATEGORIES,
+  FLOW_CATEGORY_ALIASES,
   FLOW_STATUSES,
 } = require('../constants/flow.constants');
 const {
@@ -20,22 +21,46 @@ const {
 const config = require('../config');
 const { resolveSingleWabaAccount } = require('./waAccountContext.service');
 
-function normalizeCategories(categories) {
-  if (!Array.isArray(categories) || categories.length === 0) {
-    return ['OTHER'];
-  }
-
-  return [...new Set(categories.filter((category) => FLOW_CATEGORIES.includes(category)))];
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function normalizeValidationState(name, definitionInput) {
-  const fallbackDefinition = createDefaultFlowDefinition(name);
+function deepClone(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function asTrimmedString(value, fallback = '') {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  return String(value).trim();
+}
+
+function unique(items) {
+  return [...new Set(items.filter(Boolean))];
+}
+
+function normalizeCategories(categories) {
+  const source = Array.isArray(categories) ? categories : [categories];
+  const normalized = unique(
+    source
+      .map((category) => FLOW_CATEGORY_ALIASES[asTrimmedString(category)] || asTrimmedString(category))
+      .filter((category) => FLOW_CATEGORIES.includes(category))
+  );
+
+  return normalized.length > 0 ? normalized : ['OTHER'];
+}
+
+function normalizeValidationState(name, categories, definitionInput) {
+  const fallbackDefinition = createDefaultFlowDefinition(name, categories);
   const definition = definitionInput || fallbackDefinition;
-  const validation = validateFlowDefinition(definition);
+  const validation = validateFlowDefinition(definition, { name, categories });
 
   return {
     definitionToStore: validation.normalized || definition,
-    validationErrors: validation.validationErrors,
+    validationErrors: validation.validationErrors || [],
+    validationErrorDetails: validation.validationErrorDetails || [],
     jsonVersion:
       validation.normalized?.version
       || definition.version
@@ -73,6 +98,19 @@ async function resolveFlowExecutionContext(userId, wabaId, providedAccessToken) 
   };
 }
 
+function normalizeFlowForResponse(flow) {
+  if (!flow) {
+    return flow;
+  }
+
+  flow.setDataValue('categories', normalizeCategories(flow.categories));
+  if (flow.preview_url && /^\/?flows\//.test(flow.preview_url)) {
+    flow.setDataValue('preview_url', null);
+  }
+
+  return flow;
+}
+
 async function findFlow(userId, flowId) {
   const flow = await Flow.findOne({
     where: { id: flowId, user_id: userId },
@@ -82,7 +120,7 @@ async function findFlow(userId, flowId) {
     throw AppError.notFound('Flow not found');
   }
 
-  return flow;
+  return normalizeFlowForResponse(flow);
 }
 
 async function ensureUniqueFlowName(userId, name, wabaId, excludeId) {
@@ -104,18 +142,55 @@ async function ensureUniqueFlowName(userId, name, wabaId, excludeId) {
   }
 }
 
-function buildFlowPreviewUrl(flowId) {
-  if (!config.frontendBaseUrl) {
-    return null;
+function hasUnsupportedDataExchange(dataExchangeConfig) {
+  return isPlainObject(dataExchangeConfig) && Object.keys(dataExchangeConfig).length > 0;
+}
+
+function assertStaticFlowSupported(flow) {
+  if (hasUnsupportedDataExchange(flow.data_exchange_config)) {
+    throw AppError.badRequest(
+      'Endpoint-powered data exchange flows are not supported for Meta publish in this phase. Clear the data exchange configuration or continue in JSON-only phase 2 work.'
+    );
+  }
+}
+
+function assertFlowCanSyncToMeta(flow, actionLabel = 'save this flow to Meta') {
+  if (
+    flow.status === 'DEPRECATED'
+    || asTrimmedString(flow.meta_status).toUpperCase().includes('DEPREC')
+  ) {
+    throw AppError.badRequest(
+      `This flow is deprecated on Meta and can no longer be updated. Duplicate the flow or create a new one before you ${actionLabel}.`
+    );
+  }
+}
+
+async function generateDuplicateFlowName(userId, sourceName, wabaId, mode = 'copy') {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const suffix = `${mode}_${Date.now()}${attempt > 0 ? `_${attempt}` : ''}`;
+    const base = asTrimmedString(sourceName, 'flow').slice(0, 255 - suffix.length - 1);
+    const candidate = `${base}_${suffix}`;
+    const existing = await Flow.findOne({
+      where: {
+        user_id: userId,
+        waba_id: wabaId || null,
+        name: candidate,
+      },
+    });
+
+    if (!existing) {
+      return candidate;
+    }
   }
 
-  return `${config.frontendBaseUrl.replace(/\/$/, '')}/flows/${flowId}`;
+  throw AppError.conflict('Unable to create a unique duplicate flow name right now.');
 }
 
 function buildMetaFlowCreatePayload(flow, wabaId) {
   const payload = {
     name: flow.name,
-    categories: flow.categories,
+    categories: normalizeCategories(flow.categories),
+    waba_id: wabaId,
   };
 
   const jsonDefinition = flow.json_definition || {};
@@ -123,28 +198,167 @@ function buildMetaFlowCreatePayload(flow, wabaId) {
     payload.data_api_version = jsonDefinition.data_api_version;
   }
 
-  if (flow.data_exchange_config && Object.keys(flow.data_exchange_config).length > 0) {
-    payload.endpoint_uri = `${config.publicApiBaseUrl.replace(/\/$/, '')}/api/v1/whatsapp/flows/data-exchange`;
-  }
-
-  payload.waba_id = wabaId;
   return payload;
 }
 
-function buildRemoteFlowJsonPayload(flow) {
-  return {
-    asset_type: 'FLOW_JSON',
-    file_name: 'flow.json',
-    flow_json: flow.json_definition,
-    json_version: flow.json_version,
-  };
+function buildMetaMetadataForm(flow) {
+  const form = new FormData();
+  form.append('name', flow.name);
+  form.append('categories', JSON.stringify(normalizeCategories(flow.categories)));
+
+  const jsonDefinition = flow.json_definition || {};
+  if (jsonDefinition.data_api_version) {
+    form.append('data_api_version', String(jsonDefinition.data_api_version));
+  }
+
+  return form;
+}
+
+function buildFlowJsonForm(flow) {
+  const form = new FormData();
+  form.append(
+    'file',
+    new Blob([JSON.stringify(flow.json_definition || {})], { type: 'application/json' }),
+    'flow.json'
+  );
+  form.append('name', 'flow.json');
+  form.append('asset_type', 'FLOW_JSON');
+  return form;
+}
+
+function mapMetaLifecycleStatus(status) {
+  const normalized = asTrimmedString(status).toUpperCase();
+  if (normalized.includes('DEPREC')) {
+    return 'DEPRECATED';
+  }
+  if (normalized.includes('PUBLISH')) {
+    return 'PUBLISHED';
+  }
+  return 'DRAFT';
+}
+
+function extractMetaValidationDetails(payload) {
+  const raw = payload?.validation_errors;
+  if (Array.isArray(raw)) {
+    return raw.map((entry, index) => {
+      if (isPlainObject(entry)) {
+        return {
+          code: entry.code || entry.error_code || `meta_validation_${index + 1}`,
+          message:
+            asTrimmedString(entry.message)
+            || asTrimmedString(entry.error)
+            || asTrimmedString(entry.description)
+            || JSON.stringify(entry),
+          line: entry.line ?? entry.line_number ?? null,
+          column: entry.column ?? entry.column_number ?? null,
+          path: entry.path || entry.field || entry.key || null,
+          raw: entry,
+        };
+      }
+
+      return {
+        code: `meta_validation_${index + 1}`,
+        message: asTrimmedString(entry, 'Unknown Meta validation error'),
+      };
+    });
+  }
+
+  if (isPlainObject(raw)) {
+    return Object.entries(raw).map(([key, value], index) => ({
+      code: `meta_validation_${index + 1}`,
+      path: key,
+      message: isPlainObject(value)
+        ? asTrimmedString(value.message || value.error || JSON.stringify(value), `${key}: invalid`)
+        : `${key}: ${asTrimmedString(value)}`,
+      raw: value,
+    }));
+  }
+
+  return [];
+}
+
+function extractMetaValidationErrors(payload) {
+  return extractMetaValidationDetails(payload).map((entry) => {
+    const line = entry.line ? ` (line ${entry.line}${entry.column ? `, column ${entry.column}` : ''})` : '';
+    return `${entry.message}${line}`;
+  });
+}
+
+function extractPreviewUrl(payload) {
+  return (
+    payload?.preview_url
+    || payload?.preview?.preview_url
+    || payload?.preview?.url
+    || null
+  );
+}
+
+function extractHealthStatus(payload) {
+  return isPlainObject(payload?.health_status) ? payload.health_status : null;
+}
+
+function extractCanSendMessage(payload) {
+  const healthStatus = extractHealthStatus(payload);
+  if (typeof payload?.can_send_message === 'boolean') {
+    return payload.can_send_message;
+  }
+  if (typeof healthStatus?.can_send_message === 'boolean') {
+    return healthStatus.can_send_message;
+  }
+  if (typeof healthStatus?.can_send_messages === 'boolean') {
+    return healthStatus.can_send_messages;
+  }
+  return null;
+}
+
+function formatMetaError(prefix, err) {
+  const metaError = err.response?.data?.error;
+  return `${prefix}: ${metaError?.message || err.message}`;
+}
+
+function isAppError(err) {
+  return Boolean(err) && (err.name === 'AppError' || typeof err.statusCode === 'number');
+}
+
+function summarizeValidationErrors(errors) {
+  const items = unique((errors || []).map((entry) => asTrimmedString(entry)).filter(Boolean));
+  if (items.length === 0) {
+    return null;
+  }
+
+  return items.slice(0, 3).join(' | ');
+}
+
+function buildPublishFailureMessage(baseMessage, {
+  validationErrors = [],
+  remoteStatus = null,
+  healthStatus = null,
+} = {}) {
+  const parts = [];
+  const validationSummary = summarizeValidationErrors(validationErrors);
+  if (validationSummary) {
+    parts.push(`Validation errors: ${validationSummary}`);
+  }
+
+  if (remoteStatus) {
+    parts.push(`Remote status: ${remoteStatus}`);
+  }
+
+  if (typeof healthStatus?.can_send_message === 'boolean' && healthStatus.can_send_message === false) {
+    parts.push('Meta health status reports that this flow cannot send messages yet.');
+  }
+
+  if (parts.length === 0) {
+    return baseMessage;
+  }
+
+  return `${baseMessage}. ${parts.join(' ')}`;
 }
 
 async function createRemoteFlow(flow, wabaId, accessToken) {
-  const payload = buildMetaFlowCreatePayload(flow, wabaId);
   const response = await axios.post(
     `${config.meta.baseUrl}/${wabaId}/flows`,
-    payload,
+    buildMetaFlowCreatePayload(flow, wabaId),
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -157,40 +371,34 @@ async function createRemoteFlow(flow, wabaId, accessToken) {
   return response.data || {};
 }
 
-async function uploadRemoteFlowJson(metaFlowId, flow, accessToken) {
-  const payload = buildRemoteFlowJsonPayload(flow);
-
-  try {
-    const response = await axios.post(
-      `${config.meta.baseUrl}/${metaFlowId}/assets`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 20000,
-      }
-    );
-    return response.data || {};
-  } catch (err) {
-    if (err.response?.status === 404 || err.response?.status === 400) {
-      const fallback = await axios.post(
-        `${config.meta.baseUrl}/${metaFlowId}`,
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 20000,
-        }
-      );
-      return fallback.data || {};
+async function updateRemoteFlowMetadata(metaFlowId, flow, accessToken) {
+  const response = await axios.post(
+    `${config.meta.baseUrl}/${metaFlowId}`,
+    buildMetaMetadataForm(flow),
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      timeout: 15000,
     }
+  );
 
-    throw err;
-  }
+  return response.data || {};
+}
+
+async function uploadRemoteFlowJson(metaFlowId, flow, accessToken) {
+  const response = await axios.post(
+    `${config.meta.baseUrl}/${metaFlowId}/assets`,
+    buildFlowJsonForm(flow),
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      timeout: 20000,
+    }
+  );
+
+  return response.data || {};
 }
 
 async function publishRemoteFlow(metaFlowId, accessToken) {
@@ -206,7 +414,21 @@ async function publishRemoteFlow(metaFlowId, accessToken) {
     }
   );
 
-  return response.data || {};
+  const payload = response.data || {};
+  if (payload.success === false) {
+    throw AppError.badRequest(
+      buildPublishFailureMessage(
+        asTrimmedString(payload.message || payload.error_message, 'Publishing attempt failed'),
+        {
+          validationErrors: extractMetaValidationErrors(payload),
+          remoteStatus: asTrimmedString(payload.status) || null,
+          healthStatus: extractHealthStatus(payload),
+        }
+      )
+    );
+  }
+
+  return payload;
 }
 
 async function deprecateRemoteFlow(metaFlowId, accessToken) {
@@ -225,10 +447,27 @@ async function deprecateRemoteFlow(metaFlowId, accessToken) {
   return response.data || {};
 }
 
+async function deleteRemoteFlow(metaFlowId, accessToken) {
+  const response = await axios.delete(
+    `${config.meta.baseUrl}/${metaFlowId}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      timeout: 15000,
+    }
+  );
+
+  return response.data || {};
+}
+
 async function listRemoteFlows(wabaId, accessToken) {
   const items = [];
-  let nextUrl = `${config.meta.baseUrl}/${wabaId}/flows?limit=100`;
+  const initialUrl = new URL(`${config.meta.baseUrl}/${wabaId}/flows`);
+  initialUrl.searchParams.set('fields', 'id,name,status,categories');
+  initialUrl.searchParams.set('limit', '100');
 
+  let nextUrl = initialUrl.toString();
   while (nextUrl) {
     const response = await axios.get(nextUrl, {
       headers: {
@@ -245,50 +484,145 @@ async function listRemoteFlows(wabaId, accessToken) {
   return items;
 }
 
-function mapMetaStatus(status) {
-  const normalized = String(status || '').toUpperCase();
-  if (normalized.includes('PUBLISH')) {
-    return 'PUBLISHED';
-  }
-  if (normalized.includes('DEPREC')) {
-    return 'DEPRECATED';
-  }
-  return 'DRAFT';
+async function getRemoteFlowDetails(metaFlowId, accessToken) {
+  const url = new URL(`${config.meta.baseUrl}/${metaFlowId}`);
+  url.searchParams.set(
+    'fields',
+    'id,name,status,categories,validation_errors,health_status,preview.invalidate(false)'
+  );
+
+  const response = await axios.get(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    timeout: 15000,
+  });
+
+  return response.data || {};
 }
 
-function extractMetaValidationErrors(payload) {
-  const errors = payload?.validation_errors;
-  if (Array.isArray(errors)) {
-    return errors.map((entry) => String(entry.message || entry.error || entry));
+async function listRemoteFlowAssets(metaFlowId, accessToken) {
+  const assets = [];
+  const initialUrl = new URL(`${config.meta.baseUrl}/${metaFlowId}/assets`);
+  initialUrl.searchParams.set('fields', 'name,asset_type,download_url');
+  initialUrl.searchParams.set('limit', '100');
+
+  let nextUrl = initialUrl.toString();
+  while (nextUrl) {
+    const response = await axios.get(nextUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      timeout: 15000,
+    });
+
+    assets.push(...(Array.isArray(response.data?.data) ? response.data.data : []));
+    nextUrl = response.data?.paging?.next || null;
   }
 
-  if (errors && typeof errors === 'object') {
-    return Object.entries(errors).map(([key, value]) => `${key}: ${String(value)}`);
+  return assets;
+}
+
+async function downloadRemoteFlowJson(downloadUrl, accessToken) {
+  const response = await axios.get(downloadUrl, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+    responseType: 'text',
+    transformResponse: [(value) => value],
+    timeout: 15000,
+  });
+
+  if (typeof response.data === 'string') {
+    try {
+      return JSON.parse(response.data);
+    } catch {
+      return null;
+    }
   }
 
-  return [];
+  return isPlainObject(response.data) ? response.data : null;
+}
+
+async function getRemoteFlowBundle(metaFlowId, accessToken, { includeJson = false } = {}) {
+  const details = await getRemoteFlowDetails(metaFlowId, accessToken);
+
+  let flowJson = null;
+  if (includeJson) {
+    try {
+      const assets = await listRemoteFlowAssets(metaFlowId, accessToken);
+      const flowJsonAsset = assets.find((asset) => (
+        asTrimmedString(asset.asset_type).toUpperCase() === 'FLOW_JSON'
+        || asTrimmedString(asset.name).toLowerCase() === 'flow.json'
+      ));
+
+      if (flowJsonAsset?.download_url) {
+        flowJson = await downloadRemoteFlowJson(flowJsonAsset.download_url, accessToken);
+      }
+    } catch {
+      flowJson = null;
+    }
+  }
+
+  return {
+    ...details,
+    flow_json: flowJson,
+  };
+}
+
+function buildRemoteStatePatch(remoteFlow, overrides = {}) {
+  const validationErrors = extractMetaValidationErrors(remoteFlow);
+  const validationErrorDetails = extractMetaValidationDetails(remoteFlow);
+  const rawStatus = asTrimmedString(remoteFlow.status) || null;
+
+  return {
+    ...overrides,
+    preview_url: extractPreviewUrl(remoteFlow),
+    status: FLOW_STATUSES.includes(mapMetaLifecycleStatus(rawStatus))
+      ? mapMetaLifecycleStatus(rawStatus)
+      : 'DRAFT',
+    meta_status: rawStatus,
+    meta_health_status: extractHealthStatus(remoteFlow),
+    can_send_message: extractCanSendMessage(remoteFlow),
+    validation_errors: validationErrors,
+    validation_error_details: validationErrorDetails,
+    has_local_changes: false,
+    last_synced_at: new Date(),
+  };
 }
 
 function buildSyncPayload(remoteFlow) {
   const remoteJson = remoteFlow.flow_json || remoteFlow.json_definition || null;
-  const validation = remoteJson ? validateFlowDefinition(remoteJson) : null;
+  const validation = remoteJson
+    ? validateFlowDefinition(remoteJson, { name: remoteFlow.name || `Meta Flow ${remoteFlow.id}` })
+    : null;
 
   return {
     name: remoteFlow.name || `Meta Flow ${remoteFlow.id}`,
     categories: normalizeCategories(remoteFlow.categories || ['OTHER']),
-    status: FLOW_STATUSES.includes(mapMetaStatus(remoteFlow.status))
-      ? mapMetaStatus(remoteFlow.status)
+    status: FLOW_STATUSES.includes(mapMetaLifecycleStatus(remoteFlow.status))
+      ? mapMetaLifecycleStatus(remoteFlow.status)
       : 'DRAFT',
+    meta_status: asTrimmedString(remoteFlow.status) || null,
     json_version:
       remoteFlow.json_version
       || validation?.normalized?.version
       || '7.1',
-    json_definition: validation?.normalized || remoteJson || createDefaultFlowDefinition(remoteFlow.name),
-    preview_url: remoteFlow.preview_url || remoteFlow.preview?.preview_url || null,
-    validation_errors: validation?.validationErrors || extractMetaValidationErrors(remoteFlow),
+    json_definition: validation?.normalized || remoteJson || createDefaultFlowDefinition(remoteFlow.name, remoteFlow.categories),
+    preview_url: extractPreviewUrl(remoteFlow),
+    validation_errors: extractMetaValidationErrors(remoteFlow),
+    validation_error_details: extractMetaValidationDetails(remoteFlow),
+    meta_health_status: extractHealthStatus(remoteFlow),
+    can_send_message: extractCanSendMessage(remoteFlow),
     last_synced_at: new Date(),
     has_local_changes: false,
   };
+}
+
+function isDeleteBlockedByStatus(status) {
+  const normalized = asTrimmedString(status).toUpperCase();
+  return normalized.includes('PUBLISH') || normalized.includes('DEPREC');
 }
 
 async function createFlow(userId, data) {
@@ -303,14 +637,15 @@ async function createFlow(userId, data) {
 
   await ensureUniqueFlowName(userId, data.name, resolvedWabaId);
 
-  const validationState = normalizeValidationState(data.name, data.json_definition);
+  const normalizedCategories = normalizeCategories(data.categories);
+  const validationState = normalizeValidationState(data.name, normalizedCategories, data.json_definition);
 
   const flow = await Flow.create({
     user_id: userId,
     waba_id: resolvedWabaId,
     wa_account_id: resolvedWaAccountId,
     name: data.name,
-    categories: normalizeCategories(data.categories),
+    categories: normalizedCategories,
     status: 'DRAFT',
     json_version: data.json_version || validationState.jsonVersion,
     json_definition: validationState.definitionToStore,
@@ -318,14 +653,14 @@ async function createFlow(userId, data) {
     data_exchange_config: data.data_exchange_config || null,
     preview_url: null,
     validation_errors: validationState.validationErrors,
+    validation_error_details: validationState.validationErrorDetails,
+    meta_status: null,
+    meta_health_status: null,
+    can_send_message: null,
     has_local_changes: true,
   });
 
-  await flow.update({
-    preview_url: buildFlowPreviewUrl(flow.id),
-  });
-
-  return flow;
+  return normalizeFlowForResponse(flow);
 }
 
 async function listFlows(userId, filters) {
@@ -343,7 +678,8 @@ async function listFlows(userId, filters) {
     where.name = { [Op.like]: `%${search}%` };
   }
   if (category) {
-    where.categories = { [Op.like]: `%${category}%` };
+    const normalizedCategory = normalizeCategories([category])[0];
+    where.categories = { [Op.like]: `%${normalizedCategory}%` };
   }
   if (date_from || date_to) {
     where.updated_at = {};
@@ -364,6 +700,8 @@ async function listFlows(userId, filters) {
     offset,
   });
 
+  rows.forEach((flow) => normalizeFlowForResponse(flow));
+
   return {
     flows: rows,
     meta: getPaginationMeta(count, page, sanitizedLimit),
@@ -376,6 +714,7 @@ async function getFlow(userId, flowId) {
 
 async function updateFlow(userId, flowId, data) {
   const flow = await findFlow(userId, flowId);
+
   let nextWabaId = data.waba_id !== undefined ? (data.waba_id || null) : flow.waba_id;
   let nextWaAccountId =
     data.wa_account_id !== undefined ? data.wa_account_id || null : flow.wa_account_id;
@@ -407,13 +746,14 @@ async function updateFlow(userId, flowId, data) {
   const definitionInput = data.json_definition !== undefined
     ? data.json_definition
     : flow.json_definition;
-  const validationState = normalizeValidationState(nextName, definitionInput);
+  const nextCategories = data.categories ? normalizeCategories(data.categories) : normalizeCategories(flow.categories);
+  const validationState = normalizeValidationState(nextName, nextCategories, definitionInput);
 
   await flow.update({
     name: nextName,
     waba_id: nextWabaId,
     wa_account_id: nextWaAccountId,
-    categories: data.categories ? normalizeCategories(data.categories) : flow.categories,
+    categories: nextCategories,
     json_version: data.json_version || validationState.jsonVersion,
     json_definition: validationState.definitionToStore,
     editor_state: data.editor_state !== undefined ? data.editor_state || null : flow.editor_state,
@@ -422,50 +762,104 @@ async function updateFlow(userId, flowId, data) {
         ? data.data_exchange_config || null
         : flow.data_exchange_config,
     validation_errors: validationState.validationErrors,
+    validation_error_details: validationState.validationErrorDetails,
     has_local_changes: true,
   });
 
-  return flow;
+  return normalizeFlowForResponse(flow);
 }
 
-async function deleteFlow(userId, flowId) {
+async function deleteFlow(userId, flowId, accessToken) {
   const flow = await findFlow(userId, flowId);
+
+  if (flow.meta_flow_id) {
+    const executionContext = await resolveFlowExecutionContext(userId, flow.waba_id, accessToken);
+    const resolvedAccessToken = executionContext.accessToken;
+    if (!resolvedAccessToken) {
+      throw AppError.badRequest(
+        'WhatsApp access token is required to delete a Meta-linked flow draft.'
+      );
+    }
+
+    let remoteFlow = null;
+    try {
+      remoteFlow = await getRemoteFlowDetails(flow.meta_flow_id, resolvedAccessToken);
+    } catch (err) {
+      if (err.response?.status !== 404) {
+        throw AppError.badRequest(formatMetaError('Failed to verify the Meta flow before delete', err));
+      }
+    }
+
+    if (remoteFlow && isDeleteBlockedByStatus(remoteFlow.status || flow.meta_status || flow.status)) {
+      throw AppError.badRequest(
+        'Published or deprecated Meta-linked flows cannot be deleted. Deprecate the flow on Meta instead of deleting it locally.'
+      );
+    }
+
+    if (remoteFlow) {
+      try {
+        await deleteRemoteFlow(flow.meta_flow_id, resolvedAccessToken);
+      } catch (err) {
+        throw AppError.badRequest(formatMetaError('Failed to delete the draft on Meta', err));
+      }
+    }
+  }
+
   await flow.destroy();
 }
 
 async function duplicateFlow(userId, flowId) {
   const flow = await findFlow(userId, flowId);
-  const duplicateName = `${flow.name}_copy_${Date.now()}`;
+  const validationState = normalizeValidationState(flow.name, normalizeCategories(flow.categories), flow.json_definition);
+  const duplicateName = await generateDuplicateFlowName(
+    userId,
+    flow.name,
+    flow.waba_id,
+    flow.status === 'PUBLISHED' ? 'draft' : 'copy'
+  );
 
   const duplicate = await Flow.create({
     user_id: userId,
     waba_id: flow.waba_id,
     wa_account_id: flow.wa_account_id,
+    meta_flow_id: null,
+    cloned_from_flow_id: flow.id,
+    cloned_from_meta_flow_id: flow.meta_flow_id,
     name: duplicateName,
-    categories: flow.categories,
+    categories: normalizeCategories(flow.categories),
     status: 'DRAFT',
-    json_version: flow.json_version,
-    json_definition: flow.json_definition,
+    json_version: validationState.jsonVersion,
+    json_definition: validationState.definitionToStore,
     editor_state: flow.editor_state,
     data_exchange_config: flow.data_exchange_config,
     preview_url: null,
-    validation_errors: flow.validation_errors || [],
+    validation_errors: validationState.validationErrors,
+    validation_error_details: validationState.validationErrorDetails,
+    meta_status: null,
+    meta_health_status: null,
+    can_send_message: null,
     has_local_changes: true,
   });
 
-  await duplicate.update({
-    preview_url: buildFlowPreviewUrl(duplicate.id),
-  });
-
-  return duplicate;
+  return normalizeFlowForResponse(duplicate);
 }
 
 async function saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride) {
   const flow = await findFlow(userId, flowId);
+  assertFlowCanSyncToMeta(flow);
+  assertStaticFlowSupported(flow);
 
-  if (Array.isArray(flow.validation_errors) && flow.validation_errors.length > 0) {
+  const validationState = normalizeValidationState(flow.name, normalizeCategories(flow.categories), flow.json_definition);
+  await flow.update({
+    json_version: validationState.jsonVersion,
+    json_definition: validationState.definitionToStore,
+    validation_errors: validationState.validationErrors,
+    validation_error_details: validationState.validationErrorDetails,
+  });
+
+  if (Array.isArray(validationState.validationErrors) && validationState.validationErrors.length > 0) {
     throw AppError.badRequest(
-      `Fix validation errors before saving this flow to Meta. ${flow.validation_errors[0]}`
+      `Fix validation errors before saving this flow to Meta. ${validationState.validationErrors[0]}`
     );
   }
 
@@ -487,16 +881,30 @@ async function saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride) {
   }
 
   let metaFlowId = flow.meta_flow_id;
-  let createResponse = {};
   if (!metaFlowId) {
     try {
-      createResponse = await createRemoteFlow(flow, wabaId, resolvedAccessToken);
+      const createResponse = await createRemoteFlow(flow, wabaId, resolvedAccessToken);
       metaFlowId = createResponse.id || createResponse.flow_id || null;
     } catch (err) {
-      const metaError = err.response?.data?.error;
-      throw AppError.badRequest(
-        `Failed to create flow on Meta: ${metaError?.message || err.message}`
-      );
+      throw AppError.badRequest(formatMetaError('Failed to create flow on Meta', err));
+    }
+  } else {
+    try {
+      const remoteState = await getRemoteFlowDetails(metaFlowId, resolvedAccessToken);
+      if (asTrimmedString(remoteState.status).toUpperCase().includes('DEPREC')) {
+        throw AppError.badRequest(
+          'This linked Meta flow is deprecated and can no longer be updated. Duplicate the flow or create a new one instead.'
+        );
+      }
+      await updateRemoteFlowMetadata(metaFlowId, flow, resolvedAccessToken);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AppError') {
+        throw err;
+      }
+      if (err.statusCode) {
+        throw err;
+      }
+      throw AppError.badRequest(formatMetaError('Failed to update flow metadata on Meta', err));
     }
   }
 
@@ -504,59 +912,108 @@ async function saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride) {
     throw AppError.badRequest('Meta did not return a flow ID.');
   }
 
-  let uploadResponse = {};
   try {
-    uploadResponse = await uploadRemoteFlowJson(metaFlowId, flow, resolvedAccessToken);
+    await uploadRemoteFlowJson(metaFlowId, flow, resolvedAccessToken);
   } catch (err) {
-    const metaError = err.response?.data?.error;
-    throw AppError.badRequest(
-      `Failed to upload flow JSON to Meta: ${metaError?.message || err.message}`
-    );
+    throw AppError.badRequest(formatMetaError('Failed to upload flow JSON to Meta', err));
+  }
+
+  let remoteFlow = null;
+  try {
+    remoteFlow = await getRemoteFlowDetails(metaFlowId, resolvedAccessToken);
+  } catch (err) {
+    throw AppError.badRequest(formatMetaError('Flow JSON uploaded but refreshing Meta flow state failed', err));
   }
 
   await flow.update({
     meta_flow_id: metaFlowId,
     waba_id: wabaId,
     wa_account_id: flow.wa_account_id || executionContext.waAccountId || null,
-    preview_url:
-      uploadResponse.preview_url
-      || createResponse.preview_url
-      || createResponse.preview?.preview_url
-      || flow.preview_url,
-    validation_errors: extractMetaValidationErrors(uploadResponse),
-    has_local_changes: false,
-    last_synced_at: new Date(),
+    ...buildRemoteStatePatch(remoteFlow, {
+      json_version: validationState.jsonVersion,
+      json_definition: validationState.definitionToStore,
+    }),
   });
 
-  return flow;
+  return normalizeFlowForResponse(flow);
 }
 
 async function publishFlow(userId, flowId, accessToken, wabaIdOverride) {
   const flow = await saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride);
+  if (flow.status !== 'DRAFT') {
+    throw AppError.badRequest(
+      'Meta did not move this flow back to DRAFT after applying the latest changes. This business account or linked flow may not support in-place editing yet, so publish could not continue.'
+    );
+  }
+
+  if (Array.isArray(flow.validation_errors) && flow.validation_errors.length > 0) {
+    throw AppError.badRequest(
+      buildPublishFailureMessage(
+        'Meta draft is not ready to publish',
+        {
+          validationErrors: flow.validation_errors,
+          remoteStatus: flow.meta_status,
+          healthStatus: flow.meta_health_status,
+        }
+      )
+    );
+  }
+
   const executionContext = await resolveFlowExecutionContext(userId, flow.waba_id, accessToken);
   const resolvedAccessToken = executionContext.accessToken;
-
   if (!resolvedAccessToken) {
     throw AppError.badRequest('WhatsApp access token is required to publish a flow.');
   }
 
+  let publishResponse = null;
   try {
-    const response = await publishRemoteFlow(flow.meta_flow_id, resolvedAccessToken);
-    await flow.update({
-      status: mapMetaStatus(response.status || 'PUBLISHED'),
-      preview_url: response.preview_url || response.preview?.preview_url || flow.preview_url,
-      validation_errors: extractMetaValidationErrors(response),
-      has_local_changes: false,
-      last_synced_at: new Date(),
-    });
+    publishResponse = await publishRemoteFlow(flow.meta_flow_id, resolvedAccessToken);
+    const remoteFlow = await getRemoteFlowDetails(flow.meta_flow_id, resolvedAccessToken);
+    await flow.update(buildRemoteStatePatch(remoteFlow));
   } catch (err) {
-    const metaError = err.response?.data?.error;
+    let remoteFlow = null;
+    try {
+      remoteFlow = await getRemoteFlowDetails(flow.meta_flow_id, resolvedAccessToken);
+      await flow.update(buildRemoteStatePatch(remoteFlow));
+    } catch {
+      remoteFlow = null;
+    }
+
+    const validationErrors = unique([
+      ...(Array.isArray(flow.validation_errors) ? flow.validation_errors : []),
+      ...extractMetaValidationErrors(publishResponse),
+      ...extractMetaValidationErrors(remoteFlow),
+    ]);
+
+    if (validationErrors.length > 0) {
+      throw AppError.badRequest(
+        buildPublishFailureMessage(
+          'Failed to publish flow on Meta',
+          {
+            validationErrors,
+            remoteStatus: asTrimmedString(remoteFlow?.status || flow.meta_status) || null,
+            healthStatus: extractHealthStatus(remoteFlow) || flow.meta_health_status,
+          }
+        )
+      );
+    }
+
+    if (isAppError(err)) {
+      throw err;
+    }
+
     throw AppError.badRequest(
-      `Failed to publish flow on Meta: ${metaError?.message || err.message}`
+      buildPublishFailureMessage(
+        formatMetaError('Failed to publish flow on Meta', err),
+        {
+          remoteStatus: asTrimmedString(remoteFlow?.status || flow.meta_status) || null,
+          healthStatus: extractHealthStatus(remoteFlow) || flow.meta_health_status,
+        }
+      )
     );
   }
 
-  return flow;
+  return normalizeFlowForResponse(flow);
 }
 
 async function deprecateFlow(userId, flowId, accessToken) {
@@ -573,20 +1030,14 @@ async function deprecateFlow(userId, flowId, accessToken) {
   }
 
   try {
-    const response = await deprecateRemoteFlow(flow.meta_flow_id, resolvedAccessToken);
-    await flow.update({
-      status: mapMetaStatus(response.status || 'DEPRECATED'),
-      has_local_changes: false,
-      last_synced_at: new Date(),
-    });
+    await deprecateRemoteFlow(flow.meta_flow_id, resolvedAccessToken);
+    const remoteFlow = await getRemoteFlowDetails(flow.meta_flow_id, resolvedAccessToken);
+    await flow.update(buildRemoteStatePatch(remoteFlow));
   } catch (err) {
-    const metaError = err.response?.data?.error;
-    throw AppError.badRequest(
-      `Failed to deprecate flow on Meta: ${metaError?.message || err.message}`
-    );
+    throw AppError.badRequest(formatMetaError('Failed to deprecate flow on Meta', err));
   }
 
-  return flow;
+  return normalizeFlowForResponse(flow);
 }
 
 async function syncFlows(userId, wabaId, accessToken, force = false) {
@@ -607,17 +1058,23 @@ async function syncFlows(userId, wabaId, accessToken, force = false) {
   try {
     remoteFlows = await listRemoteFlows(resolvedWabaId, resolvedAccessToken);
   } catch (err) {
-    const metaError = err.response?.data?.error;
-    throw AppError.badRequest(
-      `Failed to sync flows from Meta: ${metaError?.message || err.message}`
-    );
+    throw AppError.badRequest(formatMetaError('Failed to sync flows from Meta', err));
   }
 
   let created = 0;
   let updated = 0;
   const conflicts = [];
 
-  for (const remoteFlow of remoteFlows) {
+  for (const remoteFlowSummary of remoteFlows) {
+    let remoteFlow = remoteFlowSummary;
+    try {
+      remoteFlow = await getRemoteFlowBundle(remoteFlowSummary.id, resolvedAccessToken, {
+        includeJson: true,
+      });
+    } catch {
+      remoteFlow = remoteFlowSummary;
+    }
+
     const local = await Flow.findOne({
       where: {
         user_id: userId,
@@ -667,6 +1124,10 @@ async function syncFlows(userId, wabaId, accessToken, force = false) {
       data_exchange_config: null,
       preview_url: payload.preview_url,
       validation_errors: payload.validation_errors,
+      validation_error_details: payload.validation_error_details,
+      meta_status: payload.meta_status,
+      meta_health_status: payload.meta_health_status,
+      can_send_message: payload.can_send_message,
       has_local_changes: false,
       last_synced_at: payload.last_synced_at,
     });

@@ -4,6 +4,7 @@ import { useSelector } from 'react-redux';
 import { RouterProvider } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { store } from '@/core/store';
+import { logout as logoutAction } from '@/core/store/authSlice';
 import { QueryProvider, queryClient } from './QueryProvider';
 import { SocketProvider } from './SocketProvider';
 import { ThemeProvider } from './ThemeProvider';
@@ -15,8 +16,8 @@ import '@/core/i18n';
 
 /**
  * Attempts to restore the user session by calling the refresh-token endpoint.
- * On success dispatches credentials; on failure dispatches logout
- * (which sets isLoading=false so guards stop showing the spinner).
+ * On success dispatches credentials; on failure clears the local session
+ * so guards stop showing the spinner.
  */
 function AuthInitializer() {
   useEffect(() => {
@@ -67,7 +68,8 @@ function initializeAuthSession() {
     try {
       await refreshSession();
     } catch {
-      // refreshSession already clears auth state on failure
+      clearLegacyStoredOrganizationState();
+      store.dispatch(logoutAction());
     } finally {
       hasAttemptedAuthInitialization = true;
       authInitializationPromise = null;

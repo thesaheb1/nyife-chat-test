@@ -45,7 +45,8 @@ async function updateFlow(req, res) {
 async function deleteFlow(req, res) {
   const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
-  await flowService.deleteFlow(userId, id);
+  const accessToken = req.headers['x-wa-access-token'] || null;
+  await flowService.deleteFlow(userId, id, accessToken);
   return successResponse(res, null, 'Flow deleted successfully');
 }
 

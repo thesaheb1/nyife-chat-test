@@ -27,6 +27,14 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING(100),
         allowNull: true,
       },
+      cloned_from_flow_id: {
+        type: DataTypes.UUID,
+        allowNull: true,
+      },
+      cloned_from_meta_flow_id: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
+      },
       name: {
         type: DataTypes.STRING(255),
         allowNull: false,
@@ -67,6 +75,23 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: [],
       },
+      validation_error_details: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: [],
+      },
+      meta_status: {
+        type: DataTypes.STRING(40),
+        allowNull: true,
+      },
+      meta_health_status: {
+        type: DataTypes.JSON,
+        allowNull: true,
+      },
+      can_send_message: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+      },
       has_local_changes: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
@@ -89,6 +114,11 @@ module.exports = (sequelize) => {
     Flow.hasMany(models.FlowSubmission, {
       foreignKey: 'flow_id',
       as: 'submissions',
+    });
+    Flow.belongsTo(models.Flow, {
+      foreignKey: 'cloned_from_flow_id',
+      as: 'cloned_from_flow',
+      constraints: false,
     });
   };
 

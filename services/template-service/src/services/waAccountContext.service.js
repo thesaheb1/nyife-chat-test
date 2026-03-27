@@ -52,31 +52,6 @@ function assertSingleActiveAccountInvariant(activeAccounts) {
   }
 }
 
-async function fetchActiveWaAccountById(userId, waAccountId) {
-  if (!waAccountId) {
-    return null;
-  }
-
-  const accounts = await sequelize.query(
-    `${ACTIVE_ACCOUNT_COLUMNS}
-     WHERE id = :waAccountId
-       AND user_id = :userId
-       AND status = :status
-       AND deleted_at IS NULL
-     LIMIT 1`,
-    {
-      replacements: {
-        waAccountId,
-        userId,
-        status: 'active',
-      },
-      type: QueryTypes.SELECT,
-    }
-  );
-
-  return accounts[0] || null;
-}
-
 async function fetchLatestActiveWaAccountByWaba(userId, wabaId) {
   const normalizedWabaId = normalizeWabaId(wabaId);
   if (!normalizedWabaId) {
@@ -201,7 +176,6 @@ async function resolveSingleWabaAccount(userId, options = {}) {
 
 module.exports = {
   listActiveWaAccounts,
-  fetchActiveWaAccountById,
   fetchLatestActiveWaAccountByWaba,
   resolveSingleWabaAccount,
 };

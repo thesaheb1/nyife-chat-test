@@ -10,7 +10,6 @@ const {
   flowMetaActionSchema,
   syncFlowsSchema,
   listFlowSubmissionsSchema,
-  submissionIdSchema,
   dataExchangeSchema,
 } = require('../validations/flow.validation');
 
@@ -99,13 +98,6 @@ async function listSubmissions(req, res) {
   return successResponse(res, { submissions }, 'Flow submissions retrieved successfully', 200, meta);
 }
 
-async function getSubmission(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
-  const { submissionId } = submissionIdSchema.parse(req.params);
-  const submission = await flowService.getSubmission(userId, submissionId);
-  return successResponse(res, { submission }, 'Flow submission retrieved successfully');
-}
-
 async function handleDataExchange(req, res) {
   const userId = req.headers['x-user-id'] || req.headers['x-tenant-user-id'] || null;
   const payload = dataExchangeSchema.parse(req.body || {});
@@ -125,6 +117,5 @@ module.exports = {
   deprecateFlow,
   syncFlows,
   listSubmissions,
-  getSubmission,
   handleDataExchange,
 };

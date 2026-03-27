@@ -189,13 +189,10 @@ function validateFlowDefinition(definition) {
   };
 }
 
-const flowCategorySchema = z.array(z.enum(FLOW_CATEGORIES)).min(1);
-
 module.exports = {
   FLOW_CATEGORIES,
   SCREEN_ID_REGEX,
   FIELD_NAME_REGEX,
-  flowCategorySchema,
   flowDefinitionSchema,
   createDefaultFlowDefinition,
   validateFlowDefinition,

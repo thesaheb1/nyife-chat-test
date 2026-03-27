@@ -35,7 +35,6 @@ import type {
 } from './templateBuilder';
 import { addStandardButton, buildTemplateMediaPreviewUrl, resolveTemplateMediaSourceUrl } from './templateBuilder';
 import { describeTemplateVariables, syncTemplateExampleValues } from './templateExamples';
-import type { ValidationIssue } from './templateComposerUtils';
 import {
   extractTemplateMediaMetadata,
   formatBytes,
@@ -55,26 +54,6 @@ export function FieldError({ message }: { message?: string }) {
   }
 
   return <p className="text-xs text-destructive">{message}</p>;
-}
-
-export function SectionIssueList({ title, issues }: { title: string; issues: ValidationIssue[] }) {
-  if (!issues.length) {
-    return null;
-  }
-
-  return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/30">
-      <div className="mb-2 flex items-center gap-2 font-semibold text-amber-900 dark:text-amber-100">
-        <AlertTriangle className="h-4 w-4" />
-        {title}
-      </div>
-      <div className="space-y-1 text-amber-800 dark:text-amber-200">
-        {issues.map((issue) => (
-          <p key={`${issue.path}:${issue.message}`}>{issue.message}</p>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 export function ValidationSummary({

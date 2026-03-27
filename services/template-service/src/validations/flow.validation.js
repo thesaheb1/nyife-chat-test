@@ -61,10 +61,6 @@ const listFlowSubmissionsSchema = z.object({
   search: z.string().max(255).optional(),
 });
 
-const submissionIdSchema = z.object({
-  submissionId: uuidSchema,
-});
-
 const dataExchangeSchema = z.object({
   flow_id: uuidSchema.optional(),
   meta_flow_id: z.string().max(100).optional(),
@@ -84,6 +80,5 @@ module.exports = {
   flowMetaActionSchema,
   syncFlowsSchema,
   listFlowSubmissionsSchema,
-  submissionIdSchema,
   dataExchangeSchema,
 };

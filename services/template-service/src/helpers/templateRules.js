@@ -211,10 +211,6 @@ function deriveLocalTemplateStatus(metaStatus, fallbackStatus = null) {
   return String(fallbackStatus || 'draft').toLowerCase();
 }
 
-function isLegacyRejectedDraft(template) {
-  return !template?.meta_template_id && String(template?.status || '').toLowerCase() === 'rejected';
-}
-
 function isUnpublishedTemplate(template) {
   return !template?.meta_template_id;
 }
@@ -793,6 +789,5 @@ module.exports = {
   canEditTemplate,
   canDeleteTemplate,
   canSyncTemplate,
-  isLegacyRejectedDraft,
   normalizeMetaButtonOrder,
 };

@@ -628,9 +628,7 @@ export type UpdateTemplateFormData = z.infer<typeof updateTemplateSchema>;
 export const publishTemplateSchema = z.object({
   wa_account_id: waAccountSchema.optional(),
 });
-export type PublishTemplateFormData = z.infer<typeof publishTemplateSchema>;
 
 export const syncTemplatesSchema = z.object({
   wa_account_id: waAccountSchema.optional(),
 });
-export type SyncTemplatesFormData = z.infer<typeof syncTemplatesSchema>;

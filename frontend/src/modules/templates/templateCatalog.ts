@@ -1,4 +1,4 @@
-import type { Template, WaAccount } from '@/core/types';
+import type { Template } from '@/core/types';
 export {
   TEMPLATE_ACTION_LABELS,
   TEMPLATE_META_STATUS_CLASSES,
@@ -202,21 +202,6 @@ export const META_TEMPLATE_LANGUAGES = [
   { label: 'Vietnamese', value: 'vi' },
   { label: 'Zulu', value: 'zu' },
 ] as const;
-
-export function buildTemplateWabaOptions(accounts: WaAccount[] | undefined) {
-  return Array.from(
-    new Map(
-      (accounts || []).map((account) => [
-        account.waba_id,
-        {
-          value: account.waba_id,
-          label: account.waba_id,
-          description: account.verified_name || undefined,
-        },
-      ])
-    ).values()
-  );
-}
 
 export function getTemplateLanguageLabel(code: string) {
   return META_TEMPLATE_LANGUAGES.find((language) => language.value === code)?.label || code;

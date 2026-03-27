@@ -713,27 +713,6 @@ async function listSubmissions(userId, flowId, filters) {
   };
 }
 
-async function getSubmission(userId, submissionId) {
-  const submission = await FlowSubmission.findOne({
-    where: {
-      id: submissionId,
-      user_id: userId,
-    },
-    include: [
-      {
-        model: Flow,
-        as: 'flow',
-      },
-    ],
-  });
-
-  if (!submission) {
-    throw AppError.notFound('Flow submission not found');
-  }
-
-  return submission;
-}
-
 async function resolveContactId(userId, contactPhone) {
   const contacts = await sequelize.query(
     `SELECT id
@@ -901,7 +880,6 @@ module.exports = {
   deprecateFlow,
   syncFlows,
   listSubmissions,
-  getSubmission,
   storeFlowSubmission,
   handleDataExchange,
 };

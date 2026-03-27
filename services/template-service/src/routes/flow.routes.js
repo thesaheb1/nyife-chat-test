@@ -12,7 +12,6 @@ router.post('/data-exchange', asyncHandler(flowController.handleDataExchange));
 
 router.post('/', rbac('flows', 'create'), requireActiveSubscription('create flows'), asyncHandler(flowController.createFlow));
 router.get('/', rbac('flows', 'read'), asyncHandler(flowController.listFlows));
-router.get('/submissions/:submissionId', rbac('flows', 'read'), asyncHandler(flowController.getSubmission));
 router.get('/:id', rbac('flows', 'read'), asyncHandler(flowController.getFlow));
 router.put('/:id', rbac('flows', 'update'), requireActiveSubscription('update flows'), asyncHandler(flowController.updateFlow));
 router.delete('/:id', rbac('flows', 'delete'), requireActiveSubscription('delete flows'), asyncHandler(flowController.deleteFlow));

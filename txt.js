@@ -171,7 +171,11 @@
 // also make carousel card vertically aligned instead of horizontally in Carousel template builder. so it will look more better and more user friendly. please fix it with production grade approach not just quick fix.
 
 
-// in complete template module and template-service can you please find any code, db columns, fields, functionalty, Ui or any piece of code which is not used in anywhere in whole codebases or if we remove it then there is not a single effect or broken appeare in project.
+// Act as a god of prompt engineer and write this prompt in a way so Ai agent such as gpt 5.4 can execuate without any mistake and messedup : in complete template module and template-service can you please find any code, db columns, fields, functionalty, Ui or any piece of code which is not used in anywhere in whole codebases or if we remove it then there is not a single effect or broken appeare in project.
 
 // first see attached screenshot. 
 // Again there is lots of waste of space. can we combined basic information and template Ui so there should no waste of space i want to make it compact and clean and ui friendly. please make it compact and clean and ui friendly. so it will look more better and more user friendly. please fix it with production grade approach not just quick fix.
+
+
+
+// 

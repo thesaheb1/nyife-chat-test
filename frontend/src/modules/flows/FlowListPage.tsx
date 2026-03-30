@@ -28,7 +28,7 @@ import {
   ListingToolbar,
 } from '@/shared/components';
 import { FlowActionsMenu } from './FlowActionsMenu';
-import { FLOW_ACTION_LABELS, getFlowAvailableActions, getVisibleLifecycleActions } from './flowLifecycle';
+import { getFlowAvailableActions } from './flowLifecycle';
 import { flowCategories, humanizeFlowCategory } from './flowUtils';
 import {
   useDeleteFlow,
@@ -89,8 +89,6 @@ export function FlowListPage() {
     search: listing.debouncedSearch || undefined,
     status: listing.filters.status || undefined,
     category: listing.filters.category || undefined,
-    date_from: listing.dateRange.from,
-    date_to: listing.dateRange.to,
   });
   const syncFlows = useSyncFlows();
   const publishFlow = usePublishFlow();
@@ -110,7 +108,11 @@ export function FlowListPage() {
       accessorKey: 'name',
       header: 'Flow',
       cell: ({ row }) => (
-        <button className="text-left hover:underline" onClick={() => navigate(`/flows/${row.original.id}`)}>
+        <button
+          className="min-w-55 text-left hover:text-primary hover:underline"
+          data-row-click-ignore="true"
+          onClick={() => navigate(`/flows/${row.original.id}`)}
+        >
           <div className="font-medium">{row.original.name}</div>
           <div className="text-xs text-muted-foreground">{row.original.meta_flow_id || 'Not linked to Meta yet'}</div>
         </button>
@@ -143,31 +145,11 @@ export function FlowListPage() {
       ),
     },
     {
-      id: 'available_actions',
-      header: 'Available actions',
-      cell: ({ row }) => {
-        const visibleActions = filterActionsForPermissions(
-          getVisibleLifecycleActions(row.original),
-          permissions
-        );
-
-        return visibleActions.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {visibleActions.map((action) => (
-              <Badge key={action} variant="outline" className="text-[11px]">
-                {FLOW_ACTION_LABELS[action]}
-              </Badge>
-            ))}
-          </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">View details</span>
-        );
-      },
-    },
-    {
       accessorKey: 'updated_at',
       header: 'Updated',
-      cell: ({ row }) => new Date(row.original.updated_at).toLocaleString(),
+      cell: ({ row }) => (
+        <span className="text-sm">{new Date(row.original.updated_at).toLocaleDateString()}</span>
+      ),
     },
     {
       id: 'actions',
@@ -181,7 +163,11 @@ export function FlowListPage() {
         const actions = filterActionsForPermissions(getFlowAvailableActions(flow), permissions);
 
         return (
-          <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="flex justify-end"
+            data-row-click-ignore="true"
+            onClick={(event) => event.stopPropagation()}
+          >
             <FlowActionsMenu
               actions={actions}
               isBusy={flowBusy}
@@ -226,6 +212,7 @@ export function FlowListPage() {
             <>
               {canUpdateFlows ? (
                 <Button
+                  className="w-full sm:w-auto"
                   variant="outline"
                   onClick={async () => {
                     try {
@@ -242,7 +229,7 @@ export function FlowListPage() {
                 </Button>
               ) : null}
               {canCreateFlows ? (
-                <Button onClick={() => navigate('/flows/create')}>
+                <Button className="w-full sm:w-auto" onClick={() => navigate('/flows/create')}>
                   <Plus className="mr-2 h-4 w-4" />
                   Create Flow
                 </Button>
@@ -280,42 +267,35 @@ export function FlowListPage() {
                 options: flowCategories,
               },
             ]}
-            dateRange={listing.dateRange}
-            onDateRangeChange={listing.setDateRange}
-            dateRangePlaceholder="Updated date range"
             hasActiveFilters={listing.hasActiveFilters}
             onReset={listing.resetAll}
           />
-
-          {isLoading ? (
-            <div className="flex min-h-[24rem] items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : data?.flows?.length ? (
-            <DataTable
-              columns={columns}
-              data={data.flows}
-              page={data.meta.page}
-              totalPages={data.meta.totalPages}
-              total={data.meta.total}
-              onPageChange={listing.setPage}
-            />
-          ) : (
-            <div className="space-y-4 py-6">
-              <ListingEmptyState
-                title="No flows found"
-                description="Create your first flow or adjust the filters to see matching results."
-              />
-              {canCreateFlows ? (
-                <div className="flex justify-center">
-                  <Button onClick={() => navigate('/flows/create')}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Create Flow
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          )}
+          <DataTable
+            columns={columns}
+            data={data?.flows || []}
+            isLoading={isLoading}
+            page={data?.meta.page ?? listing.page}
+            totalPages={data?.meta.totalPages ?? 1}
+            total={data?.meta.total ?? 0}
+            onPageChange={listing.setPage}
+            onRowClick={(flow) => navigate(`/flows/${flow.id}`)}
+            emptyMessage={(
+              <div className="space-y-4 py-6">
+                <ListingEmptyState
+                  title="No flows found"
+                  description="Create your first flow or adjust the filters to see matching results."
+                />
+                {canCreateFlows ? (
+                  <div className="flex justify-center">
+                    <Button className="w-full sm:w-auto" onClick={() => navigate('/flows/create')}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Create Flow
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          />
         </ListingTableCard>
       </div>
 

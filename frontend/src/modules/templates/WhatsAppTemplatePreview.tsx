@@ -120,8 +120,10 @@ function getDraftHeaderMedia(draft: TemplateDraft | undefined, type: Template['t
     return draft.carousel.cards[cardIndex]?.headerMedia || null;
   }
 
+
   return null;
 }
+
 
 function renderButtonLabel(button: Record<string, unknown>) {
   const buttonType = trim(button.type).toUpperCase();

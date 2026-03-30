@@ -61,27 +61,28 @@ export function FlowBuilderHeader({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             {availableActions.includes('clone') ? (
-              <Button variant="outline" onClick={onClone} disabled={isBusy}>
+              <Button className="w-full sm:w-auto" variant="outline" onClick={onClone} disabled={isBusy}>
                 <Copy className="mr-2 h-4 w-4" />
                 Clone
               </Button>
             ) : null}
             {availableActions.includes('deprecate') ? (
-              <Button variant="outline" onClick={onDeprecate} disabled={isBusy}>
+              <Button className="w-full sm:w-auto" variant="outline" onClick={onDeprecate} disabled={isBusy}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Deprecate
               </Button>
             ) : null}
             {availableActions.includes('delete') ? (
-              <Button variant="outline" onClick={onDelete} disabled={isBusy}>
+              <Button className="w-full sm:w-auto" variant="outline" onClick={onDelete} disabled={isBusy}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </Button>
             ) : null}
             {canPublish ? (
               <Button
+                className="w-full sm:w-auto"
                 variant="outline"
                 onClick={onPublish}
                 disabled={isBusy || publishDisabled}
@@ -92,7 +93,7 @@ export function FlowBuilderHeader({
               </Button>
             ) : null}
             {canSaveDraft ? (
-              <Button onClick={onSaveDraft} disabled={isBusy || isReadOnly}>
+              <Button className="w-full sm:w-auto" onClick={onSaveDraft} disabled={isBusy || isReadOnly}>
                 <Save className="mr-2 h-4 w-4" />
                 Save draft
               </Button>

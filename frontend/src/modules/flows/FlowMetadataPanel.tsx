@@ -42,7 +42,13 @@ export function FlowMetadataPanel({
               Keep the essentials compact here. Nyife saves the selected primary category as a single-item Meta category array.
             </CardDescription>
           </div>
-          <Button type="button" variant="ghost" onClick={onOpenMetaFlowBuilder} disabled={isBusy}>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={onOpenMetaFlowBuilder}
+            disabled={isBusy}
+          >
             <ExternalLink className="mr-2 h-4 w-4" />
             Open Meta Flow Builder
           </Button>

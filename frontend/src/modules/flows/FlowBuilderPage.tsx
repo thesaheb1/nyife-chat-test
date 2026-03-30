@@ -487,7 +487,7 @@ export function FlowBuilderPage() {
 
   return (
     <>
-      <div className="space-y-4">
+      <div className="space-y-4 sm:space-y-5">
         <FlowBuilderHeader
           isEdit={isEdit}
           flow={existing}
@@ -516,188 +516,190 @@ export function FlowBuilderPage() {
           onSaveDraft={() => void runSaveAction('save')}
         />
 
-        <FlowMetadataPanel
-          name={name}
-          primaryCategory={primaryCategory}
-          isBusy={isBusy}
-          readOnly={isReadOnly}
-          starterLinkedToCategory={!isEdit && !hasBuilderEdits}
-          onNameChange={(value) => {
-            setName(value);
-            setHasUnsavedChanges(true);
-          }}
-          onCategoryChange={(category) => {
-            if (!isEdit && !hasBuilderEdits) {
-              applyCategoryStarter(category, { keepStarterLinked: true });
-              return;
-            }
+        <div className="space-y-5">
+          <FlowMetadataPanel
+            name={name}
+            primaryCategory={primaryCategory}
+            isBusy={isBusy}
+            readOnly={isReadOnly}
+            starterLinkedToCategory={!isEdit && !hasBuilderEdits}
+            onNameChange={(value) => {
+              setName(value);
+              setHasUnsavedChanges(true);
+            }}
+            onCategoryChange={(category) => {
+              if (!isEdit && !hasBuilderEdits) {
+                applyCategoryStarter(category, { keepStarterLinked: true });
+                return;
+              }
 
-            setCategories([category]);
-            setHasUnsavedChanges(true);
-          }}
-          onOpenMetaFlowBuilder={() => window.open(META_FLOW_MANAGER_URL, '_blank', 'noopener,noreferrer')}
-        />
+              setCategories([category]);
+              setHasUnsavedChanges(true);
+            }}
+            onOpenMetaFlowBuilder={() => window.open(META_FLOW_MANAGER_URL, '_blank', 'noopener,noreferrer')}
+          />
 
-        {isReadOnly ? (
-          <FlowNoticeCard
-            title="Read-only lifecycle state"
-            tone="info"
-            description="This flow is no longer editable in place. Use the allowed lifecycle actions shown in the header instead of changing the saved draft."
-          >
-            <p>
-              Nyife opens published, throttled, blocked, and deprecated flows here for safe review only. Clone creates a new draft. Deprecate remains available only when Meta still treats the flow as active.
-            </p>
-          </FlowNoticeCard>
-        ) : null}
+          {isReadOnly ? (
+            <FlowNoticeCard
+              title="Read-only lifecycle state"
+              tone="info"
+              description="This flow is no longer editable in place. Use the allowed lifecycle actions shown in the header instead of changing the saved draft."
+            >
+              <p>
+                Nyife opens published, throttled, blocked, and deprecated flows here for safe review only. Clone creates a new draft. Deprecate remains available only when Meta still treats the flow as active.
+              </p>
+            </FlowNoticeCard>
+          ) : null}
 
-        {builderWarning ? (
-          <FlowNoticeCard
-            title="Visual builder limited"
-            description="Nyife keeps this flow safe in JSON mode because the current Meta definition uses features outside the supported static builder subset."
-          >
-            <p>{builderWarning}</p>
-          </FlowNoticeCard>
-        ) : null}
+          {builderWarning ? (
+            <FlowNoticeCard
+              title="Visual builder limited"
+              description="Nyife keeps this flow safe in JSON mode because the current Meta definition uses features outside the supported static builder subset."
+            >
+              <p>{builderWarning}</p>
+            </FlowNoticeCard>
+          ) : null}
 
-        {hasUnsupportedDataExchange ? (
-          <FlowNoticeCard
-            title="Data exchange deferred"
-            description="Endpoint-powered data exchange stays out of scope for this production hardening round."
-          >
-            <p>
-              Draft save is still allowed, but official Meta preview generation and publish are blocked until this configuration is cleared or phase 2 support is implemented.
-            </p>
-            <pre className="overflow-auto rounded-2xl bg-amber-100/70 p-3 text-xs text-amber-950">
-              {JSON.stringify(dataExchangeConfig, null, 2)}
-            </pre>
-          </FlowNoticeCard>
-        ) : null}
+          {hasUnsupportedDataExchange ? (
+            <FlowNoticeCard
+              title="Data exchange deferred"
+              description="Endpoint-powered data exchange stays out of scope for this production hardening round."
+            >
+              <p>
+                Draft save is still allowed, but official Meta preview generation and publish are blocked until this configuration is cleared or phase 2 support is implemented.
+              </p>
+              <pre className="overflow-auto rounded-2xl bg-amber-100/70 p-3 text-xs text-amber-950">
+                {JSON.stringify(dataExchangeConfig, null, 2)}
+              </pre>
+            </FlowNoticeCard>
+          ) : null}
 
-        {validationIssues.length > 0 ? (
-          <FlowNoticeCard
-            title="Validation issues"
-            description="Drafts can still be saved locally, but Meta publish stays blocked until these issues are fixed."
-          >
-            {validationIssues.map((issue) => <p key={issue}>- {issue}</p>)}
-          </FlowNoticeCard>
-        ) : null}
+          {validationIssues.length > 0 ? (
+            <FlowNoticeCard
+              title="Validation issues"
+              description="Drafts can still be saved locally, but Meta publish stays blocked until these issues are fixed."
+            >
+              {validationIssues.map((issue) => <p key={issue}>- {issue}</p>)}
+            </FlowNoticeCard>
+          ) : null}
 
-        <Tabs value={mode} onValueChange={(value) => setMode(value as BuilderMode)} className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="builder" disabled={!builderSupported}>Builder</TabsTrigger>
-            <TabsTrigger value="json">JSON</TabsTrigger>
-          </TabsList>
+          <Tabs value={mode} onValueChange={(value) => setMode(value as BuilderMode)} className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="builder" disabled={!builderSupported}>Builder</TabsTrigger>
+              <TabsTrigger value="json">JSON</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="builder">
-            {builderSupported ? (
-              <FlowBuilderWorkspace
-                compactLayout={compactWorkspace}
-                flowDefinition={builderDefinition}
-                activeScreenId={activeScreen?.id || ''}
-                activeScreen={activeScreen}
+            <TabsContent value="builder">
+              {builderSupported ? (
+                <FlowBuilderWorkspace
+                  compactLayout={compactWorkspace}
+                  flowDefinition={builderDefinition}
+                  activeScreenId={activeScreen?.id || ''}
+                  activeScreen={activeScreen}
+                  readOnly={isReadOnly}
+                  selectedComponent={selectedComponent}
+                  selectedComponentIndex={selectedComponentIndex}
+                  screensSheetOpen={screensSheetOpen}
+                  inspectorSheetOpen={inspectorSheetOpen}
+                  onScreensSheetOpenChange={setScreensSheetOpen}
+                  onInspectorSheetOpenChange={setInspectorSheetOpen}
+                  onSelectScreen={(screenId) => {
+                    setActiveScreenId(screenId);
+                    setSelectedComponentIndex(null);
+                  }}
+                  onAddScreen={() => {
+                    const screen = createFlowScreen();
+                    syncBuilderDefinition({ ...builderDefinition, screens: [...builderDefinition.screens, screen] });
+                    setActiveScreenId(screen.id);
+                    setSelectedComponentIndex(null);
+                  }}
+                  onMoveScreen={(fromIndex, toIndex) => syncBuilderDefinition({
+                    ...builderDefinition,
+                    screens: moveItem(builderDefinition.screens, fromIndex, toIndex),
+                  })}
+                  onRemoveScreen={(screenId) => {
+                    if (builderDefinition.screens.length === 1) {
+                      toast.error('At least one screen is required.');
+                      return;
+                    }
+                    const remaining = builderDefinition.screens.filter((screen) => screen.id !== screenId);
+                    syncBuilderDefinition({ ...builderDefinition, screens: remaining });
+                    setActiveScreenId(remaining[0]?.id || '');
+                    setSelectedComponentIndex(null);
+                  }}
+                  onAddComponent={(type) => {
+                    if (!activeScreen) {
+                      return;
+                    }
+
+                    updateScreen(activeScreen.id, (screen) => ({
+                      ...screen,
+                      layout: {
+                        ...screen.layout,
+                        children: [...screen.layout.children, createFlowComponent(type)],
+                      },
+                    }));
+                    setSelectedComponentIndex(activeScreen.layout.children.length);
+                  }}
+                  onSelectComponent={setSelectedComponentIndex}
+                  onMoveComponent={(fromIndex, toIndex) => {
+                    if (!activeScreen || toIndex < 0 || toIndex >= activeScreen.layout.children.length) {
+                      return;
+                    }
+
+                    updateScreen(activeScreen.id, (screen) => ({
+                      ...screen,
+                      layout: {
+                        ...screen.layout,
+                        children: moveItem(screen.layout.children, fromIndex, toIndex),
+                      },
+                    }));
+                    setSelectedComponentIndex(toIndex);
+                  }}
+                  onRemoveComponent={(index) => {
+                    if (!activeScreen) {
+                      return;
+                    }
+
+                    updateScreen(activeScreen.id, (screen) => ({
+                      ...screen,
+                      layout: {
+                        ...screen.layout,
+                        children: screen.layout.children.filter((_, candidateIndex) => candidateIndex !== index),
+                      },
+                    }));
+                    setSelectedComponentIndex(null);
+                  }}
+                  onUpdateScreen={(updater) => activeScreen && updateScreen(activeScreen.id, updater)}
+                  onUpdateComponent={updateSelectedComponent}
+                  onOpenPreview={() => openPreviewDialog('nyife')}
+                />
+              ) : (
+                <FlowNoticeCard
+                  title="Builder unavailable"
+                  description="This flow stays in JSON mode to avoid corrupting unsupported Meta JSON."
+                >
+                  <p>{builderWarning || 'Switch to the JSON tab to review this flow safely.'}</p>
+                </FlowNoticeCard>
+              )}
+            </TabsContent>
+
+            <TabsContent value="json">
+              <FlowJsonEditorCard
+                jsonDraft={jsonDraft}
+                isBusy={isBusy}
                 readOnly={isReadOnly}
-                selectedComponent={selectedComponent}
-                selectedComponentIndex={selectedComponentIndex}
-                screensSheetOpen={screensSheetOpen}
-                inspectorSheetOpen={inspectorSheetOpen}
-                onScreensSheetOpenChange={setScreensSheetOpen}
-                onInspectorSheetOpenChange={setInspectorSheetOpen}
-                onSelectScreen={(screenId) => {
-                  setActiveScreenId(screenId);
-                  setSelectedComponentIndex(null);
+                onChange={(value) => {
+                  setJsonDraft(value);
+                  setHasUnsavedChanges(true);
+                  setHasBuilderEdits(true);
                 }}
-                onAddScreen={() => {
-                  const screen = createFlowScreen();
-                  syncBuilderDefinition({ ...builderDefinition, screens: [...builderDefinition.screens, screen] });
-                  setActiveScreenId(screen.id);
-                  setSelectedComponentIndex(null);
-                }}
-                onMoveScreen={(fromIndex, toIndex) => syncBuilderDefinition({
-                  ...builderDefinition,
-                  screens: moveItem(builderDefinition.screens, fromIndex, toIndex),
-                })}
-                onRemoveScreen={(screenId) => {
-                  if (builderDefinition.screens.length === 1) {
-                    toast.error('At least one screen is required.');
-                    return;
-                  }
-                  const remaining = builderDefinition.screens.filter((screen) => screen.id !== screenId);
-                  syncBuilderDefinition({ ...builderDefinition, screens: remaining });
-                  setActiveScreenId(remaining[0]?.id || '');
-                  setSelectedComponentIndex(null);
-                }}
-                onAddComponent={(type) => {
-                  if (!activeScreen) {
-                    return;
-                  }
-
-                  updateScreen(activeScreen.id, (screen) => ({
-                    ...screen,
-                    layout: {
-                      ...screen.layout,
-                      children: [...screen.layout.children, createFlowComponent(type)],
-                    },
-                  }));
-                  setSelectedComponentIndex(activeScreen.layout.children.length);
-                }}
-                onSelectComponent={setSelectedComponentIndex}
-                onMoveComponent={(fromIndex, toIndex) => {
-                  if (!activeScreen || toIndex < 0 || toIndex >= activeScreen.layout.children.length) {
-                    return;
-                  }
-
-                  updateScreen(activeScreen.id, (screen) => ({
-                    ...screen,
-                    layout: {
-                      ...screen.layout,
-                      children: moveItem(screen.layout.children, fromIndex, toIndex),
-                    },
-                  }));
-                  setSelectedComponentIndex(toIndex);
-                }}
-                onRemoveComponent={(index) => {
-                  if (!activeScreen) {
-                    return;
-                  }
-
-                  updateScreen(activeScreen.id, (screen) => ({
-                    ...screen,
-                    layout: {
-                      ...screen.layout,
-                      children: screen.layout.children.filter((_, candidateIndex) => candidateIndex !== index),
-                    },
-                  }));
-                  setSelectedComponentIndex(null);
-                }}
-                onUpdateScreen={(updater) => activeScreen && updateScreen(activeScreen.id, updater)}
-                onUpdateComponent={updateSelectedComponent}
-                onOpenPreview={() => openPreviewDialog('nyife')}
+                onReset={() => setJsonDraft(JSON.stringify(mode === 'builder' ? currentBuilderJson : jsonDefinition, null, 2))}
+                onApply={applyJsonDraft}
               />
-            ) : (
-              <FlowNoticeCard
-                title="Builder unavailable"
-                description="This flow stays in JSON mode to avoid corrupting unsupported Meta JSON."
-              >
-                <p>{builderWarning || 'Switch to the JSON tab to review this flow safely.'}</p>
-              </FlowNoticeCard>
-            )}
-          </TabsContent>
-
-          <TabsContent value="json">
-            <FlowJsonEditorCard
-              jsonDraft={jsonDraft}
-              isBusy={isBusy}
-              readOnly={isReadOnly}
-              onChange={(value) => {
-                setJsonDraft(value);
-                setHasUnsavedChanges(true);
-                setHasBuilderEdits(true);
-              }}
-              onReset={() => setJsonDraft(JSON.stringify(mode === 'builder' ? currentBuilderJson : jsonDefinition, null, 2))}
-              onApply={applyJsonDraft}
-            />
-          </TabsContent>
-        </Tabs>
+            </TabsContent>
+          </Tabs>
+        </div>
       </div>
 
       <FlowPreviewDialog

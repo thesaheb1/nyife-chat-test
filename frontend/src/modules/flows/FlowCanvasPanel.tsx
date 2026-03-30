@@ -32,12 +32,12 @@ export function FlowCanvasPanel({
           <div className="space-y-1">
             <CardTitle className="text-base">Builder canvas</CardTitle>
             <CardDescription>
-              Arrange the active screen here. Open preview launches the in-app preview dialog with Nyife and Official Meta preview tabs.
+              Arrange the active screen here. Use the side preview for fast checks, then expand the preview dialog when you need Nyife and Official Meta preview tabs together.
             </CardDescription>
           </div>
-          <Button type="button" variant="outline" onClick={onOpenPreview}>
+          <Button type="button" variant="outline" onClick={onOpenPreview} className="w-full sm:w-auto">
             <Eye className="mr-2 h-4 w-4" />
-            Open preview
+            Expand preview
           </Button>
         </div>
       </CardHeader>

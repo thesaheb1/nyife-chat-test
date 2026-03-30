@@ -3,7 +3,6 @@ import { ExternalLink, Loader2, RefreshCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -14,8 +13,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import type { FlowDefinition, WhatsAppFlow } from '@/core/types';
+import { cn } from '@/lib/utils';
 import { META_FLOW_MANAGER_URL, isFlowPreviewExpired } from './flowPreview';
-import { WhatsAppFlowPreview } from './WhatsAppFlowPreview';
+import { FlowLocalPreviewPane, FlowPreviewNotesCard } from './FlowPreviewPane';
 
 type FlowPreviewTab = 'nyife' | 'meta';
 
@@ -149,128 +149,109 @@ export function FlowPreviewDialog({
     || onRefreshOfficialPreview
   );
 
+  const openOfficialPreview = () => {
+    if (officialPreview.previewUrl) {
+      window.open(officialPreview.previewUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[min(92rem,calc(100vw-2rem))] gap-0 overflow-hidden p-0">
-        <DialogHeader className="border-b px-6 py-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <DialogTitle>{title}</DialogTitle>
-                <Badge variant="outline">Preview</Badge>
+      <DialogContent
+        showCloseButton={false}
+        className="!h-[min(100dvh-1rem,62rem)] !w-[min(100vw-1rem,84rem)] !max-w-[min(100vw-1rem,84rem)] !gap-0 !overflow-hidden !border-none !bg-transparent !p-0 !shadow-none sm:!w-[min(100vw-2rem,84rem)] md:!h-[min(100dvh-2rem,62rem)]"
+      >
+        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[24px] border bg-background shadow-2xl sm:rounded-[32px]">
+          <DialogHeader className="gap-4 border-b px-4 py-4 text-left sm:px-6 sm:py-5">
+            <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <DialogTitle className="text-lg sm:text-xl">{title}</DialogTitle>
+                  <Badge variant="outline">Preview</Badge>
+                </div>
+                <DialogDescription className="max-w-3xl text-sm">
+                  Use Nyife Preview for quick local validation and navigation checks. Use Official Meta Preview for the exact Meta-rendered web preview before publish.
+                </DialogDescription>
               </div>
-              <DialogDescription className="max-w-3xl">
-                Use Nyife Preview for quick local validation and navigation checks. Use Official Meta Preview for the exact Meta-rendered web preview before sending traffic to the flow.
-              </DialogDescription>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => window.open(META_FLOW_MANAGER_URL, '_blank', 'noopener,noreferrer')}
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Open Meta Flow Builder
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => void runOfficialPreviewAction(
+                    syncOfficialPreviewBeforeOpen ? 'ensure' : 'refresh',
+                    true
+                  )}
+                  disabled={pending || (!onEnsureOfficialPreview && !onRefreshOfficialPreview)}
+                >
+                  {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                  Refresh official preview
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={openOfficialPreview}
+                  disabled={!officialPreview.previewUrl}
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Open official preview
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as FlowPreviewTab)} className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b px-4 py-3 sm:px-6">
+              <TabsList className="grid w-full grid-cols-2 sm:inline-flex sm:w-auto">
+                <TabsTrigger value="nyife">Nyife Preview</TabsTrigger>
+                <TabsTrigger value="meta" disabled={!metaTabReady}>
+                  Official Meta Preview
+                </TabsTrigger>
+              </TabsList>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => window.open(META_FLOW_MANAGER_URL, '_blank', 'noopener,noreferrer')}
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Open Meta Flow Builder
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void runOfficialPreviewAction(
-                  syncOfficialPreviewBeforeOpen ? 'ensure' : 'refresh',
-                  true
-                )}
-                disabled={pending || (!onEnsureOfficialPreview && !onRefreshOfficialPreview)}
-              >
-                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
-                Refresh official preview
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  if (officialPreview.previewUrl) {
-                    window.open(officialPreview.previewUrl, '_blank', 'noopener,noreferrer');
-                  }
-                }}
-                disabled={!officialPreview.previewUrl}
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Open official preview
-              </Button>
-            </div>
-          </div>
-        </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+              <TabsContent value="nyife" className="mt-0">
+                <div className="mx-auto grid max-w-4xl gap-4">
+                  <FlowLocalPreviewPane
+                    definition={definition}
+                    builderSupported={builderSupported}
+                    warning={warning}
+                    title="Nyife Preview"
+                    description="Fast local preview for supported static flows while you build."
+                    className="h-fit"
+                    previewClassName="max-w-[360px]"
+                  />
+                  <FlowPreviewNotesCard className="h-fit" />
+                </div>
+              </TabsContent>
 
-        <div className="px-6 py-5">
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as FlowPreviewTab)} className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="nyife">Nyife Preview</TabsTrigger>
-              <TabsTrigger value="meta" disabled={!metaTabReady}>
-                Official Meta Preview
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="nyife" className="space-y-4">
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,0.82fr)_minmax(320px,0.48fr)]">
-                <Card className="rounded-3xl shadow-sm">
-                  <CardHeader className="pb-3">
-                    <CardTitle>Local authoring preview</CardTitle>
-                    <CardDescription>
-                      This is the in-app preview for supported static flows. It is fast for iteration, but Meta preview is still the final source of truth.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="bg-[radial-gradient(circle_at_top,rgba(15,118,110,0.08),transparent_45%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] p-5">
-                    <WhatsAppFlowPreview
-                      definition={definition}
-                      builderSupported={builderSupported}
-                      warning={warning}
-                      className="mx-auto max-w-120"
-                    />
-                  </CardContent>
-                </Card>
-
-                <Card className="rounded-3xl shadow-sm">
-                  <CardHeader className="pb-3">
-                    <CardTitle>Preview notes</CardTitle>
-                    <CardDescription>
-                      Nyife Preview is tuned for fast iteration inside the builder.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm text-muted-foreground">
-                    <p>Use this tab to verify required fields, navigation flow, and basic completion behavior without leaving Nyife.</p>
-                    <p>If the definition exceeds the supported builder subset, Nyife keeps the Meta JSON safe and shows the limitation instead of rewriting unsupported structure.</p>
-                    <p>Use the Official Meta Preview tab before publish whenever you need the exact Meta-rendered experience.</p>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="meta" className="space-y-4">
-              <Card className="rounded-3xl shadow-sm">
-                <CardHeader className="pb-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <CardTitle>Official Meta Preview</CardTitle>
-                      <CardDescription>
-                        This tab uses the Meta preview URL stored for the linked flow.
-                      </CardDescription>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {officialPreview.metaFlowId ? <Badge variant="outline">Meta linked</Badge> : null}
-                      {officialPreview.previewUrl ? (
-                        <Badge variant={officialPreviewExpired ? 'secondary' : 'outline'}>
-                          {officialPreviewExpired ? 'Preview expired' : 'Preview ready'}
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary">Preview pending</Badge>
-                      )}
-                    </div>
+              <TabsContent value="meta" className="mt-0">
+                <div className="mx-auto max-w-5xl space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {officialPreview.metaFlowId ? <Badge variant="outline">Meta linked</Badge> : null}
+                    {officialPreview.previewUrl ? (
+                      <Badge variant={officialPreviewExpired ? 'secondary' : 'outline'}>
+                        {officialPreviewExpired ? 'Preview expired' : 'Preview ready'}
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">Preview pending</Badge>
+                    )}
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
+
                   {pending ? (
-                    <div className="flex min-h-[26rem] items-center justify-center gap-3 rounded-3xl border border-dashed bg-muted/20 text-sm text-muted-foreground">
+                    <div className="flex min-h-[22rem] items-center justify-center gap-3 rounded-3xl border border-dashed bg-muted/20 px-6 text-sm text-muted-foreground sm:min-h-[26rem]">
                       <Loader2 className="h-5 w-5 animate-spin" />
                       Preparing official Meta preview...
                     </div>
@@ -279,19 +260,32 @@ export function FlowPreviewDialog({
                       <iframe
                         title={`${title} official Meta preview`}
                         src={officialPreview.previewUrl}
-                        className="h-[70vh] min-h-[34rem] w-full bg-white"
+                        className="h-[48vh] min-h-[22rem] w-full bg-white sm:h-[56vh] lg:h-[60vh]"
                       />
                     </div>
                   ) : (
-                    <div className="rounded-3xl border border-dashed bg-muted/20 p-8 text-sm text-muted-foreground">
+                    <div className="rounded-3xl border border-dashed bg-muted/20 p-6 text-sm text-muted-foreground sm:p-8">
                       {officialPreview.metaFlowId
                         ? 'No official preview URL is available yet. Refresh the preview to ask Meta for a fresh preview link.'
                         : 'This flow is not linked to Meta yet. Open the Official Meta Preview tab after saving a draft so Nyife can prepare the preview for you.'}
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            </TabsContent>
+
+                  <div
+                    className={cn(
+                      'rounded-2xl border px-4 py-3 text-sm',
+                      officialPreview.previewUrl && !officialPreviewExpired
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                        : 'border-muted-foreground/20 bg-muted/20 text-muted-foreground'
+                    )}
+                  >
+                    {officialPreview.previewUrl && !officialPreviewExpired
+                      ? 'A recent Meta preview URL is available. Use the open button above if you want to inspect it in a separate tab.'
+                      : 'Official preview links can expire. Refresh the preview when needed so Nyife can fetch the latest Meta preview state.'}
+                  </div>
+                </div>
+              </TabsContent>
+            </div>
           </Tabs>
         </div>
       </DialogContent>

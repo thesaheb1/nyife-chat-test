@@ -17,6 +17,7 @@ export function FlowBuilderWorkspace({
   flowDefinition,
   activeScreenId,
   activeScreen,
+  readOnly,
   selectedComponent,
   selectedComponentIndex,
   screensSheetOpen,
@@ -39,6 +40,7 @@ export function FlowBuilderWorkspace({
   flowDefinition: FlowDefinition;
   activeScreenId: string;
   activeScreen: FlowScreen | null;
+  readOnly?: boolean;
   selectedComponent: FlowComponent | null;
   selectedComponentIndex: number | null;
   screensSheetOpen: boolean;
@@ -61,6 +63,7 @@ export function FlowBuilderWorkspace({
     <FlowScreenRail
       flowDefinition={flowDefinition}
       activeScreenId={activeScreenId}
+      readOnly={readOnly}
       onSelect={onSelectScreen}
       onAdd={onAddScreen}
       onMove={onMoveScreen}
@@ -73,6 +76,7 @@ export function FlowBuilderWorkspace({
     <FlowInspectorSidebar
       activeScreen={activeScreen}
       selectedComponent={selectedComponent}
+      readOnly={readOnly}
       screens={flowDefinition.screens}
       onUpdateScreen={onUpdateScreen}
       onUpdateComponent={onUpdateComponent}
@@ -86,6 +90,7 @@ export function FlowBuilderWorkspace({
         <FlowCanvasPanel
           definition={flowDefinition}
           activeScreen={activeScreen}
+          readOnly={readOnly}
           selectedComponentIndex={selectedComponentIndex}
           onSelect={onSelectComponent}
           onMoveComponent={onMoveComponent}
@@ -113,6 +118,7 @@ export function FlowBuilderWorkspace({
       <FlowCanvasPanel
         definition={flowDefinition}
         activeScreen={activeScreen}
+        readOnly={readOnly}
         selectedComponentIndex={selectedComponentIndex}
         onSelect={onSelectComponent}
         onMoveComponent={onMoveComponent}

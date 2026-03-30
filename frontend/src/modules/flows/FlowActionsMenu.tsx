@@ -1,12 +1,11 @@
 import {
-  ExternalLink,
+  Copy,
   Eye,
   Loader2,
   MoreHorizontal,
   Pencil,
   Send,
   Trash2,
-  WandSparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,41 +14,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-
-export type FlowActionKey =
-  | 'view'
-  | 'edit'
-  | 'save_to_meta'
-  | 'publish'
-  | 'open_meta_preview'
-  | 'delete';
-
-const FLOW_ACTION_LABELS: Record<FlowActionKey, string> = {
-  view: 'View details',
-  edit: 'Edit',
-  save_to_meta: 'Save to Meta',
-  publish: 'Publish',
-  open_meta_preview: 'Open Meta preview',
-  delete: 'Delete',
-};
+import type { FlowAvailableAction } from '@/core/types';
+import { FLOW_ACTION_LABELS } from './flowLifecycle';
 
 export function FlowActionsMenu({
   actions,
   isBusy,
   onView,
   onEdit,
-  onSaveToMeta,
   onPublish,
-  onOpenMetaPreview,
+  onClone,
+  onDeprecate,
   onDelete,
 }: {
-  actions: FlowActionKey[];
+  actions: FlowAvailableAction[];
   isBusy?: boolean;
   onView: () => void;
   onEdit: () => void;
-  onSaveToMeta: () => void;
   onPublish: () => void;
-  onOpenMetaPreview: () => void;
+  onClone: () => void;
+  onDeprecate: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -84,22 +68,22 @@ export function FlowActionsMenu({
             {FLOW_ACTION_LABELS.edit}
           </DropdownMenuItem>
         ) : null}
-        {actions.includes('save_to_meta') ? (
-          <DropdownMenuItem onClick={onSaveToMeta}>
-            <WandSparkles className="mr-2 h-4 w-4" />
-            {FLOW_ACTION_LABELS.save_to_meta}
-          </DropdownMenuItem>
-        ) : null}
         {actions.includes('publish') ? (
           <DropdownMenuItem onClick={onPublish}>
             <Send className="mr-2 h-4 w-4" />
             {FLOW_ACTION_LABELS.publish}
           </DropdownMenuItem>
         ) : null}
-        {actions.includes('open_meta_preview') ? (
-          <DropdownMenuItem onClick={onOpenMetaPreview}>
-            <ExternalLink className="mr-2 h-4 w-4" />
-            {FLOW_ACTION_LABELS.open_meta_preview}
+        {actions.includes('clone') ? (
+          <DropdownMenuItem onClick={onClone}>
+            <Copy className="mr-2 h-4 w-4" />
+            {FLOW_ACTION_LABELS.clone}
+          </DropdownMenuItem>
+        ) : null}
+        {actions.includes('deprecate') ? (
+          <DropdownMenuItem onClick={onDeprecate}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            {FLOW_ACTION_LABELS.deprecate}
           </DropdownMenuItem>
         ) : null}
         {actions.includes('delete') ? (

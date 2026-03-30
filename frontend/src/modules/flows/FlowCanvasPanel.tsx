@@ -9,6 +9,7 @@ import { FlowComponentPreview } from './FlowComponentPreview';
 export function FlowCanvasPanel({
   definition,
   activeScreen,
+  readOnly,
   selectedComponentIndex,
   onSelect,
   onMoveComponent,
@@ -17,6 +18,7 @@ export function FlowCanvasPanel({
 }: {
   definition: FlowDefinition;
   activeScreen: FlowScreen | null;
+  readOnly?: boolean;
   selectedComponentIndex: number | null;
   onSelect: (index: number | null) => void;
   onMoveComponent: (fromIndex: number, toIndex: number) => void;
@@ -30,7 +32,7 @@ export function FlowCanvasPanel({
           <div className="space-y-1">
             <CardTitle className="text-base">Builder canvas</CardTitle>
             <CardDescription>
-              Arrange the active screen here. Use the preview workspace for the interactive local preview and official Meta preview access.
+              Arrange the active screen here. Open preview launches the in-app preview dialog with Nyife and Official Meta preview tabs.
             </CardDescription>
           </div>
           <Button type="button" variant="outline" onClick={onOpenPreview}>
@@ -84,7 +86,7 @@ export function FlowCanvasPanel({
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7"
-                      disabled={index === 0}
+                      disabled={readOnly || index === 0}
                       onClick={() => onMoveComponent(index, index - 1)}
                     >
                       <ArrowUp className="h-3.5 w-3.5" />
@@ -94,7 +96,7 @@ export function FlowCanvasPanel({
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7"
-                      disabled={index === activeScreen.layout.children.length - 1}
+                      disabled={readOnly || index === activeScreen.layout.children.length - 1}
                       onClick={() => onMoveComponent(index, index + 1)}
                     >
                       <ArrowDown className="h-3.5 w-3.5" />
@@ -104,6 +106,7 @@ export function FlowCanvasPanel({
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7 text-destructive"
+                      disabled={readOnly}
                       onClick={() => onRemoveComponent(index)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -120,7 +123,7 @@ export function FlowCanvasPanel({
 
           <div className="mt-4 flex items-center justify-between rounded-2xl border border-dashed bg-white/80 px-4 py-3 text-xs text-muted-foreground">
             <span>{definition.screens.length} screen(s) in this flow</span>
-            <span>Static-flow builder subset</span>
+            <span>{readOnly ? 'Read-only review' : 'Static-flow builder subset'}</span>
           </div>
         </div>
       </CardContent>

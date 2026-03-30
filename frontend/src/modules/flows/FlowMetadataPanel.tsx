@@ -1,4 +1,5 @@
-import { WandSparkles } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
 import type { FlowCategory } from '@/core/types';
 import { flowCategories } from './flowUtils';
 
@@ -17,26 +17,36 @@ export function FlowMetadataPanel({
   name,
   primaryCategory,
   isBusy,
-  starterDirty,
+  readOnly,
+  starterLinkedToCategory,
   onNameChange,
   onCategoryChange,
-  onApplyStarter,
+  onOpenMetaFlowBuilder,
 }: {
   name: string;
   primaryCategory: FlowCategory;
   isBusy?: boolean;
-  starterDirty?: boolean;
+  readOnly?: boolean;
+  starterLinkedToCategory?: boolean;
   onNameChange: (value: string) => void;
   onCategoryChange: (value: FlowCategory) => void;
-  onApplyStarter: () => void;
+  onOpenMetaFlowBuilder: () => void;
 }) {
   return (
     <Card className="rounded-3xl border shadow-sm">
-      <CardHeader className="space-y-1 pb-3">
-        <CardTitle className="text-base">Flow metadata</CardTitle>
-        <CardDescription>
-          Keep the essentials compact here. The selected primary category controls the starter flow and stays Meta-compatible by saving as a single-item category array.
-        </CardDescription>
+      <CardHeader className="space-y-3 pb-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Flow metadata</CardTitle>
+            <CardDescription>
+              Keep the essentials compact here. Nyife saves the selected primary category as a single-item Meta category array.
+            </CardDescription>
+          </div>
+          <Button type="button" variant="ghost" onClick={onOpenMetaFlowBuilder} disabled={isBusy}>
+            <ExternalLink className="mr-2 h-4 w-4" />
+            Open Meta Flow Builder
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(240px,0.75fr)]">
         <div className="space-y-2">
@@ -46,38 +56,32 @@ export function FlowMetadataPanel({
             value={name}
             onChange={(event) => onNameChange(event.target.value)}
             placeholder="Lead capture flow"
+            disabled={readOnly}
           />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="flow-category">Primary category</Label>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Select value={primaryCategory} onValueChange={(value) => onCategoryChange(value as FlowCategory)}>
-              <SelectTrigger id="flow-category" className="flex-1">
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-              <SelectContent>
-                {flowCategories.map((category) => (
-                  <SelectItem key={category.value} value={category.value}>
-                    {category.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Button
-              type="button"
-              variant="outline"
-              className="shrink-0"
-              onClick={onApplyStarter}
-              disabled={isBusy}
-            >
-              <WandSparkles className="mr-2 h-4 w-4" />
-              {starterDirty ? 'Reset starter' : 'Apply starter'}
-            </Button>
-          </div>
+          <Select
+            value={primaryCategory}
+            onValueChange={(value) => onCategoryChange(value as FlowCategory)}
+            disabled={readOnly}
+          >
+            <SelectTrigger id="flow-category">
+              <SelectValue placeholder="Select category" />
+            </SelectTrigger>
+            <SelectContent>
+              {flowCategories.map((category) => (
+                <SelectItem key={category.value} value={category.value}>
+                  {category.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <p className="text-xs text-muted-foreground">
-            Pick one official Meta category for this flow. You can reset the visual starter at any time without changing the stored JSON until you save.
+            {starterLinkedToCategory
+              ? 'Changing the category still swaps the starter while this new flow stays untouched.'
+              : 'Changing the category only updates flow metadata now. It does not rewrite an already edited builder or JSON draft.'}
           </p>
         </div>
       </CardContent>

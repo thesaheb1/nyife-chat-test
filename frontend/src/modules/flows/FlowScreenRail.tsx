@@ -9,6 +9,7 @@ import { flowComponentPalette } from './flowUtils';
 export function FlowScreenRail({
   flowDefinition,
   activeScreenId,
+  readOnly,
   onSelect,
   onAdd,
   onMove,
@@ -17,6 +18,7 @@ export function FlowScreenRail({
 }: {
   flowDefinition: FlowDefinition;
   activeScreenId: string;
+  readOnly?: boolean;
   onSelect: (screenId: string) => void;
   onAdd: () => void;
   onMove: (fromIndex: number, toIndex: number) => void;
@@ -31,7 +33,7 @@ export function FlowScreenRail({
             <CardTitle className="text-base">Screens</CardTitle>
             <CardDescription>Organize the flow journey.</CardDescription>
           </div>
-          <Button size="sm" variant="outline" onClick={onAdd}>
+          <Button size="sm" variant="outline" onClick={onAdd} disabled={readOnly}>
             <Plus className="mr-2 h-4 w-4" />
             Add
           </Button>
@@ -67,7 +69,7 @@ export function FlowScreenRail({
                   size="icon"
                   variant="ghost"
                   className="h-7 w-7"
-                  disabled={index === 0}
+                  disabled={readOnly || index === 0}
                   onClick={() => onMove(index, index - 1)}
                 >
                   <ArrowUp className="h-3.5 w-3.5" />
@@ -77,7 +79,7 @@ export function FlowScreenRail({
                   size="icon"
                   variant="ghost"
                   className="h-7 w-7"
-                  disabled={index === flowDefinition.screens.length - 1}
+                  disabled={readOnly || index === flowDefinition.screens.length - 1}
                   onClick={() => onMove(index, index + 1)}
                 >
                   <ArrowDown className="h-3.5 w-3.5" />
@@ -87,6 +89,7 @@ export function FlowScreenRail({
                   size="icon"
                   variant="ghost"
                   className="h-7 w-7 text-destructive"
+                  disabled={readOnly}
                   onClick={() => onRemove(screen.id)}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -109,6 +112,7 @@ export function FlowScreenRail({
               type="button"
               variant="outline"
               className="h-auto items-start justify-start rounded-2xl px-3 py-3 text-left whitespace-normal"
+              disabled={readOnly}
               onClick={() => onAddComponent(item.type)}
             >
               <div>

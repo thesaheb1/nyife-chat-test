@@ -8,12 +8,14 @@ import { FlowComponentInspector } from './FlowComponentInspector';
 export function FlowInspectorSidebar({
   activeScreen,
   selectedComponent,
+  readOnly,
   screens,
   onUpdateScreen,
   onUpdateComponent,
 }: {
   activeScreen: FlowScreen | null;
   selectedComponent: FlowComponent | null;
+  readOnly?: boolean;
   screens: FlowScreen[];
   onUpdateScreen: (updater: (screen: FlowScreen) => FlowScreen) => void;
   onUpdateComponent: (updater: (component: FlowComponent) => FlowComponent) => void;
@@ -27,8 +29,8 @@ export function FlowInspectorSidebar({
           </CardTitle>
           <CardDescription>
             {selectedComponent
-              ? 'Edit the selected block properties.'
-              : 'Update the active screen title and identifier.'}
+              ? (readOnly ? 'Review the selected block properties.' : 'Edit the selected block properties.')
+              : (readOnly ? 'Review the active screen metadata.' : 'Update the active screen title and identifier.')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -39,6 +41,7 @@ export function FlowInspectorSidebar({
                 <Input
                   value={activeScreen.title}
                   onChange={(event) => onUpdateScreen((screen) => ({ ...screen, title: event.target.value }))}
+                  disabled={readOnly}
                 />
               </div>
               <div className="space-y-2">
@@ -49,6 +52,7 @@ export function FlowInspectorSidebar({
                     ...screen,
                     id: event.target.value.toUpperCase().replace(/[^A-Z_]/g, '_'),
                   }))}
+                  disabled={readOnly}
                 />
               </div>
             </>
@@ -57,6 +61,7 @@ export function FlowInspectorSidebar({
           {selectedComponent ? (
             <FlowComponentInspector
               component={selectedComponent}
+              readOnly={readOnly}
               screens={screens}
               onChange={onUpdateComponent}
             />

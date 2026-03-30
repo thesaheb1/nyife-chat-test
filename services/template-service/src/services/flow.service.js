@@ -18,6 +18,14 @@ const {
   createDefaultFlowDefinition,
   validateFlowDefinition,
 } = require('../helpers/flowSchema');
+const {
+  normalizeFlowLifecycleStatus,
+  getFlowAvailableActions,
+  canEditFlow,
+  canPublishFlow,
+  canDeleteFlow,
+  canDeprecateFlow,
+} = require('../helpers/flowLifecycle');
 const config = require('../config');
 const { resolveSingleWabaAccount } = require('./waAccountContext.service');
 
@@ -103,12 +111,29 @@ function normalizeFlowForResponse(flow) {
     return flow;
   }
 
-  flow.setDataValue('categories', normalizeCategories(flow.categories));
-  if (flow.preview_url && /^\/?flows\//.test(flow.preview_url)) {
-    flow.setDataValue('preview_url', null);
+  const categories = normalizeCategories(flow.categories);
+  const status = FLOW_STATUSES.includes(normalizeFlowLifecycleStatus(flow.status))
+    ? normalizeFlowLifecycleStatus(flow.status)
+    : 'DRAFT';
+  const previewUrl = flow.preview_url && /^\/?flows\//.test(flow.preview_url)
+    ? null
+    : flow.preview_url;
+
+  if (typeof flow.setDataValue === 'function') {
+    flow.setDataValue('categories', categories);
+    flow.setDataValue('status', status);
+    flow.setDataValue('preview_url', previewUrl);
+    flow.setDataValue('available_actions', getFlowAvailableActions(status));
+    return flow;
   }
 
-  return flow;
+  return {
+    ...flow,
+    categories,
+    status,
+    preview_url: previewUrl,
+    available_actions: getFlowAvailableActions(status),
+  };
 }
 
 async function findFlow(userId, flowId) {
@@ -227,14 +252,7 @@ function buildFlowJsonForm(flow) {
 }
 
 function mapMetaLifecycleStatus(status) {
-  const normalized = asTrimmedString(status).toUpperCase();
-  if (normalized.includes('DEPREC')) {
-    return 'DEPRECATED';
-  }
-  if (normalized.includes('PUBLISH')) {
-    return 'PUBLISHED';
-  }
-  return 'DRAFT';
+  return normalizeFlowLifecycleStatus(status);
 }
 
 function extractMetaValidationDetails(payload) {
@@ -633,9 +651,10 @@ function buildSyncPayload(remoteFlow) {
   };
 }
 
-function isDeleteBlockedByStatus(status) {
-  const normalized = asTrimmedString(status).toUpperCase();
-  return normalized.includes('PUBLISH') || normalized.includes('DEPREC');
+function assertLifecycleActionAllowed(flow, predicate, actionMessage) {
+  if (!predicate(flow)) {
+    throw AppError.badRequest(actionMessage);
+  }
 }
 
 async function createFlow(userId, data) {
@@ -728,6 +747,11 @@ async function getFlow(userId, flowId) {
 
 async function updateFlow(userId, flowId, data) {
   const flow = await findFlow(userId, flowId);
+  assertLifecycleActionAllowed(
+    flow,
+    canEditFlow,
+    'Only draft flows can be updated. Published, throttled, blocked, and deprecated flows must be cloned before editing.'
+  );
 
   let nextWabaId = data.waba_id !== undefined ? (data.waba_id || null) : flow.waba_id;
   let nextWaAccountId =
@@ -785,6 +809,11 @@ async function updateFlow(userId, flowId, data) {
 
 async function deleteFlow(userId, flowId, accessToken) {
   const flow = await findFlow(userId, flowId);
+  assertLifecycleActionAllowed(
+    flow,
+    canDeleteFlow,
+    'Only draft flows can be deleted. Published, throttled, blocked, and deprecated flows must be deprecated or cloned instead.'
+  );
 
   if (flow.meta_flow_id) {
     const executionContext = await resolveFlowExecutionContext(userId, flow.waba_id, accessToken);
@@ -804,9 +833,9 @@ async function deleteFlow(userId, flowId, accessToken) {
       }
     }
 
-    if (remoteFlow && isDeleteBlockedByStatus(remoteFlow.status || flow.meta_status || flow.status)) {
+    if (remoteFlow && !canDeleteFlow(mapMetaLifecycleStatus(remoteFlow.status || flow.meta_status || flow.status))) {
       throw AppError.badRequest(
-        'Published or deprecated Meta-linked flows cannot be deleted. Deprecate the flow on Meta instead of deleting it locally.'
+        'Only Meta draft flows can be deleted. Published, throttled, blocked, and deprecated Meta-linked flows must be deprecated instead.'
       );
     }
 
@@ -861,6 +890,11 @@ async function duplicateFlow(userId, flowId) {
 
 async function saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride) {
   const flow = await findFlow(userId, flowId);
+  assertLifecycleActionAllowed(
+    flow,
+    canEditFlow,
+    'Only draft flows can be saved back to Meta from Nyife. Clone the flow if you need a new editable draft.'
+  );
   assertFlowCanSyncToMeta(flow);
   assertStaticFlowSupported(flow);
 
@@ -993,10 +1027,17 @@ async function refreshFlowPreview(userId, flowId, accessToken, {
 }
 
 async function publishFlow(userId, flowId, accessToken, wabaIdOverride) {
+  const currentFlow = await findFlow(userId, flowId);
+  assertLifecycleActionAllowed(
+    currentFlow,
+    canPublishFlow,
+    'Only draft flows can be published. Published, throttled, blocked, and deprecated flows must be cloned or deprecated according to their current status.'
+  );
+
   const flow = await saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride);
   if (flow.status !== 'DRAFT') {
     throw AppError.badRequest(
-      'Meta did not move this flow back to DRAFT after applying the latest changes. This business account or linked flow may not support in-place editing yet, so publish could not continue.'
+      'Meta draft is not ready to publish because the linked flow is no longer in draft state after save.'
     );
   }
 
@@ -1072,6 +1113,11 @@ async function publishFlow(userId, flowId, accessToken, wabaIdOverride) {
 
 async function deprecateFlow(userId, flowId, accessToken) {
   const flow = await findFlow(userId, flowId);
+  assertLifecycleActionAllowed(
+    flow,
+    canDeprecateFlow,
+    'Only published, throttled, or blocked flows can be deprecated.'
+  );
 
   if (!flow.meta_flow_id) {
     throw AppError.badRequest('This flow has not been saved to Meta yet.');
@@ -1177,6 +1223,7 @@ async function syncFlows(userId, wabaId, accessToken, force = false) {
       editor_state: null,
       data_exchange_config: null,
       preview_url: payload.preview_url,
+      preview_expires_at: payload.preview_expires_at,
       validation_errors: payload.validation_errors,
       validation_error_details: payload.validation_error_details,
       meta_status: payload.meta_status,

@@ -19,15 +19,13 @@ export function FlowDetailOverview({
   flow,
   previewExpired,
   isRefreshingPreview,
-  onOpenPreviewWorkspace,
-  onOpenOfficialPreview,
+  onOpenPreview,
   onRefreshOfficialPreview,
 }: {
   flow: WhatsAppFlow;
   previewExpired: boolean;
   isRefreshingPreview?: boolean;
-  onOpenPreviewWorkspace: () => void;
-  onOpenOfficialPreview: () => void;
+  onOpenPreview: () => void;
   onRefreshOfficialPreview: () => void;
 }) {
   return (
@@ -36,7 +34,7 @@ export function FlowDetailOverview({
         <CardHeader className="pb-3">
           <CardTitle>Flow overview</CardTitle>
           <CardDescription>
-            Status, Meta linkage, categories, sync state, and publish readiness at a glance.
+            Status, Meta linkage, categories, sync state, and lifecycle readiness at a glance.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -65,23 +63,14 @@ export function FlowDetailOverview({
         <CardHeader className="pb-3">
           <CardTitle>Preview access</CardTitle>
           <CardDescription>
-            Use Nyife preview for fast review and Meta preview for exact final rendering checks.
+            Open the reusable preview dialog for Nyife Preview and Official Meta Preview.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={onOpenPreviewWorkspace}>
+            <Button type="button" onClick={onOpenPreview}>
               <Eye className="mr-2 h-4 w-4" />
-              Open preview workspace
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onOpenOfficialPreview}
-              disabled={!flow.preview_url}
-            >
-              <ExternalLink className="mr-2 h-4 w-4" />
-              Open official preview
+              Open preview
             </Button>
             <Button
               type="button"
@@ -91,6 +80,12 @@ export function FlowDetailOverview({
             >
               <RefreshCcw className="mr-2 h-4 w-4" />
               Refresh preview
+            </Button>
+            <Button type="button" variant="ghost" asChild>
+              <a href={META_FLOW_MANAGER_URL} target="_blank" rel="noreferrer">
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Meta Flow Builder
+              </a>
             </Button>
           </div>
 
@@ -108,9 +103,9 @@ export function FlowDetailOverview({
             <p className="mt-2 text-muted-foreground">
               {flow.preview_url
                 ? previewExpired
-                  ? 'This preview URL looks stale. Refresh it before opening the official Meta preview.'
+                  ? 'The saved Meta preview link looks stale. Refresh it before relying on the official preview tab.'
                   : 'A recent Meta preview URL is available for this flow.'
-                : 'Save the flow to Meta first to generate an official preview URL.'}
+                : 'Link the flow to Meta first to generate an official preview URL.'}
             </p>
             <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
               <CalendarClock className="h-3.5 w-3.5" />
@@ -122,12 +117,6 @@ export function FlowDetailOverview({
               </span>
             </div>
           </div>
-
-          <Button type="button" variant="ghost" className="px-0" asChild>
-            <a href={META_FLOW_MANAGER_URL} target="_blank" rel="noreferrer">
-              Open Meta Flow Builder
-            </a>
-          </Button>
         </CardContent>
       </Card>
     </div>

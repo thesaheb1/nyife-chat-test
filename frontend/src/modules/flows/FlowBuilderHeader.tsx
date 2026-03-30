@@ -1,51 +1,41 @@
-import {
-  ArrowLeft,
-  Copy,
-  ExternalLink,
-  Eye,
-  Save,
-  Send,
-  Trash2,
-  Upload,
-  WandSparkles,
-} from 'lucide-react';
+import { ArrowLeft, Copy, Save, Send, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import type { WhatsAppFlow } from '@/core/types';
+import type { FlowAvailableAction, WhatsAppFlow } from '@/core/types';
 
 export function FlowBuilderHeader({
   isEdit,
   flow,
   isBusy,
-  hasUnsupportedDataExchange,
+  isReadOnly,
+  publishDisabled,
+  publishDisabledReason,
+  availableActions,
   onBack,
-  onOpenPreview,
-  onOpenOfficialPreview,
-  onOpenMetaFlowBuilder,
-  onOpenImportJson,
-  onDuplicate,
+  onClone,
   onDeprecate,
   onDelete,
-  onSaveToMeta,
   onPublish,
   onSaveDraft,
 }: {
   isEdit: boolean;
   flow?: WhatsAppFlow | null;
   isBusy?: boolean;
-  hasUnsupportedDataExchange?: boolean;
+  isReadOnly?: boolean;
+  publishDisabled?: boolean;
+  publishDisabledReason?: string;
+  availableActions: FlowAvailableAction[];
   onBack: () => void;
-  onOpenPreview: () => void;
-  onOpenOfficialPreview: () => void;
-  onOpenMetaFlowBuilder: () => void;
-  onOpenImportJson: () => void;
-  onDuplicate: () => void;
+  onClone: () => void;
   onDeprecate: () => void;
   onDelete: () => void;
-  onSaveToMeta: () => void;
   onPublish: () => void;
   onSaveDraft: () => void;
 }) {
+  const title = isEdit ? (isReadOnly ? 'Flow builder' : 'Edit flow') : 'Create flow';
+  const canSaveDraft = !isEdit || availableActions.includes('edit');
+  const canPublish = !isEdit || availableActions.includes('publish');
+
   return (
     <div className="sticky top-0 z-20 rounded-3xl border bg-background/95 p-4 shadow-sm backdrop-blur supports-backdrop-filter:bg-background/85">
       <div className="flex flex-col gap-4">
@@ -56,74 +46,57 @@ export function FlowBuilderHeader({
             </Button>
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                  {isEdit ? 'Edit flow' : 'Create flow'}
-                </h1>
-                {flow?.status ? <Badge variant="outline">{flow.status}</Badge> : null}
+                <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+                {flow?.status ? <Badge variant="outline">{flow.status}</Badge> : <Badge variant="outline">DRAFT</Badge>}
                 {flow?.meta_status && flow.meta_status !== flow.status ? (
                   <Badge variant="secondary">{flow.meta_status}</Badge>
                 ) : null}
                 {flow?.meta_flow_id ? <Badge variant="secondary">Meta linked</Badge> : null}
+                {isReadOnly ? <Badge variant="secondary">Read-only</Badge> : null}
                 {flow?.can_send_message === false ? <Badge variant="destructive">Send blocked</Badge> : null}
               </div>
               <p className="max-w-3xl text-sm text-muted-foreground">
-                Build compact static WhatsApp Flows, import Meta-authored JSON, preview locally, and verify the official Meta preview before publishing.
+                Draft flows stay editable here. Published, throttled, blocked, and deprecated flows open in read-only mode so you can safely review them and use the lifecycle actions allowed for their current status.
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 lg:justify-end">
-            <Button variant="outline" onClick={onOpenPreview} disabled={isBusy}>
-              <Eye className="mr-2 h-4 w-4" />
-              Preview workspace
-            </Button>
-            <Button
-              variant="outline"
-              onClick={onOpenOfficialPreview}
-              disabled={isBusy || !flow?.preview_url}
-              title={flow?.preview_url ? 'Open the current official Meta preview' : 'Save this flow to Meta first to unlock the official preview'}
-            >
-              <ExternalLink className="mr-2 h-4 w-4" />
-              Official preview
-            </Button>
-            <Button variant="outline" onClick={onOpenMetaFlowBuilder} disabled={isBusy}>
-              <ExternalLink className="mr-2 h-4 w-4" />
-              Meta Flow Builder
-            </Button>
-            <Button variant="outline" onClick={onOpenImportJson} disabled={isBusy}>
-              <Upload className="mr-2 h-4 w-4" />
-              Import JSON
-            </Button>
-            {isEdit ? (
-              <Button variant="outline" onClick={onDuplicate} disabled={isBusy}>
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            {availableActions.includes('clone') ? (
+              <Button variant="outline" onClick={onClone} disabled={isBusy}>
                 <Copy className="mr-2 h-4 w-4" />
-                Duplicate
+                Clone
               </Button>
             ) : null}
-            {isEdit && flow?.meta_flow_id && flow.status !== 'DEPRECATED' ? (
+            {availableActions.includes('deprecate') ? (
               <Button variant="outline" onClick={onDeprecate} disabled={isBusy}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Deprecate
               </Button>
             ) : null}
-            {isEdit ? (
+            {availableActions.includes('delete') ? (
               <Button variant="outline" onClick={onDelete} disabled={isBusy}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </Button>
             ) : null}
-            <Button variant="outline" onClick={onSaveToMeta} disabled={isBusy || hasUnsupportedDataExchange}>
-              <WandSparkles className="mr-2 h-4 w-4" />
-              Save to Meta
-            </Button>
-            <Button variant="outline" onClick={onPublish} disabled={isBusy || hasUnsupportedDataExchange}>
-              <Send className="mr-2 h-4 w-4" />
-              Publish
-            </Button>
-            <Button onClick={onSaveDraft} disabled={isBusy}>
-              <Save className="mr-2 h-4 w-4" />
-              Save draft
-            </Button>
+            {canPublish ? (
+              <Button
+                variant="outline"
+                onClick={onPublish}
+                disabled={isBusy || publishDisabled}
+                title={publishDisabled ? publishDisabledReason : undefined}
+              >
+                <Send className="mr-2 h-4 w-4" />
+                Publish
+              </Button>
+            ) : null}
+            {canSaveDraft ? (
+              <Button onClick={onSaveDraft} disabled={isBusy || isReadOnly}>
+                <Save className="mr-2 h-4 w-4" />
+                Save draft
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>

@@ -166,7 +166,15 @@ export type FlowCategory =
   | 'SURVEY'
   | 'OTHER';
 
-export type FlowStatus = 'DRAFT' | 'PUBLISHED' | 'DEPRECATED';
+export type FlowStatus = 'DRAFT' | 'PUBLISHED' | 'THROTTLED' | 'BLOCKED' | 'DEPRECATED';
+
+export type FlowAvailableAction =
+  | 'view'
+  | 'edit'
+  | 'publish'
+  | 'delete'
+  | 'clone'
+  | 'deprecate';
 
 export type FlowComponentType =
   | 'TextHeading'
@@ -308,6 +316,7 @@ export interface WhatsAppFlow {
   name: string;
   categories: FlowCategory[];
   status: FlowStatus;
+  available_actions?: FlowAvailableAction[];
   json_version: string;
   json_definition: MetaFlowDefinition;
   editor_state: Record<string, unknown> | null;

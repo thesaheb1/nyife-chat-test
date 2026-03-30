@@ -2,11 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
-import {
-  Loader2,
-  Plus,
-  RefreshCw,
-} from 'lucide-react';
+import { Loader2, Plus, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +18,7 @@ import {
 import { DataTable } from '@/shared/components/DataTable';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import { usePermissions } from '@/core/hooks/usePermissions';
-import type { WhatsAppFlow } from '@/core/types';
+import type { FlowAvailableAction, WhatsAppFlow } from '@/core/types';
 import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { useListingState } from '@/shared/hooks/useListingState';
 import {
@@ -31,23 +27,46 @@ import {
   ListingTableCard,
   ListingToolbar,
 } from '@/shared/components';
-import { FlowActionsMenu, type FlowActionKey } from './FlowActionsMenu';
+import { FlowActionsMenu } from './FlowActionsMenu';
+import { FLOW_ACTION_LABELS, getFlowAvailableActions, getVisibleLifecycleActions } from './flowLifecycle';
 import { flowCategories, humanizeFlowCategory } from './flowUtils';
 import {
   useDeleteFlow,
+  useDeprecateFlow,
+  useDuplicateFlow,
   useFlows,
   usePublishFlow,
-  useSaveFlowToMeta,
   useSyncFlows,
 } from './useFlows';
 
 type ConfirmAction = {
-  type: 'publish' | 'delete';
+  type: 'publish' | 'delete' | 'deprecate';
   flow: WhatsAppFlow;
 } | null;
 
-function hasDeferredDataExchange(flow: WhatsAppFlow) {
-  return Object.keys(flow.data_exchange_config || {}).length > 0;
+function filterActionsForPermissions(
+  actions: FlowAvailableAction[],
+  permissions: {
+    canCreateFlows: boolean;
+    canUpdateFlows: boolean;
+    canDeleteFlows: boolean;
+  }
+) {
+  return actions.filter((action) => {
+    if (action === 'view') {
+      return true;
+    }
+
+    if (action === 'delete') {
+      return permissions.canDeleteFlows;
+    }
+
+    if (action === 'clone') {
+      return permissions.canCreateFlows;
+    }
+
+    return permissions.canUpdateFlows;
+  });
 }
 
 export function FlowListPage() {
@@ -74,27 +93,17 @@ export function FlowListPage() {
     date_to: listing.dateRange.to,
   });
   const syncFlows = useSyncFlows();
-  const saveToMeta = useSaveFlowToMeta();
   const publishFlow = usePublishFlow();
   const deleteFlow = useDeleteFlow();
+  const deprecateFlow = useDeprecateFlow();
+  const duplicateFlow = useDuplicateFlow();
   const canCreateFlows = canOrganization('flows', 'create');
   const canUpdateFlows = canOrganization('flows', 'update');
   const canDeleteFlows = canOrganization('flows', 'delete');
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
-  const handleSaveToMeta = async (flow: WhatsAppFlow) => {
-    const actionKey = `save:${flow.id}`;
-    setBusyKey(actionKey);
-    try {
-      await saveToMeta.mutateAsync({ id: flow.id });
-      toast.success('Flow saved to Meta successfully.');
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to save flow to Meta.'));
-    } finally {
-      setBusyKey((current) => (current === actionKey ? null : current));
-    }
-  };
+  const permissions = { canCreateFlows, canUpdateFlows, canDeleteFlows };
 
   const columns: Array<ColumnDef<WhatsAppFlow, unknown>> = [
     {
@@ -134,6 +143,28 @@ export function FlowListPage() {
       ),
     },
     {
+      id: 'available_actions',
+      header: 'Available actions',
+      cell: ({ row }) => {
+        const visibleActions = filterActionsForPermissions(
+          getVisibleLifecycleActions(row.original),
+          permissions
+        );
+
+        return visibleActions.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {visibleActions.map((action) => (
+              <Badge key={action} variant="outline" className="text-[11px]">
+                {FLOW_ACTION_LABELS[action]}
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">View details</span>
+        );
+      },
+    },
+    {
       accessorKey: 'updated_at',
       header: 'Updated',
       cell: ({ row }) => new Date(row.original.updated_at).toLocaleString(),
@@ -143,28 +174,11 @@ export function FlowListPage() {
       header: 'Actions',
       cell: ({ row }) => {
         const flow = row.original;
-        const flowBusy = busyKey === `save:${flow.id}`
+        const flowBusy = busyKey === `clone:${flow.id}`
           || busyKey === `publish:${flow.id}`
+          || busyKey === `deprecate:${flow.id}`
           || busyKey === `delete:${flow.id}`;
-        const actions: FlowActionKey[] = ['view'];
-
-        if (canUpdateFlows) {
-          actions.push('edit');
-          if (!hasDeferredDataExchange(flow)) {
-            actions.push('save_to_meta');
-            if (flow.status !== 'DEPRECATED') {
-              actions.push('publish');
-            }
-          }
-        }
-
-        if (flow.preview_url) {
-          actions.push('open_meta_preview');
-        }
-
-        if (canDeleteFlows) {
-          actions.push('delete');
-        }
+        const actions = filterActionsForPermissions(getFlowAvailableActions(flow), permissions);
 
         return (
           <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
@@ -173,13 +187,21 @@ export function FlowListPage() {
               isBusy={flowBusy}
               onView={() => navigate(`/flows/${flow.id}`)}
               onEdit={() => navigate(`/flows/${flow.id}/edit`)}
-              onSaveToMeta={() => void handleSaveToMeta(flow)}
               onPublish={() => setConfirmAction({ type: 'publish', flow })}
-              onOpenMetaPreview={() => {
-                if (flow.preview_url) {
-                  window.open(flow.preview_url, '_blank', 'noopener,noreferrer');
+              onClone={async () => {
+                const actionKey = `clone:${flow.id}`;
+                setBusyKey(actionKey);
+                try {
+                  const duplicate = await duplicateFlow.mutateAsync(flow.id);
+                  toast.success('Flow cloned successfully.');
+                  navigate(`/flows/${duplicate.id}/edit`);
+                } catch (error) {
+                  toast.error(getApiErrorMessage(error, 'Failed to clone flow.'));
+                } finally {
+                  setBusyKey((current) => (current === actionKey ? null : current));
                 }
               }}
+              onDeprecate={() => setConfirmAction({ type: 'deprecate', flow })}
               onDelete={() => setConfirmAction({ type: 'delete', flow })}
             />
           </div>
@@ -189,15 +211,17 @@ export function FlowListPage() {
   ];
 
   const confirmDescription = confirmAction?.type === 'publish'
-    ? 'Nyife will save the latest version to Meta, refresh validation and health details, and then publish the linked flow. If this flow is already published, Meta will move it back to draft while applying the updated version before publishing again.'
-    : 'Draft deletion is permanent. If this flow is linked to a Meta draft, Nyife will delete that draft remotely before removing the local flow.';
+    ? 'Nyife will publish the current draft to Meta using the saved canonical JSON definition.'
+    : confirmAction?.type === 'deprecate'
+      ? 'Deprecation stops the active Meta flow from remaining in service for new sends.'
+      : 'Draft deletion is permanent. If this flow is linked to a Meta draft, Nyife will delete that draft remotely before removing the local flow.';
 
   return (
     <>
       <div className="space-y-6">
         <ListingPageHeader
           title="WhatsApp Flows"
-          description="Create, sync, publish, and track form-style WhatsApp Flows for lead capture, booking, support, and survey journeys."
+          description="Create, sync, publish, clone, deprecate, and track form-style WhatsApp Flows for lead capture, booking, support, and survey journeys."
           actions={
             <>
               {canUpdateFlows ? (
@@ -242,6 +266,8 @@ export function FlowListPage() {
                 options: [
                   { value: 'DRAFT', label: 'Draft' },
                   { value: 'PUBLISHED', label: 'Published' },
+                  { value: 'THROTTLED', label: 'Throttled' },
+                  { value: 'BLOCKED', label: 'Blocked' },
                   { value: 'DEPRECATED', label: 'Deprecated' },
                 ],
               },
@@ -260,21 +286,36 @@ export function FlowListPage() {
             hasActiveFilters={listing.hasActiveFilters}
             onReset={listing.resetAll}
           />
-          <DataTable
-            columns={columns}
-            data={data?.flows || []}
-            isLoading={isLoading}
-            page={data?.meta.page ?? 1}
-            totalPages={data?.meta.totalPages ?? 1}
-            total={data?.meta.total ?? 0}
-            onPageChange={listing.setPage}
-            emptyMessage={
+
+          {isLoading ? (
+            <div className="flex min-h-[24rem] items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : data?.flows?.length ? (
+            <DataTable
+              columns={columns}
+              data={data.flows}
+              page={data.meta.page}
+              totalPages={data.meta.totalPages}
+              total={data.meta.total}
+              onPageChange={listing.setPage}
+            />
+          ) : (
+            <div className="space-y-4 py-6">
               <ListingEmptyState
                 title="No flows found"
-                description="Adjust the current filters or create your first WhatsApp Flow."
+                description="Create your first flow or adjust the filters to see matching results."
               />
-            }
-          />
+              {canCreateFlows ? (
+                <div className="flex justify-center">
+                  <Button onClick={() => navigate('/flows/create')}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create Flow
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          )}
         </ListingTableCard>
       </div>
 
@@ -282,47 +323,63 @@ export function FlowListPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {confirmAction?.type === 'publish' ? 'Publish flow to Meta?' : 'Delete this flow?'}
+              {confirmAction?.type === 'publish'
+                ? 'Publish this flow?'
+                : confirmAction?.type === 'deprecate'
+                  ? 'Deprecate this flow?'
+                  : 'Delete this flow?'}
             </AlertDialogTitle>
-            <AlertDialogDescription>{confirmDescription}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {confirmDescription}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setConfirmAction(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant={confirmAction?.type === 'delete' ? 'destructive' : 'default'}
-              onClick={(event) => {
+              onClick={async (event) => {
                 event.preventDefault();
                 if (!confirmAction) {
                   return;
                 }
 
                 const { flow, type } = confirmAction;
+                const actionKey = `${type}:${flow.id}`;
                 setConfirmAction(null);
-
-                if (type === 'publish') {
-                  const actionKey = `publish:${flow.id}`;
-                  setBusyKey(actionKey);
-                  publishFlow.mutate(
-                    { id: flow.id },
-                    {
-                      onSuccess: () => toast.success('Flow published successfully.'),
-                      onError: (error) => toast.error(getApiErrorMessage(error, 'Failed to publish flow.')),
-                      onSettled: () => setBusyKey((current) => (current === actionKey ? null : current)),
-                    }
-                  );
-                  return;
-                }
-
-                const actionKey = `delete:${flow.id}`;
                 setBusyKey(actionKey);
-                deleteFlow.mutate(flow.id, {
-                  onSuccess: () => toast.success('Flow deleted successfully.'),
-                  onError: (error) => toast.error(getApiErrorMessage(error, 'Failed to delete flow.')),
-                  onSettled: () => setBusyKey((current) => (current === actionKey ? null : current)),
-                });
+
+                try {
+                  if (type === 'publish') {
+                    await publishFlow.mutateAsync({ id: flow.id });
+                    toast.success('Flow published successfully.');
+                  } else if (type === 'deprecate') {
+                    await deprecateFlow.mutateAsync(flow.id);
+                    toast.success('Flow deprecated successfully.');
+                  } else {
+                    await deleteFlow.mutateAsync(flow.id);
+                    toast.success('Flow deleted successfully.');
+                  }
+                } catch (error) {
+                  toast.error(
+                    getApiErrorMessage(
+                      error,
+                      type === 'publish'
+                        ? 'Failed to publish flow.'
+                        : type === 'deprecate'
+                          ? 'Failed to deprecate flow.'
+                          : 'Failed to delete flow.'
+                    )
+                  );
+                } finally {
+                  setBusyKey((current) => (current === actionKey ? null : current));
+                }
               }}
             >
-              {confirmAction?.type === 'publish' ? 'Publish' : 'Delete'}
+              {confirmAction?.type === 'publish'
+                ? 'Publish'
+                : confirmAction?.type === 'deprecate'
+                  ? 'Deprecate'
+                  : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -330,3 +387,5 @@ export function FlowListPage() {
     </>
   );
 }
+
+export default FlowListPage;

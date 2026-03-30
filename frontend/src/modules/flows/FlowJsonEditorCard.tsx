@@ -1,4 +1,3 @@
-import { Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -6,33 +5,25 @@ import { Textarea } from '@/components/ui/textarea';
 export function FlowJsonEditorCard({
   jsonDraft,
   isBusy,
+  readOnly,
   onChange,
   onReset,
   onApply,
-  onOpenImport,
 }: {
   jsonDraft: string;
   isBusy?: boolean;
+  readOnly?: boolean;
   onChange: (value: string) => void;
   onReset: () => void;
   onApply: () => void;
-  onOpenImport: () => void;
 }) {
   return (
     <Card className="rounded-3xl shadow-sm">
       <CardHeader className="pb-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
-            <CardTitle>Canonical Meta JSON</CardTitle>
-            <CardDescription>
-              Edit the exact Flow JSON stored in Nyife. Supported static flows can still round-trip back into the visual builder.
-            </CardDescription>
-          </div>
-          <Button type="button" variant="outline" onClick={onOpenImport}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import JSON
-          </Button>
-        </div>
+        <CardTitle>Canonical Meta JSON</CardTitle>
+        <CardDescription>
+          Paste or edit the exact Meta Flow JSON stored in Nyife. Supported static flows can still round-trip back into the visual builder when the definition stays inside the supported subset.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Textarea
@@ -40,12 +31,13 @@ export function FlowJsonEditorCard({
           onChange={(event) => onChange(event.target.value)}
           rows={28}
           className="min-h-128 font-mono text-xs"
+          disabled={readOnly}
         />
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onReset}>
+          <Button type="button" variant="outline" onClick={onReset} disabled={readOnly}>
             Reset
           </Button>
-          <Button type="button" onClick={onApply} disabled={isBusy}>
+          <Button type="button" onClick={onApply} disabled={isBusy || readOnly}>
             Apply JSON
           </Button>
         </div>

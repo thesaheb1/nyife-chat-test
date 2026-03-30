@@ -31,7 +31,6 @@ const CreateTemplatePage = lazy(() => import('@/modules/templates/CreateTemplate
 const FlowListPage = lazy(() => import('@/modules/flows/FlowListPage').then(m => ({ default: m.FlowListPage })));
 const FlowBuilderPage = lazy(() => import('@/modules/flows/FlowBuilderPage').then(m => ({ default: m.FlowBuilderPage })));
 const FlowDetailPage = lazy(() => import('@/modules/flows/FlowDetailPage').then(m => ({ default: m.FlowDetailPage })));
-const FlowPreviewPage = lazy(() => import('@/modules/flows/FlowPreviewPage').then(m => ({ default: m.FlowPreviewPage })));
 const CampaignListPage = lazy(() => import('@/modules/campaigns/CampaignListPage').then(m => ({ default: m.CampaignListPage })));
 const CreateCampaignPage = lazy(() => import('@/modules/campaigns/CreateCampaignPage').then(m => ({ default: m.CreateCampaignPage })));
 const CampaignDetailPage = lazy(() => import('@/modules/campaigns/CampaignDetailPage').then(m => ({ default: m.CampaignDetailPage })));
@@ -123,10 +122,7 @@ const organizationScopedRoutes = [
   { path: 'templates/:id', element: <Navigate to="../templates" relative="path" replace /> },
   { path: 'flows', element: guardedLazyElement('organization', 'flows', 'read', FlowListPage) },
   { path: 'flows/create', element: guardedLazyElement('organization', 'flows', 'create', FlowBuilderPage) },
-  { path: 'flows/create/preview', element: guardedLazyElement('organization', 'flows', 'create', FlowPreviewPage) },
   { path: 'flows/:id/edit', element: guardedLazyElement('organization', 'flows', 'update', FlowBuilderPage) },
-  { path: 'flows/:id/edit/preview', element: guardedLazyElement('organization', 'flows', 'update', FlowPreviewPage) },
-  { path: 'flows/:id/preview', element: guardedLazyElement('organization', 'flows', 'read', FlowPreviewPage) },
   { path: 'flows/:id', element: guardedLazyElement('organization', 'flows', 'read', FlowDetailPage) },
   { path: 'campaigns', element: guardedLazyElement('organization', 'campaigns', 'read', CampaignListPage) },
   { path: 'campaigns/create', element: guardedLazyElement('organization', 'campaigns', 'create', CreateCampaignPage) },
@@ -197,10 +193,7 @@ export const router = createBrowserRouter([
           { path: '/templates/:id', element: <OrganizationPathRedirect /> },
           { path: '/flows', element: <OrganizationPathRedirect targetPath="/flows" /> },
           { path: '/flows/create', element: <OrganizationPathRedirect targetPath="/flows/create" /> },
-          { path: '/flows/create/preview', element: <OrganizationPathRedirect targetPath="/flows/create/preview" /> },
           { path: '/flows/:id/edit', element: <OrganizationPathRedirect /> },
-          { path: '/flows/:id/edit/preview', element: <OrganizationPathRedirect /> },
-          { path: '/flows/:id/preview', element: <OrganizationPathRedirect /> },
           { path: '/flows/:id', element: <OrganizationPathRedirect /> },
           { path: '/campaigns', element: <OrganizationPathRedirect targetPath="/campaigns" /> },
           { path: '/campaigns/create', element: <OrganizationPathRedirect targetPath="/campaigns/create" /> },

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowLeft, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Copy, Pencil, Send, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,21 +21,38 @@ import { usePermissions } from '@/core/hooks/usePermissions';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import { DataTable } from '@/shared/components/DataTable';
 import type { FlowSubmission } from '@/core/types';
-import { buildFlowPreviewPath, isFlowPreviewExpired } from './flowPreview';
 import { FlowDetailOverview } from './FlowDetailOverview';
-import { formatValidationDetail } from './flowUtils';
-import { useDeleteFlow, useFlow, useFlowSubmissions, useRefreshFlowPreview } from './useFlows';
+import { FlowPreviewDialog } from './FlowPreviewDialog';
+import { getFlowAvailableActions } from './flowLifecycle';
+import { isFlowPreviewExpired } from './flowPreview';
+import { deriveBuilderStateFromMetaFlow, formatValidationDetail } from './flowUtils';
+import {
+  useDeleteFlow,
+  useDeprecateFlow,
+  useDuplicateFlow,
+  useFlow,
+  useFlowSubmissions,
+  usePublishFlow,
+  useRefreshFlowPreview,
+} from './useFlows';
+
+type ConfirmAction = 'publish' | 'delete' | 'deprecate' | null;
 
 export function FlowDetailPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const { canOrganization } = usePermissions();
   const { data: flow, isLoading } = useFlow(id);
+  const publishFlow = usePublishFlow();
   const deleteFlow = useDeleteFlow();
+  const deprecateFlow = useDeprecateFlow();
+  const duplicateFlow = useDuplicateFlow();
   const refreshPreview = useRefreshFlowPreview();
   const [submissionPage, setSubmissionPage] = useState(1);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+  const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
   const { data: submissionsData, isLoading: submissionsLoading } = useFlowSubmissions(id, { page: submissionPage, limit: 10 });
+  const canCreateFlows = canOrganization('flows', 'create');
   const canUpdateFlows = canOrganization('flows', 'update');
   const canDeleteFlows = canOrganization('flows', 'delete');
 
@@ -75,12 +92,25 @@ export function FlowDetailPage() {
     return <div className="py-12 text-center text-muted-foreground">Flow not found.</div>;
   }
 
+  const availableActions = getFlowAvailableActions(flow);
   const validationItems = (flow.validation_error_details || []).map((detail) => formatValidationDetail(detail));
   const mergedValidationItems = Array.from(new Set([
     ...validationItems,
     ...flow.validation_errors,
   ]));
   const previewExpired = isFlowPreviewExpired(flow.preview_expires_at);
+  const previewState = deriveBuilderStateFromMetaFlow(flow.json_definition);
+  const canEdit = canUpdateFlows && availableActions.includes('edit');
+  const canPublish = canUpdateFlows && availableActions.includes('publish');
+  const canClone = canCreateFlows && availableActions.includes('clone');
+  const canDeprecate = canUpdateFlows && availableActions.includes('deprecate');
+  const canDelete = canDeleteFlows && availableActions.includes('delete');
+
+  const confirmDescription = confirmAction === 'publish'
+    ? 'Nyife will publish the current draft to Meta using the stored canonical JSON definition.'
+    : confirmAction === 'deprecate'
+      ? 'Deprecation applies to active published-like flows and prevents them from remaining in service.'
+      : 'Only draft flows can be deleted. If this draft is linked to a Meta draft, Nyife will delete that Meta draft first before removing the local record.';
 
   return (
     <>
@@ -100,20 +130,49 @@ export function FlowDetailPage() {
                   {flow.can_send_message === false ? <Badge variant="destructive">Send blocked</Badge> : null}
                 </div>
                 <p className="max-w-3xl text-sm text-muted-foreground">
-                  Review the linked Meta state, refresh the official preview when it expires, inspect stored validation details, and verify captured submissions from one compact surface.
+                  Review the linked Meta state, open the reusable preview dialog, inspect stored validation details, and verify captured submissions from one compact surface.
                 </p>
               </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {canUpdateFlows ? (
+              {canEdit ? (
                 <Button onClick={() => navigate(`/flows/${flow.id}/edit`)}>
                   <Pencil className="mr-2 h-4 w-4" />
                   Edit flow
                 </Button>
               ) : null}
-              {canDeleteFlows ? (
-                <Button variant="outline" onClick={() => setDeleteConfirmOpen(true)}>
+              {canClone ? (
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      const duplicate = await duplicateFlow.mutateAsync(flow.id);
+                      toast.success('Flow cloned successfully.');
+                      navigate(`/flows/${duplicate.id}/edit`);
+                    } catch (error) {
+                      toast.error(getApiErrorMessage(error, 'Failed to clone flow.'));
+                    }
+                  }}
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Clone
+                </Button>
+              ) : null}
+              {canDeprecate ? (
+                <Button variant="outline" onClick={() => setConfirmAction('deprecate')}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Deprecate
+                </Button>
+              ) : null}
+              {canPublish ? (
+                <Button variant="outline" onClick={() => setConfirmAction('publish')}>
+                  <Send className="mr-2 h-4 w-4" />
+                  Publish
+                </Button>
+              ) : null}
+              {canDelete ? (
+                <Button variant="outline" onClick={() => setConfirmAction('delete')}>
                   <Trash2 className="mr-2 h-4 w-4" />
                   Delete
                 </Button>
@@ -126,12 +185,7 @@ export function FlowDetailPage() {
           flow={flow}
           previewExpired={previewExpired}
           isRefreshingPreview={refreshPreview.isPending}
-          onOpenPreviewWorkspace={() => navigate(buildFlowPreviewPath({ source: 'detail', flowId: flow.id }))}
-          onOpenOfficialPreview={() => {
-            if (flow.preview_url) {
-              window.open(flow.preview_url, '_blank', 'noopener,noreferrer');
-            }
-          }}
+          onOpenPreview={() => setPreviewDialogOpen(true)}
           onRefreshOfficialPreview={async () => {
             try {
               await refreshPreview.mutateAsync({ id: flow.id, force: true });
@@ -215,37 +269,79 @@ export function FlowDetailPage() {
         </Tabs>
       </div>
 
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <FlowPreviewDialog
+        open={previewDialogOpen}
+        onOpenChange={setPreviewDialogOpen}
+        title={flow.name}
+        definition={previewState.definition}
+        builderSupported={previewState.supported}
+        warning={previewState.warning}
+        metaFlowId={flow.meta_flow_id}
+        previewUrl={flow.preview_url}
+        previewExpiresAt={flow.preview_expires_at}
+        onRefreshOfficialPreview={flow.meta_flow_id
+          ? (force) => refreshPreview.mutateAsync({ id: flow.id, force })
+          : undefined}
+      />
+
+      <AlertDialog open={Boolean(confirmAction)} onOpenChange={(open) => !open && setConfirmAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this flow?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {confirmAction === 'publish'
+                ? 'Publish this flow?'
+                : confirmAction === 'deprecate'
+                  ? 'Deprecate this flow?'
+                  : 'Delete this flow?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Draft deletion is permanent. If this flow is linked to a Meta draft, Nyife will delete that Meta draft first before removing the local record.
+              {confirmDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setConfirmAction(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              variant="destructive"
-              onClick={(event) => {
+              variant={confirmAction === 'delete' ? 'destructive' : 'default'}
+              onClick={async (event) => {
                 event.preventDefault();
-                if (!id) {
-                  return;
-                }
+                const currentAction = confirmAction;
+                setConfirmAction(null);
 
-                setDeleteConfirmOpen(false);
-                deleteFlow.mutate(id, {
-                  onSuccess: () => {
-                    toast.success('Flow deleted successfully.');
-                    navigate('/flows');
-                  },
-                  onError: (error) => {
-                    toast.error(getApiErrorMessage(error, 'Failed to delete flow.'));
-                  },
-                });
+                try {
+                  if (currentAction === 'publish') {
+                    await publishFlow.mutateAsync({ id: flow.id });
+                    toast.success('Flow published successfully.');
+                    return;
+                  }
+
+                  if (currentAction === 'deprecate') {
+                    await deprecateFlow.mutateAsync(flow.id);
+                    toast.success('Flow deprecated successfully.');
+                    return;
+                  }
+
+                  await deleteFlow.mutateAsync(flow.id);
+                  toast.success('Flow deleted successfully.');
+                  navigate('/flows');
+                } catch (error) {
+                  toast.error(
+                    getApiErrorMessage(
+                      error,
+                      currentAction === 'publish'
+                        ? 'Failed to publish flow.'
+                        : currentAction === 'deprecate'
+                          ? 'Failed to deprecate flow.'
+                          : 'Failed to delete flow.'
+                    )
+                  );
+                }
               }}
             >
-              Delete
+              {confirmAction === 'publish'
+                ? 'Publish'
+                : confirmAction === 'deprecate'
+                  ? 'Deprecate'
+                  : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

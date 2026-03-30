@@ -9,10 +9,12 @@ import type { FlowComponent, FlowOption, FlowScreen } from '@/core/types';
 
 export function FlowComponentInspector({
   component,
+  readOnly,
   screens,
   onChange,
 }: {
   component: FlowComponent;
+  readOnly?: boolean;
   screens: FlowScreen[];
   onChange: (updater: (component: FlowComponent) => FlowComponent) => void;
 }) {
@@ -38,6 +40,7 @@ export function FlowComponentInspector({
             value={component.text || ''}
             onChange={(event) => onChange((current) => ({ ...current, text: event.target.value }))}
             rows={component.type === 'TextBody' ? 5 : 3}
+            disabled={readOnly}
           />
         </div>
       )}
@@ -49,6 +52,7 @@ export function FlowComponentInspector({
             <Input
               value={component.name || ''}
               onChange={(event) => onChange((current) => ({ ...current, name: event.target.value.replace(/\s+/g, '_') }))}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -56,6 +60,7 @@ export function FlowComponentInspector({
             <Input
               value={component.label || ''}
               onChange={(event) => onChange((current) => ({ ...current, label: event.target.value }))}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -63,6 +68,7 @@ export function FlowComponentInspector({
             <Input
               value={component.placeholder || ''}
               onChange={(event) => onChange((current) => ({ ...current, placeholder: event.target.value }))}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -70,6 +76,7 @@ export function FlowComponentInspector({
             <Input
               value={component.helper_text || ''}
               onChange={(event) => onChange((current) => ({ ...current, helper_text: event.target.value }))}
+              disabled={readOnly}
             />
           </div>
           <div className="flex items-center justify-between rounded-lg border p-3">
@@ -80,6 +87,7 @@ export function FlowComponentInspector({
             <Switch
               checked={Boolean(component.required)}
               onCheckedChange={(checked) => onChange((current) => ({ ...current, required: checked }))}
+              disabled={readOnly}
             />
           </div>
         </>
@@ -97,6 +105,7 @@ export function FlowComponentInspector({
                 ...current,
                 min_length: event.target.value === '' ? undefined : Number(event.target.value),
               }))}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -109,6 +118,7 @@ export function FlowComponentInspector({
                 ...current,
                 max_length: event.target.value === '' ? undefined : Number(event.target.value),
               }))}
+              disabled={readOnly}
             />
           </div>
         </div>
@@ -122,6 +132,7 @@ export function FlowComponentInspector({
               type="button"
               size="sm"
               variant="outline"
+              disabled={readOnly}
               onClick={() => onChange((current) => ({
                 ...current,
                 options: [...(current.options || []), { id: `option_${(current.options || []).length + 1}`, title: `Option ${(current.options || []).length + 1}` }],
@@ -138,6 +149,7 @@ export function FlowComponentInspector({
                 <Input
                   value={option.title}
                   onChange={(event) => updateOption(index, (current) => ({ ...current, title: event.target.value }))}
+                  disabled={readOnly}
                 />
                 <div className="flex justify-end">
                   <Button
@@ -145,6 +157,7 @@ export function FlowComponentInspector({
                     size="sm"
                     variant="ghost"
                     className="text-destructive"
+                    disabled={readOnly}
                     onClick={() => onChange((current) => ({
                       ...current,
                       options: (current.options || []).filter((_, optionIndex) => optionIndex !== index),
@@ -171,6 +184,7 @@ export function FlowComponentInspector({
                 ...current,
                 min_selections: event.target.value === '' ? undefined : Number(event.target.value),
               }))}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -183,6 +197,7 @@ export function FlowComponentInspector({
                 ...current,
                 max_selections: event.target.value === '' ? undefined : Number(event.target.value),
               }))}
+              disabled={readOnly}
             />
           </div>
         </div>
@@ -195,6 +210,7 @@ export function FlowComponentInspector({
             <Input
               value={component.image_url || ''}
               onChange={(event) => onChange((current) => ({ ...current, image_url: event.target.value }))}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -202,6 +218,7 @@ export function FlowComponentInspector({
             <Input
               value={component.caption || ''}
               onChange={(event) => onChange((current) => ({ ...current, caption: event.target.value }))}
+              disabled={readOnly}
             />
           </div>
         </>
@@ -214,6 +231,7 @@ export function FlowComponentInspector({
             <Input
               value={component.label || ''}
               onChange={(event) => onChange((current) => ({ ...current, label: event.target.value }))}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -227,6 +245,7 @@ export function FlowComponentInspector({
                   type: value as 'complete' | 'navigate',
                 },
               }))}
+              disabled={readOnly}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -250,6 +269,7 @@ export function FlowComponentInspector({
                     target_screen_id: value,
                   },
                 }))}
+                disabled={readOnly}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select screen" />

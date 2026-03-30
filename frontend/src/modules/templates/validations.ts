@@ -100,6 +100,10 @@ function textValue(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function isUuid(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value ?? ''));
+}
+
 const BUTTON_TEXT_VARIABLE_REGEX = /\{\{[^{}]+\}\}/;
 const BUTTON_TEXT_NEWLINE_REGEX = /[\r\n]/;
 const BUTTON_TEXT_FORMATTING_REGEX = /[*_~`]/;
@@ -313,7 +317,8 @@ function validateButtons(
         pushIssue(ctx, [...basePath, index, 'flow_action'], 'Flow buttons require a flow action.');
       }
 
-      if (button.flow_action === 'navigate' && !textValue(button.navigate_screen)) {
+      const canResolveNavigateScreenFromLinkedFlow = Boolean(textValue(button.flow_id) && isUuid(button.flow_id));
+      if (button.flow_action === 'navigate' && !textValue(button.navigate_screen) && !canResolveNavigateScreenFromLinkedFlow) {
         pushIssue(ctx, [...basePath, index, 'navigate_screen'], 'Navigate flow buttons require a screen ID.');
       }
 

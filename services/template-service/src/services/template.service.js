@@ -726,12 +726,16 @@ async function findTemplateByMetaIdentifiers({
   const scopedUserFilter = userId ? { user_id: userId } : {};
 
   if (metaTemplateId) {
-    return Template.findOne({
+    const exactMatch = await Template.findOne({
       where: {
         ...scopedUserFilter,
         meta_template_id: metaTemplateId,
       },
     });
+
+    if (exactMatch) {
+      return exactMatch;
+    }
   }
 
   const normalizedName = trimString(templateName);
@@ -2198,6 +2202,22 @@ function shouldDeleteFromMeta(metaStatus) {
   return !['PENDING_DELETION', 'DELETED'].includes(metaStatus);
 }
 
+async function requestMetaTemplateDeletion(accessToken, wabaId, remoteTemplateName, remoteTemplateId) {
+  return axios.delete(
+    `${config.meta.baseUrl}/${wabaId}/message_templates`,
+    {
+      params: pickDefinedEntries([
+        ['name', remoteTemplateName],
+        ['hsm_id', remoteTemplateId || undefined],
+      ]),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      timeout: 10000,
+    }
+  );
+}
+
 async function deleteTemplateFromMeta(accountContext, template, remoteTemplate = null) {
   const wabaId = String(accountContext.waba_id);
   const remoteTemplateId = trimString(remoteTemplate?.id) || trimString(template.meta_template_id) || null;
@@ -2205,27 +2225,40 @@ async function deleteTemplateFromMeta(accountContext, template, remoteTemplate =
   const remoteTemplateLanguage = trimString(remoteTemplate?.language) || trimString(template.language);
 
   try {
-    await axios.delete(
-      `${config.meta.baseUrl}/${wabaId}/message_templates`,
-      {
-        params: pickDefinedEntries([
-          ['name', remoteTemplateName],
-          ['hsm_id', remoteTemplateId || undefined],
-        ]),
-        headers: {
-          Authorization: `Bearer ${accountContext.access_token}`,
-        },
-        timeout: 10000,
-      }
+    await requestMetaTemplateDeletion(
+      accountContext.access_token,
+      wabaId,
+      remoteTemplateName,
+      remoteTemplateId
     );
   } catch (err) {
     const metaError = err.response?.data?.error;
-    if (!metaError || Number(metaError.code) !== 100) {
-      throw AppError.badRequest(
-        `Failed to delete template from Meta: ${metaError?.message || err.message}`
-      );
+
+    const legacyCredential = resolveMetaAccessCredential({
+      systemUserAccessToken: null,
+      encryptedAccessToken: accountContext.account?.access_token || null,
+      allowLegacyAccountTokenFallback: config.meta.allowLegacyAccountTokenFallback,
+    });
+    const canRetryWithLegacyToken =
+      legacyCredential?.accessToken
+      && legacyCredential.accessToken !== accountContext.access_token
+      && Number(metaError?.code) === 100;
+
+    if (canRetryWithLegacyToken) {
+      try {
+        await requestMetaTemplateDeletion(
+          legacyCredential.accessToken,
+          wabaId,
+          remoteTemplateName,
+          remoteTemplateId
+        );
+        return;
+      } catch (legacyErr) {
+        err = legacyErr;
+      }
     }
 
+    const effectiveMetaError = err.response?.data?.error;
     const refreshedRemoteTemplate = await findRemoteMetaTemplate({
       accessToken: accountContext.access_token,
       wabaId,
@@ -2237,15 +2270,41 @@ async function deleteTemplateFromMeta(accountContext, template, remoteTemplate =
       || trimString(refreshedRemoteTemplate?.status).toUpperCase()
       || null;
 
+    if (!effectiveMetaError) {
+      if (refreshedRemoteTemplate && shouldDeleteFromMeta(refreshedRemoteStatus)) {
+        throw AppError.badRequest(`Failed to delete template from Meta: ${err.message}`);
+      }
+
+      console.warn(
+        '[template-service] Meta template deletion timeout recovered after refresh:',
+        err.message
+      );
+      return;
+    }
+
+    if (Number(effectiveMetaError.code) !== 100) {
+      if (refreshedRemoteTemplate && shouldDeleteFromMeta(refreshedRemoteStatus)) {
+        throw AppError.badRequest(
+          `Failed to delete template from Meta: ${effectiveMetaError.message || err.message}`
+        );
+      }
+
+      console.warn(
+        '[template-service] Meta template deletion warning after refresh:',
+        effectiveMetaError.message || err.message
+      );
+      return;
+    }
+
     if (refreshedRemoteTemplate && shouldDeleteFromMeta(refreshedRemoteStatus)) {
       throw AppError.badRequest(
-        `Failed to delete template from Meta: ${metaError.message || err.message}`
+        `Failed to delete template from Meta: ${effectiveMetaError.message || err.message}`
       );
     }
 
     console.warn(
       '[template-service] Meta template deletion warning:',
-      metaError?.message || err.message
+      effectiveMetaError?.message || err.message
     );
   }
 }
@@ -2407,7 +2466,30 @@ async function publishTemplate(requestContext, templateId, accessToken, waAccoun
         `${metaError.error_user_msg ? `. ${metaError.error_user_msg}` : ''}`
       );
     }
-    throw AppError.badRequest(`Failed to publish template to Meta: ${err.message}`);
+
+    let recoveredRemoteTemplate = null;
+    try {
+      recoveredRemoteTemplate = await findRemoteMetaTemplate({
+        accessToken: accountContext.access_token,
+        wabaId,
+        templateName: template.name,
+        templateLanguage: template.language,
+      });
+    } catch (recoveryErr) {
+      console.warn(
+        '[template-service] Could not reconcile timed-out template publish with Meta:',
+        recoveryErr.response?.data?.error?.message || recoveryErr.message
+      );
+    }
+
+    if (recoveredRemoteTemplate) {
+      metaResponseData = {
+        id: trimString(recoveredRemoteTemplate.id) || null,
+        status: trimString(recoveredRemoteTemplate.status) || null,
+      };
+    } else {
+      throw AppError.badRequest(`Failed to publish template to Meta: ${err.message}`);
+    }
   }
 
   const authUpsertMetaTemplateId = extractMetaTemplateIdentifier(authUpsertResult);

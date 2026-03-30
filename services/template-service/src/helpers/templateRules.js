@@ -72,6 +72,10 @@ function textValue(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
 function getButtonLabelFormatError(value, label = 'Button text') {
   const raw = typeof value === 'string' ? value : '';
   const normalized = raw.trim();
@@ -472,7 +476,12 @@ function validateButtons(buttons, options, field, errors) {
         addError(errors, `${buttonField}.flow_action`, 'Flow action must be navigate or data_exchange.');
       }
 
-      if (flowAction === 'navigate' && !textValue(button.navigate_screen)) {
+      const canResolveNavigateScreenFromLinkedFlow = Boolean(flowId && isUuid(flowId));
+      if (
+        flowAction === 'navigate'
+        && !textValue(button.navigate_screen)
+        && !canResolveNavigateScreenFromLinkedFlow
+      ) {
         addError(errors, `${buttonField}.navigate_screen`, 'Navigate flow buttons require a screen ID.');
       }
 

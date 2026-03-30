@@ -70,6 +70,10 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING(1024),
         allowNull: true,
       },
+      preview_expires_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
       validation_errors: {
         type: DataTypes.JSON,
         allowNull: false,

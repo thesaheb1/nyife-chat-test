@@ -232,7 +232,7 @@ function HeaderMediaPreview({
           className={cn(imageHeightClass, 'w-full object-cover')}
         />
         {normalized === 'VIDEO' ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/30 via-black/5 to-black/30">
+          <div className="absolute inset-0 flex items-center justify-center bg-linear-to-t from-black/30 via-black/5 to-black/30">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white shadow-sm">
               <Play className="ml-0.5 h-4 w-4 fill-current" />
             </div>
@@ -253,7 +253,7 @@ function HeaderMediaPreview({
           controls={false}
           className={cn(videoHeightClass, 'w-full bg-black object-contain')}
         />
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/35 via-black/0 to-black/20">
+        <div className="absolute inset-0 flex items-center justify-center bg-linear-to-t from-black/35 via-black/0 to-black/20">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white shadow-sm">
             <Play className="ml-0.5 h-4 w-4 fill-current" />
           </div>

@@ -203,6 +203,25 @@ export function usePublishFlow() {
   });
 }
 
+export function useRefreshFlowPreview() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, force }: { id: string; force?: boolean }) => {
+      const { data } = await apiClient.post<ApiResponse<{ flow: WhatsAppFlow }>>(
+        ENDPOINTS.FLOWS.REFRESH_PREVIEW(id),
+        force ? { force } : {}
+      );
+      return data.data.flow;
+    },
+    onSuccess: async (flow) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: flowQueryKeys.all }),
+        queryClient.invalidateQueries({ queryKey: ['flows', 'detail', flow.id] }),
+      ]);
+    },
+  });
+}
+
 export function useDeprecateFlow() {
   const queryClient = useQueryClient();
   return useMutation({

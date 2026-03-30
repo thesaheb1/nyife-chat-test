@@ -40,6 +40,7 @@ export const ENDPOINTS = {
     BASE: '/api/v1/flows',
     SYNC: '/api/v1/flows/sync',
     DATA_EXCHANGE: '/api/v1/flows/data-exchange',
+    REFRESH_PREVIEW: (id: string) => `/api/v1/flows/${id}/refresh-preview`,
   },
   CAMPAIGNS: {
     BASE: '/api/v1/campaigns',

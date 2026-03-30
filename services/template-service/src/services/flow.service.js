@@ -293,6 +293,16 @@ function extractPreviewUrl(payload) {
   );
 }
 
+function extractPreviewExpiresAt(payload) {
+  const raw = payload?.preview_expires_at || payload?.preview?.expires_at || null;
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function extractHealthStatus(payload) {
   return isPlainObject(payload?.health_status) ? payload.health_status : null;
 }
@@ -484,11 +494,12 @@ async function listRemoteFlows(wabaId, accessToken) {
   return items;
 }
 
-async function getRemoteFlowDetails(metaFlowId, accessToken) {
+async function getRemoteFlowDetails(metaFlowId, accessToken, { invalidatePreview = false } = {}) {
   const url = new URL(`${config.meta.baseUrl}/${metaFlowId}`);
+  const previewField = `preview.invalidate(${invalidatePreview ? 'true' : 'false'})`;
   url.searchParams.set(
     'fields',
-    'id,name,status,categories,validation_errors,health_status,preview.invalidate(false)'
+    `id,name,status,categories,validation_errors,health_status,${previewField}`
   );
 
   const response = await axios.get(url.toString(), {
@@ -579,6 +590,7 @@ function buildRemoteStatePatch(remoteFlow, overrides = {}) {
   return {
     ...overrides,
     preview_url: extractPreviewUrl(remoteFlow),
+    preview_expires_at: extractPreviewExpiresAt(remoteFlow),
     status: FLOW_STATUSES.includes(mapMetaLifecycleStatus(rawStatus))
       ? mapMetaLifecycleStatus(rawStatus)
       : 'DRAFT',
@@ -611,6 +623,7 @@ function buildSyncPayload(remoteFlow) {
       || '7.1',
     json_definition: validation?.normalized || remoteJson || createDefaultFlowDefinition(remoteFlow.name, remoteFlow.categories),
     preview_url: extractPreviewUrl(remoteFlow),
+    preview_expires_at: extractPreviewExpiresAt(remoteFlow),
     validation_errors: extractMetaValidationErrors(remoteFlow),
     validation_error_details: extractMetaValidationDetails(remoteFlow),
     meta_health_status: extractHealthStatus(remoteFlow),
@@ -652,6 +665,7 @@ async function createFlow(userId, data) {
     editor_state: data.editor_state || null,
     data_exchange_config: data.data_exchange_config || null,
     preview_url: null,
+    preview_expires_at: null,
     validation_errors: validationState.validationErrors,
     validation_error_details: validationState.validationErrorDetails,
     meta_status: null,
@@ -833,6 +847,7 @@ async function duplicateFlow(userId, flowId) {
     editor_state: flow.editor_state,
     data_exchange_config: flow.data_exchange_config,
     preview_url: null,
+    preview_expires_at: null,
     validation_errors: validationState.validationErrors,
     validation_error_details: validationState.validationErrorDetails,
     meta_status: null,
@@ -934,6 +949,45 @@ async function saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride) {
       json_definition: validationState.definitionToStore,
     }),
   });
+
+  return normalizeFlowForResponse(flow);
+}
+
+async function refreshFlowPreview(userId, flowId, accessToken, {
+  wabaIdOverride = null,
+  force = false,
+} = {}) {
+  const flow = await findFlow(userId, flowId);
+
+  if (!flow.meta_flow_id) {
+    throw AppError.badRequest('Save this flow to Meta before requesting the official preview.');
+  }
+
+  const executionContext = await resolveFlowExecutionContext(
+    userId,
+    wabaIdOverride || flow.waba_id,
+    accessToken
+  );
+  const resolvedAccessToken = executionContext.accessToken;
+
+  if (!resolvedAccessToken) {
+    throw AppError.badRequest('WhatsApp access token is required to refresh the official flow preview.');
+  }
+
+  const previewExpired = !flow.preview_expires_at || new Date(flow.preview_expires_at) <= new Date();
+
+  let remoteFlow = null;
+  try {
+    remoteFlow = await getRemoteFlowDetails(flow.meta_flow_id, resolvedAccessToken, {
+      invalidatePreview: Boolean(force || previewExpired || !flow.preview_url),
+    });
+  } catch (err) {
+    throw AppError.badRequest(formatMetaError('Failed to refresh the official Meta preview', err));
+  }
+
+  await flow.update(buildRemoteStatePatch(remoteFlow, {
+    has_local_changes: flow.has_local_changes,
+  }));
 
   return normalizeFlowForResponse(flow);
 }
@@ -1338,6 +1392,7 @@ module.exports = {
   duplicateFlow,
   saveFlowToMeta,
   publishFlow,
+  refreshFlowPreview,
   deprecateFlow,
   syncFlows,
   listSubmissions,

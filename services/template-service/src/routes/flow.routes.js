@@ -17,6 +17,7 @@ router.put('/:id', rbac('flows', 'update'), requireActiveSubscription('update fl
 router.delete('/:id', rbac('flows', 'delete'), requireActiveSubscription('delete flows'), asyncHandler(flowController.deleteFlow));
 router.post('/:id/duplicate', rbac('flows', 'create'), requireActiveSubscription('duplicate flows'), asyncHandler(flowController.duplicateFlow));
 router.post('/:id/save-to-meta', rbac('flows', 'update'), requireActiveSubscription('save flows to Meta'), asyncHandler(flowController.saveFlowToMeta));
+router.post('/:id/refresh-preview', rbac('flows', 'read'), asyncHandler(flowController.refreshFlowPreview));
 router.post('/:id/publish', rbac('flows', 'update'), requireActiveSubscription('publish flows'), asyncHandler(flowController.publishFlow));
 router.post('/:id/deprecate', rbac('flows', 'update'), requireActiveSubscription('deprecate flows'), asyncHandler(flowController.deprecateFlow));
 router.get('/:id/submissions', rbac('flows', 'read'), asyncHandler(flowController.listSubmissions));

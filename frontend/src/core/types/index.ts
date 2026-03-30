@@ -313,6 +313,7 @@ export interface WhatsAppFlow {
   editor_state: Record<string, unknown> | null;
   data_exchange_config: Record<string, unknown> | null;
   preview_url: string | null;
+  preview_expires_at: string | null;
   validation_errors: string[];
   validation_error_details?: FlowValidationDetail[];
   meta_status?: string | null;

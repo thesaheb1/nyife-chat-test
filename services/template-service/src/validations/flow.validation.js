@@ -48,6 +48,11 @@ const flowMetaActionSchema = z.object({
   waba_id: z.string().max(100).optional(),
 });
 
+const flowPreviewActionSchema = z.object({
+  waba_id: z.string().max(100).optional(),
+  force: z.coerce.boolean().optional().default(false),
+});
+
 const syncFlowsSchema = z.object({
   waba_id: z.string().min(1).max(100).optional(),
   force: z.coerce.boolean().optional().default(false),
@@ -78,6 +83,7 @@ module.exports = {
   flowIdSchema,
   listFlowsSchema,
   flowMetaActionSchema,
+  flowPreviewActionSchema,
   syncFlowsSchema,
   listFlowSubmissionsSchema,
   dataExchangeSchema,

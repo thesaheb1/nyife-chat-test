@@ -126,7 +126,7 @@ export function WhatsAppFlowPreview({
               </div>
             </div>
 
-            <ScrollArea className="h-[38rem] overflow-y-auto px-2.5 pb-3 pt-3">
+            <ScrollArea className="h-90 overflow-y-auto px-2.5 pb-3 pt-3">
               <div className="mb-3 flex justify-center">
                 <span
                   className={cn(
@@ -145,7 +145,7 @@ export function WhatsAppFlowPreview({
                     isDark ? 'bg-[#182229] text-[#d1d7db]' : 'bg-[#fff3c4] text-[#54656f]'
                   )}
                 >
-                  Preview the flow exactly inside a WhatsApp-style shell with live field validation and screen navigation.
+                  Use this as a fast local authoring preview. Meta web preview remains the exact source of truth before publish.
                 </div>
               </div>
 

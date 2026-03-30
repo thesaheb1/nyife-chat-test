@@ -8,6 +8,7 @@ const {
   flowIdSchema,
   listFlowsSchema,
   flowMetaActionSchema,
+  flowPreviewActionSchema,
   syncFlowsSchema,
   listFlowSubmissionsSchema,
   dataExchangeSchema,
@@ -75,6 +76,18 @@ async function publishFlow(req, res) {
   return successResponse(res, { flow }, 'Flow published successfully');
 }
 
+async function refreshFlowPreview(req, res) {
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const { id } = flowIdSchema.parse(req.params);
+  const { waba_id, force } = flowPreviewActionSchema.parse(req.body || {});
+  const accessToken = req.headers['x-wa-access-token'] || null;
+  const flow = await flowService.refreshFlowPreview(userId, id, accessToken, {
+    wabaIdOverride: waba_id || null,
+    force,
+  });
+  return successResponse(res, { flow }, 'Flow preview refreshed successfully');
+}
+
 async function deprecateFlow(req, res) {
   const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = flowIdSchema.parse(req.params);
@@ -115,6 +128,7 @@ module.exports = {
   duplicateFlow,
   saveFlowToMeta,
   publishFlow,
+  refreshFlowPreview,
   deprecateFlow,
   syncFlows,
   listSubmissions,

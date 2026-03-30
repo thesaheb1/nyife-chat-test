@@ -1,0 +1,629 @@
+{
+  "actionsByStatus": {
+    "DRAFT": ["view", "edit", "publish", "delete"],
+    "PUBLISHED": ["view", "clone", "deprecate"],
+    "THROTTLED": ["view", "clone"],
+    "BLOCKED": ["view", "clone"],
+    "DEPRECATED": ["view", "clone"]
+  },
+  "supportedVisualTypes": [
+    "TextHeading",
+    "TextSubheading",
+    "TextBody",
+    "TextInput",
+    "TextArea",
+    "Dropdown",
+    "RadioButtonsGroup",
+    "CheckboxGroup",
+    "DatePicker",
+    "Image",
+    "Footer"
+  ],
+  "formChildTypes": [
+    "TextInput",
+    "TextArea",
+    "Dropdown",
+    "RadioButtonsGroup",
+    "CheckboxGroup",
+    "DatePicker",
+    "Footer"
+  ],
+  "componentCapabilities": {
+    "TextHeading": {
+      "supportsName": false,
+      "supportsLabel": false,
+      "supportsHelperText": false,
+      "supportsRequired": false,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": false,
+      "supportsOptions": false,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    },
+    "TextSubheading": {
+      "supportsName": false,
+      "supportsLabel": false,
+      "supportsHelperText": false,
+      "supportsRequired": false,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": false,
+      "supportsOptions": false,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    },
+    "TextBody": {
+      "supportsName": false,
+      "supportsLabel": false,
+      "supportsHelperText": false,
+      "supportsRequired": false,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": false,
+      "supportsOptions": false,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    },
+    "TextInput": {
+      "supportsName": true,
+      "supportsLabel": true,
+      "supportsHelperText": true,
+      "supportsRequired": true,
+      "supportsMinLength": true,
+      "supportsMaxLength": true,
+      "supportsDefaultValue": true,
+      "supportsOptions": false,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    },
+    "TextArea": {
+      "supportsName": true,
+      "supportsLabel": true,
+      "supportsHelperText": true,
+      "supportsRequired": true,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": true,
+      "supportsOptions": false,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    },
+    "Dropdown": {
+      "supportsName": true,
+      "supportsLabel": true,
+      "supportsHelperText": true,
+      "supportsRequired": true,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": true,
+      "supportsOptions": true,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    },
+    "RadioButtonsGroup": {
+      "supportsName": true,
+      "supportsLabel": true,
+      "supportsHelperText": true,
+      "supportsRequired": true,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": true,
+      "supportsOptions": true,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    },
+    "CheckboxGroup": {
+      "supportsName": true,
+      "supportsLabel": true,
+      "supportsHelperText": true,
+      "supportsRequired": true,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": true,
+      "supportsOptions": true,
+      "supportsSelectionBounds": true,
+      "supportsPlaceholder": false
+    },
+    "DatePicker": {
+      "supportsName": true,
+      "supportsLabel": true,
+      "supportsHelperText": true,
+      "supportsRequired": true,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": true,
+      "supportsOptions": false,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    },
+    "Image": {
+      "supportsName": false,
+      "supportsLabel": false,
+      "supportsHelperText": false,
+      "supportsRequired": false,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": false,
+      "supportsOptions": false,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    },
+    "Footer": {
+      "supportsName": false,
+      "supportsLabel": true,
+      "supportsHelperText": false,
+      "supportsRequired": false,
+      "supportsMinLength": false,
+      "supportsMaxLength": false,
+      "supportsDefaultValue": false,
+      "supportsOptions": false,
+      "supportsSelectionBounds": false,
+      "supportsPlaceholder": false
+    }
+  },
+  "categoryStarters": {
+    "SIGN_UP": {
+      "screenId": "SIGN_UP",
+      "title": "Sign up",
+      "children": [
+        {
+          "type": "TextHeading",
+          "text": "Create your account"
+        },
+        {
+          "type": "TextBody",
+          "text": "Collect the essential details needed to start onboarding."
+        },
+        {
+          "type": "TextInput",
+          "name": "full_name",
+          "label": "Full name",
+          "helper_text": "Enter the customer's first and last name.",
+          "required": true,
+          "min_length": 2
+        },
+        {
+          "type": "TextInput",
+          "name": "email_address",
+          "label": "Email address",
+          "helper_text": "Use a valid email for onboarding updates.",
+          "required": true,
+          "min_length": 5
+        },
+        {
+          "type": "RadioButtonsGroup",
+          "name": "account_type",
+          "label": "Account type",
+          "required": true,
+          "helper_text": "Pick the account experience that matches the request.",
+          "options": [
+            {
+              "id": "personal_account",
+              "title": "Personal"
+            },
+            {
+              "id": "business_account",
+              "title": "Business"
+            }
+          ]
+        },
+        {
+          "type": "Footer",
+          "label": "Submit",
+          "action": {
+            "type": "complete"
+          }
+        }
+      ]
+    },
+    "SIGN_IN": {
+      "screenId": "SIGN_IN",
+      "title": "Sign in",
+      "children": [
+        {
+          "type": "TextHeading",
+          "text": "Continue your sign-in request"
+        },
+        {
+          "type": "TextBody",
+          "text": "Capture the details needed to help the customer sign in successfully."
+        },
+        {
+          "type": "TextInput",
+          "name": "email_address",
+          "label": "Email address",
+          "helper_text": "Use the email linked to the account.",
+          "required": true,
+          "min_length": 5
+        },
+        {
+          "type": "TextInput",
+          "name": "phone_number",
+          "label": "Phone number",
+          "helper_text": "Use the phone number linked to the account.",
+          "required": true,
+          "min_length": 8
+        },
+        {
+          "type": "RadioButtonsGroup",
+          "name": "sign_in_issue",
+          "label": "What is blocking sign in?",
+          "required": true,
+          "options": [
+            {
+              "id": "forgot_password",
+              "title": "Forgot password"
+            },
+            {
+              "id": "access_code_issue",
+              "title": "Access code issue"
+            },
+            {
+              "id": "account_locked",
+              "title": "Account locked"
+            }
+          ]
+        },
+        {
+          "type": "Footer",
+          "label": "Continue",
+          "action": {
+            "type": "complete"
+          }
+        }
+      ]
+    },
+    "LEAD_GENERATION": {
+      "screenId": "LEAD_GENERATION",
+      "title": "Lead generation",
+      "children": [
+        {
+          "type": "TextHeading",
+          "text": "Tell us what you need"
+        },
+        {
+          "type": "TextBody",
+          "text": "Capture enough context for a fast and relevant sales follow-up."
+        },
+        {
+          "type": "TextInput",
+          "name": "full_name",
+          "label": "Full name",
+          "required": true,
+          "min_length": 2
+        },
+        {
+          "type": "TextInput",
+          "name": "business_email",
+          "label": "Business email",
+          "helper_text": "We will use this to follow up on the request.",
+          "required": true,
+          "min_length": 5
+        },
+        {
+          "type": "Dropdown",
+          "name": "interest_area",
+          "label": "What are you interested in?",
+          "required": true,
+          "options": [
+            {
+              "id": "product_demo",
+              "title": "Product demo"
+            },
+            {
+              "id": "pricing_details",
+              "title": "Pricing details"
+            },
+            {
+              "id": "partnership_options",
+              "title": "Partnership options"
+            }
+          ]
+        },
+        {
+          "type": "TextArea",
+          "name": "business_goal",
+          "label": "What would you like to achieve?",
+          "helper_text": "Share a short summary so the right teammate can respond.",
+          "required": true
+        },
+        {
+          "type": "Footer",
+          "label": "Submit",
+          "action": {
+            "type": "complete"
+          }
+        }
+      ]
+    },
+    "APPOINTMENT_BOOKING": {
+      "screenId": "APPOINTMENT_BOOKING",
+      "title": "Appointment booking",
+      "children": [
+        {
+          "type": "TextHeading",
+          "text": "Book an appointment"
+        },
+        {
+          "type": "TextBody",
+          "text": "Collect the booking details before confirming the next step."
+        },
+        {
+          "type": "TextInput",
+          "name": "full_name",
+          "label": "Full name",
+          "required": true,
+          "min_length": 2
+        },
+        {
+          "type": "Dropdown",
+          "name": "service_type",
+          "label": "Which appointment is needed?",
+          "required": true,
+          "options": [
+            {
+              "id": "consultation",
+              "title": "Consultation"
+            },
+            {
+              "id": "product_demo",
+              "title": "Product demo"
+            },
+            {
+              "id": "follow_up_visit",
+              "title": "Follow-up visit"
+            }
+          ]
+        },
+        {
+          "type": "DatePicker",
+          "name": "appointment_date",
+          "label": "Preferred date",
+          "helper_text": "Choose the date that works best for the customer.",
+          "required": true
+        },
+        {
+          "type": "TextArea",
+          "name": "booking_notes",
+          "label": "Anything we should prepare?",
+          "helper_text": "Add context such as preferred time or special requests."
+        },
+        {
+          "type": "Footer",
+          "label": "Request booking",
+          "action": {
+            "type": "complete"
+          }
+        }
+      ]
+    },
+    "CONTACT_US": {
+      "screenId": "CONTACT_US",
+      "title": "Contact us",
+      "children": [
+        {
+          "type": "TextHeading",
+          "text": "Contact us"
+        },
+        {
+          "type": "TextBody",
+          "text": "Share the details and we will route the request to the right team."
+        },
+        {
+          "type": "TextInput",
+          "name": "first_name",
+          "label": "First name",
+          "required": true
+        },
+        {
+          "type": "TextInput",
+          "name": "last_name",
+          "label": "Last name",
+          "required": true
+        },
+        {
+          "type": "TextArea",
+          "name": "message_details",
+          "label": "How can we help?",
+          "helper_text": "Include the key details so the reply is faster.",
+          "required": true
+        },
+        {
+          "type": "Footer",
+          "label": "Submit",
+          "action": {
+            "type": "complete"
+          }
+        }
+      ]
+    },
+    "CUSTOMER_SUPPORT": {
+      "screenId": "CUSTOMER_SUPPORT",
+      "title": "Customer support",
+      "children": [
+        {
+          "type": "TextHeading",
+          "text": "Support request"
+        },
+        {
+          "type": "TextBody",
+          "text": "Collect the request details so support can pick it up quickly."
+        },
+        {
+          "type": "TextInput",
+          "name": "customer_name",
+          "label": "Customer name",
+          "required": true
+        },
+        {
+          "type": "Dropdown",
+          "name": "issue_type",
+          "label": "What do you need help with?",
+          "required": true,
+          "options": [
+            {
+              "id": "billing_issue",
+              "title": "Billing issue"
+            },
+            {
+              "id": "order_issue",
+              "title": "Order issue"
+            },
+            {
+              "id": "technical_issue",
+              "title": "Technical issue"
+            }
+          ]
+        },
+        {
+          "type": "TextInput",
+          "name": "reference_number",
+          "label": "Reference number",
+          "helper_text": "Order ID, invoice number, or ticket number."
+        },
+        {
+          "type": "TextArea",
+          "name": "issue_details",
+          "label": "Describe the issue",
+          "helper_text": "Include the problem, impact, and any recent changes.",
+          "required": true
+        },
+        {
+          "type": "Footer",
+          "label": "Submit",
+          "action": {
+            "type": "complete"
+          }
+        }
+      ]
+    },
+    "SURVEY": {
+      "screenId": "SURVEY",
+      "title": "Survey",
+      "children": [
+        {
+          "type": "TextHeading",
+          "text": "Quick survey"
+        },
+        {
+          "type": "TextBody",
+          "text": "A short survey helps improve the customer experience."
+        },
+        {
+          "type": "RadioButtonsGroup",
+          "name": "experience_rating",
+          "label": "How was the experience?",
+          "required": true,
+          "options": [
+            {
+              "id": "excellent",
+              "title": "Excellent"
+            },
+            {
+              "id": "good",
+              "title": "Good"
+            },
+            {
+              "id": "average",
+              "title": "Average"
+            },
+            {
+              "id": "poor",
+              "title": "Poor"
+            }
+          ]
+        },
+        {
+          "type": "RadioButtonsGroup",
+          "name": "recommendation_level",
+          "label": "Would you recommend us?",
+          "required": true,
+          "options": [
+            {
+              "id": "very_likely",
+              "title": "Very likely"
+            },
+            {
+              "id": "likely",
+              "title": "Likely"
+            },
+            {
+              "id": "not_sure",
+              "title": "Not sure"
+            }
+          ]
+        },
+        {
+          "type": "TextArea",
+          "name": "additional_feedback",
+          "label": "Any additional feedback?",
+          "helper_text": "Optional, but helpful if the customer wants to elaborate."
+        },
+        {
+          "type": "Footer",
+          "label": "Submit",
+          "action": {
+            "type": "complete"
+          }
+        }
+      ]
+    },
+    "OTHER": {
+      "screenId": "OTHER",
+      "title": "General request",
+      "titleFromName": true,
+      "children": [
+        {
+          "type": "TextHeading",
+          "text": "General request"
+        },
+        {
+          "type": "TextBody",
+          "text": "Use this starter when none of the standard categories is the right fit."
+        },
+        {
+          "type": "TextInput",
+          "name": "request_title",
+          "label": "Request title",
+          "required": true,
+          "min_length": 3
+        },
+        {
+          "type": "Dropdown",
+          "name": "request_type",
+          "label": "Request type",
+          "required": true,
+          "options": [
+            {
+              "id": "general_request",
+              "title": "General request"
+            },
+            {
+              "id": "product_question",
+              "title": "Product question"
+            },
+            {
+              "id": "follow_up",
+              "title": "Follow-up"
+            }
+          ]
+        },
+        {
+          "type": "TextArea",
+          "name": "request_details",
+          "label": "Details",
+          "helper_text": "Describe the request or next step.",
+          "required": true
+        },
+        {
+          "type": "Footer",
+          "label": "Submit",
+          "action": {
+            "type": "complete"
+          }
+        }
+      ]
+    }
+  }
+}

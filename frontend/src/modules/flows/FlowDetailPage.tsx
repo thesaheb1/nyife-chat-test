@@ -23,6 +23,7 @@ import { DataTable } from '@/shared/components/DataTable';
 import type { FlowSubmission } from '@/core/types';
 import { FlowDetailOverview } from './FlowDetailOverview';
 import { FlowPreviewDialog } from './FlowPreviewDialog';
+import { FlowStatusBadges } from './FlowStatusBadges';
 import { getFlowAvailableActions } from './flowLifecycle';
 import { isFlowPreviewExpired } from './flowPreview';
 import { deriveBuilderStateFromMetaFlow, formatValidationDetail } from './flowUtils';
@@ -109,7 +110,7 @@ export function FlowDetailPage() {
   const confirmDescription = confirmAction === 'publish'
     ? 'Nyife will publish the current draft to Meta using the stored canonical JSON definition.'
     : confirmAction === 'deprecate'
-      ? 'Deprecation applies to active published-like flows and prevents them from remaining in service.'
+      ? 'Deprecation retires an active published flow on Meta and prevents it from remaining in service.'
       : 'Only draft flows can be deleted. If this draft is linked to a Meta draft, Nyife will delete that Meta draft first before removing the local record.';
 
   return (
@@ -124,10 +125,7 @@ export function FlowDetailPage() {
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{flow.name}</h1>
-                  <Badge variant="outline">{flow.status}</Badge>
-                  {flow.meta_status && flow.meta_status !== flow.status ? <Badge variant="secondary">{flow.meta_status}</Badge> : null}
-                  {flow.has_local_changes ? <Badge variant="secondary">Local changes</Badge> : null}
-                  {flow.can_send_message === false ? <Badge variant="destructive">Send blocked</Badge> : null}
+                  <FlowStatusBadges flow={flow} showLocalChanges />
                 </div>
                 <p className="max-w-3xl text-sm text-muted-foreground">
                   Review the linked Meta state, open the reusable preview dialog, inspect stored validation details, and verify captured submissions from one compact surface.

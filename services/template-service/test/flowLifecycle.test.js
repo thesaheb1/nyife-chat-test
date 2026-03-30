@@ -29,14 +29,23 @@ test('draft flows expose edit publish and delete actions', () => {
   assert.equal(canDeprecateFlow('DRAFT'), false);
 });
 
-test('published-like flows expose clone and deprecate actions only', () => {
-  for (const status of ['PUBLISHED', 'THROTTLED', 'BLOCKED']) {
-    assert.deepEqual(getFlowAvailableActions(status), ['view', 'clone', 'deprecate']);
+test('published flows expose clone and deprecate actions only', () => {
+  assert.deepEqual(getFlowAvailableActions('PUBLISHED'), ['view', 'clone', 'deprecate']);
+  assert.equal(canEditFlow('PUBLISHED'), false);
+  assert.equal(canPublishFlow('PUBLISHED'), false);
+  assert.equal(canDeleteFlow('PUBLISHED'), false);
+  assert.equal(canCloneFlow('PUBLISHED'), true);
+  assert.equal(canDeprecateFlow('PUBLISHED'), true);
+});
+
+test('throttled and blocked flows expose clone-only lifecycle actions after view', () => {
+  for (const status of ['THROTTLED', 'BLOCKED']) {
+    assert.deepEqual(getFlowAvailableActions(status), ['view', 'clone']);
     assert.equal(canEditFlow(status), false);
     assert.equal(canPublishFlow(status), false);
     assert.equal(canDeleteFlow(status), false);
     assert.equal(canCloneFlow(status), true);
-    assert.equal(canDeprecateFlow(status), true);
+    assert.equal(canDeprecateFlow(status), false);
   }
 });
 

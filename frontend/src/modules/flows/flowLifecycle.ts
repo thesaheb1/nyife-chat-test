@@ -1,14 +1,9 @@
 import type { FlowAvailableAction, FlowStatus, WhatsAppFlow } from '@/core/types';
+import flowContract from '@shared-flow-contract';
 
 export const FLOW_ACTION_KEYS = ['view', 'edit', 'publish', 'delete', 'clone', 'deprecate'] as const;
 
-const FLOW_ACTIONS_BY_STATUS: Record<FlowStatus, FlowAvailableAction[]> = {
-  DRAFT: ['view', 'edit', 'publish', 'delete'],
-  PUBLISHED: ['view', 'clone', 'deprecate'],
-  THROTTLED: ['view', 'clone', 'deprecate'],
-  BLOCKED: ['view', 'clone', 'deprecate'],
-  DEPRECATED: ['view', 'clone'],
-};
+const FLOW_ACTIONS_BY_STATUS = flowContract.actionsByStatus as Record<FlowStatus, FlowAvailableAction[]>;
 
 export const FLOW_ACTION_LABELS: Record<FlowAvailableAction, string> = {
   view: 'View details',

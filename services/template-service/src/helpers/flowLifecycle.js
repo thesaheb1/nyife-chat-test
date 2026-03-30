@@ -1,14 +1,9 @@
 'use strict';
 
 const FLOW_ACTION_KEYS = ['view', 'edit', 'publish', 'delete', 'clone', 'deprecate'];
+const flowContract = require('@nyife/shared-config/src/flowContract.json');
 
-const FLOW_ACTIONS_BY_STATUS = {
-  DRAFT: ['view', 'edit', 'publish', 'delete'],
-  PUBLISHED: ['view', 'clone', 'deprecate'],
-  THROTTLED: ['view', 'clone', 'deprecate'],
-  BLOCKED: ['view', 'clone', 'deprecate'],
-  DEPRECATED: ['view', 'clone'],
-};
+const FLOW_ACTIONS_BY_STATUS = flowContract.actionsByStatus;
 
 function normalizeFlowLifecycleStatus(status) {
   const normalized = String(status || '').trim().toUpperCase();

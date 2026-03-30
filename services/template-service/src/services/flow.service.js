@@ -211,16 +211,14 @@ async function generateDuplicateFlowName(userId, sourceName, wabaId, mode = 'cop
   throw AppError.conflict('Unable to create a unique duplicate flow name right now.');
 }
 
-function buildMetaFlowCreatePayload(flow, wabaId) {
+function buildMetaFlowCreatePayload(flow) {
   const payload = {
     name: flow.name,
     categories: normalizeCategories(flow.categories),
-    waba_id: wabaId,
   };
 
-  const jsonDefinition = flow.json_definition || {};
-  if (jsonDefinition.data_api_version) {
-    payload.data_api_version = jsonDefinition.data_api_version;
+  if (asTrimmedString(flow.cloned_from_meta_flow_id)) {
+    payload.clone_flow_id = asTrimmedString(flow.cloned_from_meta_flow_id);
   }
 
   return payload;
@@ -230,11 +228,6 @@ function buildMetaMetadataForm(flow) {
   const form = new FormData();
   form.append('name', flow.name);
   form.append('categories', JSON.stringify(normalizeCategories(flow.categories)));
-
-  const jsonDefinition = flow.json_definition || {};
-  if (jsonDefinition.data_api_version) {
-    form.append('data_api_version', String(jsonDefinition.data_api_version));
-  }
 
   return form;
 }
@@ -336,6 +329,21 @@ function extractCanSendMessage(payload) {
   if (typeof healthStatus?.can_send_messages === 'boolean') {
     return healthStatus.can_send_messages;
   }
+  const raw = asTrimmedString(
+    payload?.can_send_message
+    || healthStatus?.can_send_message
+    || healthStatus?.can_send_messages
+  ).toUpperCase();
+
+  if (raw) {
+    if (raw.includes('AVAILABLE') || raw.includes('ALLOW') || raw.includes('THROTTL')) {
+      return true;
+    }
+
+    if (raw.includes('BLOCK') || raw.includes('UNAVAILABLE') || raw.includes('DISABLE')) {
+      return false;
+    }
+  }
   return null;
 }
 
@@ -386,7 +394,7 @@ function buildPublishFailureMessage(baseMessage, {
 async function createRemoteFlow(flow, wabaId, accessToken) {
   const response = await axios.post(
     `${config.meta.baseUrl}/${wabaId}/flows`,
-    buildMetaFlowCreatePayload(flow, wabaId),
+    buildMetaFlowCreatePayload(flow),
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -812,7 +820,7 @@ async function deleteFlow(userId, flowId, accessToken) {
   assertLifecycleActionAllowed(
     flow,
     canDeleteFlow,
-    'Only draft flows can be deleted. Published, throttled, blocked, and deprecated flows must be deprecated or cloned instead.'
+    'Only draft flows can be deleted. Published, throttled, blocked, and deprecated flows must be cloned, or deprecated when Meta still allows retirement.'
   );
 
   if (flow.meta_flow_id) {
@@ -835,7 +843,7 @@ async function deleteFlow(userId, flowId, accessToken) {
 
     if (remoteFlow && !canDeleteFlow(mapMetaLifecycleStatus(remoteFlow.status || flow.meta_status || flow.status))) {
       throw AppError.badRequest(
-        'Only Meta draft flows can be deleted. Published, throttled, blocked, and deprecated Meta-linked flows must be deprecated instead.'
+        'Only Meta draft flows can be deleted. Published, throttled, blocked, and deprecated Meta-linked flows must be cloned, or deprecated when Meta still allows retirement.'
       );
     }
 
@@ -1031,7 +1039,7 @@ async function publishFlow(userId, flowId, accessToken, wabaIdOverride) {
   assertLifecycleActionAllowed(
     currentFlow,
     canPublishFlow,
-    'Only draft flows can be published. Published, throttled, blocked, and deprecated flows must be cloned or deprecated according to their current status.'
+    'Only draft flows can be published. Published, throttled, blocked, and deprecated flows must follow the lifecycle actions available for their current status.'
   );
 
   const flow = await saveFlowToMeta(userId, flowId, accessToken, wabaIdOverride);
@@ -1080,6 +1088,11 @@ async function publishFlow(userId, flowId, accessToken, wabaIdOverride) {
       ...extractMetaValidationErrors(remoteFlow),
     ]);
 
+    const remoteStatus = mapMetaLifecycleStatus(remoteFlow?.status || flow.meta_status || flow.status);
+    if (remoteStatus === 'PUBLISHED') {
+      return normalizeFlowForResponse(flow);
+    }
+
     if (validationErrors.length > 0) {
       throw AppError.badRequest(
         buildPublishFailureMessage(
@@ -1116,7 +1129,7 @@ async function deprecateFlow(userId, flowId, accessToken) {
   assertLifecycleActionAllowed(
     flow,
     canDeprecateFlow,
-    'Only published, throttled, or blocked flows can be deprecated.'
+    'Only published flows can be deprecated.'
   );
 
   if (!flow.meta_flow_id) {
@@ -1445,4 +1458,17 @@ module.exports = {
   listSubmissions,
   storeFlowSubmission,
   handleDataExchange,
+  __private: {
+    buildMetaFlowCreatePayload,
+    buildMetaMetadataForm,
+    buildFlowJsonForm,
+    buildRemoteStatePatch,
+    extractMetaValidationErrors,
+    extractMetaValidationDetails,
+    extractPreviewUrl,
+    extractPreviewExpiresAt,
+    extractHealthStatus,
+    extractCanSendMessage,
+    normalizeFlowForResponse,
+  },
 };

@@ -143,8 +143,8 @@ export function FlowBuilderPage() {
     setActiveScreenId(
       String(
         existing.editor_state?.active_screen_id
-          || derived.definition.screens[0]?.id
-          || ''
+        || derived.definition.screens[0]?.id
+        || ''
       )
     );
     setSelectedComponentIndex(
@@ -482,7 +482,7 @@ export function FlowBuilderPage() {
   const confirmDescription = confirmAction === 'publish'
     ? 'Nyife will save the latest local draft, update the linked Meta draft, refresh validation and health state, and then publish it.'
     : confirmAction === 'deprecate'
-      ? 'Deprecation is intended for published, throttled, or blocked flows. The linked Meta flow will no longer stay active for new sends.'
+      ? 'Deprecation retires an active published flow on Meta so it no longer stays active for new sends.'
       : 'Draft deletion is permanent in Nyife. If this flow is linked to a Meta draft, Nyife will delete that Meta draft first before removing the local record.';
 
   return (
@@ -546,7 +546,7 @@ export function FlowBuilderPage() {
               description="This flow is no longer editable in place. Use the allowed lifecycle actions shown in the header instead of changing the saved draft."
             >
               <p>
-                Nyife opens published, throttled, blocked, and deprecated flows here for safe review only. Clone creates a new draft. Deprecate remains available only when Meta still treats the flow as active.
+                Nyife opens published, throttled, blocked, and deprecated flows here for safe review only. Clone creates a new draft. Deprecate is only available for active published flows.
               </p>
             </FlowNoticeCard>
           ) : null}

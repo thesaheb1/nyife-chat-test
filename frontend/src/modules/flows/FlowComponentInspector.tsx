@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { FlowComponent, FlowOption, FlowScreen } from '@/core/types';
+import { getFlowComponentCapabilities } from './flowUtils';
 
 export function FlowComponentInspector({
   component,
@@ -18,6 +19,7 @@ export function FlowComponentInspector({
   screens: FlowScreen[];
   onChange: (updater: (component: FlowComponent) => FlowComponent) => void;
 }) {
+  const capabilities = getFlowComponentCapabilities(component.type);
   const updateOption = (index: number, updater: (option: FlowOption) => FlowOption) => {
     onChange((current) => ({
       ...current,
@@ -45,55 +47,55 @@ export function FlowComponentInspector({
         </div>
       )}
 
-      {(component.type === 'TextInput' || component.type === 'TextArea' || component.type === 'Dropdown' || component.type === 'RadioButtonsGroup' || component.type === 'CheckboxGroup' || component.type === 'DatePicker') && (
+      {(capabilities.supportsName || capabilities.supportsLabel || capabilities.supportsHelperText || capabilities.supportsRequired) && (
         <>
-          <div className="space-y-2">
-            <Label>Field name</Label>
-            <Input
-              value={component.name || ''}
-              onChange={(event) => onChange((current) => ({ ...current, name: event.target.value.replace(/\s+/g, '_') }))}
-              disabled={readOnly}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Label</Label>
-            <Input
-              value={component.label || ''}
-              onChange={(event) => onChange((current) => ({ ...current, label: event.target.value }))}
-              disabled={readOnly}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Placeholder</Label>
-            <Input
-              value={component.placeholder || ''}
-              onChange={(event) => onChange((current) => ({ ...current, placeholder: event.target.value }))}
-              disabled={readOnly}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Helper text</Label>
-            <Input
-              value={component.helper_text || ''}
-              onChange={(event) => onChange((current) => ({ ...current, helper_text: event.target.value }))}
-              disabled={readOnly}
-            />
-          </div>
-          <div className="flex items-center justify-between rounded-lg border p-3">
-            <div>
-              <p className="text-sm font-medium">Required</p>
-              <p className="text-xs text-muted-foreground">Mark this answer as mandatory.</p>
+          {capabilities.supportsName ? (
+            <div className="space-y-2">
+              <Label>Field name</Label>
+              <Input
+                value={component.name || ''}
+                onChange={(event) => onChange((current) => ({ ...current, name: event.target.value.replace(/\s+/g, '_') }))}
+                disabled={readOnly}
+              />
             </div>
-            <Switch
-              checked={Boolean(component.required)}
-              onCheckedChange={(checked) => onChange((current) => ({ ...current, required: checked }))}
-              disabled={readOnly}
-            />
-          </div>
+          ) : null}
+          {capabilities.supportsLabel ? (
+            <div className="space-y-2">
+              <Label>Label</Label>
+              <Input
+                value={component.label || ''}
+                onChange={(event) => onChange((current) => ({ ...current, label: event.target.value }))}
+                disabled={readOnly}
+              />
+            </div>
+          ) : null}
+          {capabilities.supportsHelperText ? (
+            <div className="space-y-2">
+              <Label>Helper text</Label>
+              <Input
+                value={component.helper_text || ''}
+                onChange={(event) => onChange((current) => ({ ...current, helper_text: event.target.value }))}
+                disabled={readOnly}
+              />
+            </div>
+          ) : null}
+          {capabilities.supportsRequired ? (
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium">Required</p>
+                <p className="text-xs text-muted-foreground">Mark this answer as mandatory.</p>
+              </div>
+              <Switch
+                checked={Boolean(component.required)}
+                onCheckedChange={(checked) => onChange((current) => ({ ...current, required: checked }))}
+                disabled={readOnly}
+              />
+            </div>
+          ) : null}
         </>
       )}
 
-      {(component.type === 'TextInput' || component.type === 'TextArea') && (
+      {(capabilities.supportsMinLength || capabilities.supportsMaxLength) && component.type === 'TextInput' && (
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Min length</Label>
@@ -124,7 +126,7 @@ export function FlowComponentInspector({
         </div>
       )}
 
-      {(component.type === 'Dropdown' || component.type === 'RadioButtonsGroup' || component.type === 'CheckboxGroup') && (
+      {capabilities.supportsOptions && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label>Options</Label>
@@ -172,7 +174,7 @@ export function FlowComponentInspector({
         </div>
       )}
 
-      {component.type === 'CheckboxGroup' && (
+      {capabilities.supportsSelectionBounds && component.type === 'CheckboxGroup' && (
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Min selections</Label>

@@ -13,6 +13,7 @@ export default defineConfig(({ command }) => ({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@shared-flow-contract': path.resolve(__dirname, '../shared/shared-config/src/flowContract.json'),
     },
   },
   server: {

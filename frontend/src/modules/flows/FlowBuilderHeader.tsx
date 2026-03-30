@@ -2,6 +2,7 @@ import { ArrowLeft, Copy, Save, Send, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { FlowAvailableAction, WhatsAppFlow } from '@/core/types';
+import { FlowStatusBadges } from './FlowStatusBadges';
 
 export function FlowBuilderHeader({
   isEdit,
@@ -47,13 +48,16 @@ export function FlowBuilderHeader({
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
-                {flow?.status ? <Badge variant="outline">{flow.status}</Badge> : <Badge variant="outline">DRAFT</Badge>}
-                {flow?.meta_status && flow.meta_status !== flow.status ? (
-                  <Badge variant="secondary">{flow.meta_status}</Badge>
-                ) : null}
+                <FlowStatusBadges
+                  flow={flow || {
+                    status: 'DRAFT',
+                    meta_status: null,
+                    can_send_message: null,
+                    has_local_changes: false,
+                  }}
+                />
                 {flow?.meta_flow_id ? <Badge variant="secondary">Meta linked</Badge> : null}
                 {isReadOnly ? <Badge variant="secondary">Read-only</Badge> : null}
-                {flow?.can_send_message === false ? <Badge variant="destructive">Send blocked</Badge> : null}
               </div>
               <p className="max-w-3xl text-sm text-muted-foreground">
                 Draft flows stay editable here. Published, throttled, blocked, and deprecated flows open in read-only mode so you can safely review them and use the lifecycle actions allowed for their current status.

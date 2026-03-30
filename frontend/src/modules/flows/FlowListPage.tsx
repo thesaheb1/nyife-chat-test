@@ -28,6 +28,7 @@ import {
   ListingToolbar,
 } from '@/shared/components';
 import { FlowActionsMenu } from './FlowActionsMenu';
+import { FlowStatusBadges } from './FlowStatusBadges';
 import { getFlowAvailableActions } from './flowLifecycle';
 import { flowCategories, humanizeFlowCategory } from './flowUtils';
 import {
@@ -132,17 +133,7 @@ export function FlowListPage() {
     {
       accessorKey: 'status',
       header: 'Status',
-      cell: ({ row }) => (
-        <div className="flex flex-wrap items-center gap-1">
-          <Badge variant="secondary">{row.original.status}</Badge>
-          {row.original.meta_status && row.original.meta_status !== row.original.status ? (
-            <Badge variant="outline">{row.original.meta_status}</Badge>
-          ) : null}
-          {row.original.can_send_message === false ? (
-            <Badge variant="destructive">Send blocked</Badge>
-          ) : null}
-        </div>
-      ),
+      cell: ({ row }) => <FlowStatusBadges flow={row.original} />,
     },
     {
       accessorKey: 'updated_at',

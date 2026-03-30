@@ -214,6 +214,50 @@ test('unsupported canonical Meta flow JSON stays JSON-only instead of being forc
   assert.equal(result.normalized.screens[0].layout.children[0].children[0].type, 'OptIn');
 });
 
+test('unsupported text-field editor props are stripped from the canonical static subset', () => {
+  const legacyDefinition = {
+    version: '7.1',
+    screens: [
+      {
+        id: 'lead screen',
+        title: 'Lead capture',
+        layout: {
+          type: 'SingleColumnLayout',
+          children: [
+            {
+              type: 'TextArea',
+              name: 'request_details',
+              label: 'Details',
+              placeholder: 'Tell us more',
+              min_length: 10,
+              max_length: 200,
+              helper_text: 'Share enough context for a follow-up.',
+            },
+            {
+              type: 'Footer',
+              label: 'Submit',
+              action: {
+                type: 'complete',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  };
+
+  const result = validateFlowDefinition(legacyDefinition, { name: 'Lead capture flow' });
+  const form = result.normalized.screens[0].layout.children.find((component) => component.type === 'Form');
+  assert.ok(form);
+
+  const textArea = form.children.find((component) => component.type === 'TextArea');
+  assert.ok(textArea);
+  assert.equal(Object.prototype.hasOwnProperty.call(textArea, 'placeholder'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(textArea, 'min-chars'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(textArea, 'max-chars'), false);
+  assert.equal(textArea['helper-text'], 'Share enough context for a follow-up.');
+});
+
 test('default starter flow definitions are Meta-safe for every official category', () => {
   const categories = [
     'SIGN_UP',

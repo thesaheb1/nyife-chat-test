@@ -4,19 +4,14 @@ const {
   FLOW_COMPONENT_TYPES,
   FLOW_FOOTER_ACTION_TYPES,
 } = require('../constants/flow.constants');
+const flowContract = require('@nyife/shared-config/src/flowContract.json');
 
 const DEFAULT_JSON_VERSION = '7.1';
 const DEFAULT_DATA_API_VERSION = '3.0';
-const SUPPORTED_VISUAL_TYPES = new Set(FLOW_COMPONENT_TYPES.filter((type) => type !== 'Form'));
-const FORM_CHILD_TYPES = new Set([
-  'TextInput',
-  'TextArea',
-  'Dropdown',
-  'RadioButtonsGroup',
-  'CheckboxGroup',
-  'DatePicker',
-  'Footer',
-]);
+const SUPPORTED_VISUAL_TYPES = new Set(flowContract.supportedVisualTypes || FLOW_COMPONENT_TYPES.filter((type) => type !== 'Form'));
+const FORM_CHILD_TYPES = new Set(flowContract.formChildTypes || []);
+const COMPONENT_CAPABILITIES = flowContract.componentCapabilities || {};
+const CATEGORY_STARTERS = flowContract.categoryStarters || {};
 const DIGIT_TO_ALPHA = {
   '0': 'j',
   '1': 'a',
@@ -233,6 +228,10 @@ function createFooter(label) {
   };
 }
 
+function getComponentCapabilities(type) {
+  return COMPONENT_CAPABILITIES[type] || {};
+}
+
 function buildSingleScreenStarter(screenId, title, children) {
   return {
     version: DEFAULT_JSON_VERSION,
@@ -255,190 +254,16 @@ function buildSingleScreenStarter(screenId, title, children) {
 
 function createDefaultVisualDefinition(name, categories) {
   const primaryCategory = resolvePrimaryCategory(categories);
+  const starter = CATEGORY_STARTERS[primaryCategory] || CATEGORY_STARTERS.OTHER;
+  const title = starter.titleFromName
+    ? cleanString(name, starter.title || 'General request')
+    : cleanString(starter.title, cleanString(name, 'Flow start'));
 
-  switch (primaryCategory) {
-    case 'SIGN_UP':
-      return buildSingleScreenStarter('SIGN_UP', 'Sign up', [
-        createTextHeading('Create your account'),
-        createTextBody('Collect the essential details needed to start onboarding.'),
-        createTextInput('full_name', 'Full name', {
-          helper_text: 'Enter the customer\'s first and last name.',
-          required: true,
-          min_length: 2,
-        }),
-        createTextInput('email_address', 'Email address', {
-          helper_text: 'Use a valid email for onboarding updates.',
-          required: true,
-          min_length: 5,
-        }),
-        createRadioButtonsGroup('account_type', 'Account type', [
-          { id: 'personal_account', title: 'Personal' },
-          { id: 'business_account', title: 'Business' },
-        ], {
-          helper_text: 'Pick the account experience that matches the request.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'SIGN_IN':
-      return buildSingleScreenStarter('SIGN_IN', 'Sign in', [
-        createTextHeading('Continue your sign-in request'),
-        createTextBody('Capture the details needed to help the customer sign in successfully.'),
-        createTextInput('email_address', 'Email address', {
-          helper_text: 'Use the email linked to the account.',
-          required: true,
-          min_length: 5,
-        }),
-        createTextInput('phone_number', 'Phone number', {
-          helper_text: 'Use the phone number linked to the account.',
-          required: true,
-          min_length: 8,
-        }),
-        createRadioButtonsGroup('sign_in_issue', 'What is blocking sign in?', [
-          { id: 'forgot_password', title: 'Forgot password' },
-          { id: 'access_code_issue', title: 'Access code issue' },
-          { id: 'account_locked', title: 'Account locked' },
-        ], {
-          required: true,
-        }),
-        createFooter('Continue'),
-      ]);
-    case 'LEAD_GENERATION':
-      return buildSingleScreenStarter('LEAD_GENERATION', 'Lead generation', [
-        createTextHeading('Tell us what you need'),
-        createTextBody('Capture enough context for a fast and relevant sales follow-up.'),
-        createTextInput('full_name', 'Full name', {
-          required: true,
-          min_length: 2,
-        }),
-        createTextInput('business_email', 'Business email', {
-          helper_text: 'We will use this to follow up on the request.',
-          required: true,
-          min_length: 5,
-        }),
-        createDropdown('interest_area', 'What are you interested in?', [
-          { id: 'product_demo', title: 'Product demo' },
-          { id: 'pricing_details', title: 'Pricing details' },
-          { id: 'partnership_options', title: 'Partnership options' },
-        ], {
-          required: true,
-        }),
-        createTextArea('business_goal', 'What would you like to achieve?', {
-          helper_text: 'Share a short summary so the right teammate can respond.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'APPOINTMENT_BOOKING':
-      return buildSingleScreenStarter('APPOINTMENT_BOOKING', 'Appointment booking', [
-        createTextHeading('Book an appointment'),
-        createTextBody('Collect the booking details before confirming the next step.'),
-        createTextInput('full_name', 'Full name', {
-          required: true,
-          min_length: 2,
-        }),
-        createDropdown('service_type', 'Which appointment is needed?', [
-          { id: 'consultation', title: 'Consultation' },
-          { id: 'product_demo', title: 'Product demo' },
-          { id: 'follow_up_visit', title: 'Follow-up visit' },
-        ], {
-          required: true,
-        }),
-        createDatePicker('appointment_date', 'Preferred date', {
-          helper_text: 'Choose the date that works best for the customer.',
-          required: true,
-        }),
-        createTextArea('booking_notes', 'Anything we should prepare?', {
-          helper_text: 'Add context such as preferred time or special requests.',
-        }),
-        createFooter('Request booking'),
-      ]);
-    case 'CONTACT_US':
-      return buildSingleScreenStarter('CONTACT_US', 'Contact us', [
-        createTextHeading('Contact us'),
-        createTextBody('Share the details and we will route the request to the right team.'),
-        createTextInput('first_name', 'First name', {
-          required: true,
-        }),
-        createTextInput('last_name', 'Last name', {
-          required: true,
-        }),
-        createTextArea('message_details', 'How can we help?', {
-          helper_text: 'Include the key details so the reply is faster.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'CUSTOMER_SUPPORT':
-      return buildSingleScreenStarter('CUSTOMER_SUPPORT', 'Customer support', [
-        createTextHeading('Support request'),
-        createTextBody('Collect the request details so support can pick it up quickly.'),
-        createTextInput('customer_name', 'Customer name', {
-          required: true,
-        }),
-        createDropdown('issue_type', 'What do you need help with?', [
-          { id: 'billing_issue', title: 'Billing issue' },
-          { id: 'order_issue', title: 'Order issue' },
-          { id: 'technical_issue', title: 'Technical issue' },
-        ], {
-          required: true,
-        }),
-        createTextInput('reference_number', 'Reference number', {
-          helper_text: 'Order ID, invoice number, or ticket number.',
-        }),
-        createTextArea('issue_details', 'Describe the issue', {
-          helper_text: 'Include the problem, impact, and any recent changes.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'SURVEY':
-      return buildSingleScreenStarter('SURVEY', 'Survey', [
-        createTextHeading('Quick survey'),
-        createTextBody('A short survey helps improve the customer experience.'),
-        createRadioButtonsGroup('experience_rating', 'How was the experience?', [
-          { id: 'excellent', title: 'Excellent' },
-          { id: 'good', title: 'Good' },
-          { id: 'average', title: 'Average' },
-          { id: 'poor', title: 'Poor' },
-        ], {
-          required: true,
-        }),
-        createRadioButtonsGroup('recommendation_level', 'Would you recommend us?', [
-          { id: 'very_likely', title: 'Very likely' },
-          { id: 'likely', title: 'Likely' },
-          { id: 'not_sure', title: 'Not sure' },
-        ], {
-          required: true,
-        }),
-        createTextArea('additional_feedback', 'Any additional feedback?', {
-          helper_text: 'Optional, but helpful if the customer wants to elaborate.',
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'OTHER':
-    default:
-      return buildSingleScreenStarter('OTHER', cleanString(name, 'General request'), [
-        createTextHeading('General request'),
-        createTextBody('Use this starter when none of the standard categories is the right fit.'),
-        createTextInput('request_title', 'Request title', {
-          required: true,
-          min_length: 3,
-        }),
-        createDropdown('request_type', 'Request type', [
-          { id: 'general_request', title: 'General request' },
-          { id: 'product_question', title: 'Product question' },
-          { id: 'follow_up', title: 'Follow-up' },
-        ], {
-          required: true,
-        }),
-        createTextArea('request_details', 'Details', {
-          helper_text: 'Describe the request or next step.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
-  }
+  return buildSingleScreenStarter(
+    starter.screenId || sanitizeScreenId(primaryCategory, 0),
+    title,
+    deepClone(Array.isArray(starter.children) ? starter.children : [])
+  );
 }
 
 function createDefaultFlowDefinition(name, categories) {
@@ -524,25 +349,23 @@ function normalizeLegacyComponent(component, screenIndex, componentIndex, availa
   normalized.name = sanitizeFieldName(source.name, type, componentIndex);
   normalized.label = cleanString(source.label, normalized.name);
 
-  if (cleanString(source.placeholder)) {
-    normalized.placeholder = cleanString(source.placeholder);
-  }
-  if (cleanString(source.helper_text || source['helper-text'])) {
+  const capabilities = getComponentCapabilities(type);
+  if (capabilities.supportsHelperText && cleanString(source.helper_text || source['helper-text'])) {
     normalized.helper_text = cleanString(source.helper_text || source['helper-text']);
   }
-  if (source.required !== undefined) {
+  if (capabilities.supportsRequired && source.required !== undefined) {
     normalized.required = Boolean(source.required);
   }
-  if (source.min_length !== undefined || source['min-chars'] !== undefined) {
+  if (capabilities.supportsMinLength && (source.min_length !== undefined || source['min-chars'] !== undefined)) {
     normalized.min_length = Number(source.min_length ?? source['min-chars']) || 0;
   }
-  if (source.max_length !== undefined || source['max-chars'] !== undefined) {
+  if (capabilities.supportsMaxLength && (source.max_length !== undefined || source['max-chars'] !== undefined)) {
     normalized.max_length = Number(source.max_length ?? source['max-chars']) || 0;
   }
-  if (source.default_value !== undefined || source['init-value'] !== undefined) {
+  if (capabilities.supportsDefaultValue && (source.default_value !== undefined || source['init-value'] !== undefined)) {
     normalized.default_value = source.default_value ?? source['init-value'];
   }
-  if (type === 'CheckboxGroup') {
+  if (capabilities.supportsSelectionBounds && type === 'CheckboxGroup') {
     if (source.min_selections !== undefined) {
       normalized.min_selections = Number(source.min_selections) || 0;
     }
@@ -550,7 +373,7 @@ function normalizeLegacyComponent(component, screenIndex, componentIndex, availa
       normalized.max_selections = Number(source.max_selections) || 0;
     }
   }
-  if (type === 'Dropdown' || type === 'RadioButtonsGroup' || type === 'CheckboxGroup') {
+  if (capabilities.supportsOptions) {
     const options = Array.isArray(source.options)
       ? source.options
       : Array.isArray(source['data-source'])

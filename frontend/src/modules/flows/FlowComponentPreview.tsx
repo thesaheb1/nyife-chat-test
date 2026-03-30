@@ -40,7 +40,7 @@ function validateComponent(component: FlowComponent, values: PreviewValues) {
     }
   }
 
-  if ((component.type === 'TextInput' || component.type === 'TextArea') && typeof value === 'string') {
+  if (component.type === 'TextInput' && typeof value === 'string') {
     if (component.min_length !== undefined && value.length < component.min_length) {
       return `Enter at least ${component.min_length} characters.`;
     }
@@ -211,7 +211,7 @@ export function FlowComponentPreview({
       <div className="space-y-2">
         <p className={labelClassName}>{component.label || component.text || component.type}</p>
         <div className={cn('border px-3 py-2', isWhatsApp ? 'rounded-[14px] border-black/10 bg-[#f7f8fa] text-[13px] text-[#667781]' : 'rounded-xl bg-slate-50 text-sm text-slate-500')}>
-          {component.placeholder || component.helper_text || component.name || 'Input field'}
+          {component.helper_text || component.label || component.name || 'Input field'}
         </div>
       </div>
     );
@@ -251,7 +251,7 @@ export function FlowComponentPreview({
           onBlur?.(component.name);
         }
       },
-      placeholder: component.placeholder || component.helper_text || component.label,
+      placeholder: component.helper_text || component.label,
       className: getFieldInputClassName(appearance, theme, showFieldError),
     };
 

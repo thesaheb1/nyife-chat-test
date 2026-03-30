@@ -208,7 +208,6 @@ export interface FlowComponent {
   text?: string;
   label?: string;
   helper_text?: string;
-  placeholder?: string;
   required?: boolean;
   min_length?: number;
   max_length?: number;
@@ -265,7 +264,6 @@ export interface MetaFlowComponent {
   label?: string;
   text?: string;
   required?: boolean;
-  placeholder?: string;
   caption?: string;
   src?: string;
   children?: MetaFlowComponent[];

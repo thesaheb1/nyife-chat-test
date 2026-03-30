@@ -9,6 +9,7 @@ import type {
   MetaFlowComponent,
   MetaFlowDefinition,
 } from '@/core/types';
+import flowContract from '@shared-flow-contract';
 
 export const flowCategories: Array<{ value: FlowCategory; label: string }> = [
   { value: 'SIGN_UP', label: 'Sign up' },
@@ -39,19 +40,27 @@ export const flowComponentPalette: Array<{
   { type: 'Footer', label: 'Footer CTA', description: 'Submit or navigate action button.' },
 ];
 
-const supportedVisualTypes = new Set<FlowComponentType>([
-  'TextHeading',
-  'TextSubheading',
-  'TextBody',
-  'TextInput',
-  'TextArea',
-  'Dropdown',
-  'RadioButtonsGroup',
-  'CheckboxGroup',
-  'DatePicker',
-  'Image',
-  'Footer',
-]);
+type FlowComponentCapabilities = {
+  supportsName: boolean;
+  supportsLabel: boolean;
+  supportsHelperText: boolean;
+  supportsRequired: boolean;
+  supportsMinLength: boolean;
+  supportsMaxLength: boolean;
+  supportsDefaultValue: boolean;
+  supportsOptions: boolean;
+  supportsSelectionBounds: boolean;
+  supportsPlaceholder: boolean;
+};
+
+const supportedVisualTypes = new Set<FlowComponentType>(flowContract.supportedVisualTypes as FlowComponentType[]);
+export const flowComponentCapabilities = flowContract.componentCapabilities as Record<string, FlowComponentCapabilities>;
+const flowCategoryStarters = flowContract.categoryStarters as Record<string, {
+  screenId: string;
+  title: string;
+  titleFromName?: boolean;
+  children: FlowComponent[];
+}>;
 
 const digitToAlpha: Record<string, string> = {
   '0': 'j',
@@ -75,6 +84,10 @@ function cleanString(value: unknown, fallback = '') {
   }
 
   return String(value).trim();
+}
+
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -363,6 +376,21 @@ function createStarterScreen(id: string, title: string, children: FlowComponent[
   };
 }
 
+export function getFlowComponentCapabilities(type: FlowComponentType) {
+  return flowComponentCapabilities[type] || {
+    supportsName: false,
+    supportsLabel: false,
+    supportsHelperText: false,
+    supportsRequired: false,
+    supportsMinLength: false,
+    supportsMaxLength: false,
+    supportsDefaultValue: false,
+    supportsOptions: false,
+    supportsSelectionBounds: false,
+    supportsPlaceholder: false,
+  };
+}
+
 function normalizeOption(option: unknown, index: number): FlowOption {
   const source = isPlainObject(option) ? option : { title: cleanString(option, `Option ${index + 1}`) };
   return {
@@ -435,21 +463,20 @@ function normalizeComponent(
     type,
     name: sanitizeFieldName(source.name, type, index),
     label: cleanString(source.label, sanitizeFieldName(source.name, type, index)),
-    ...(cleanString(source.placeholder) ? { placeholder: cleanString(source.placeholder) } : {}),
-    ...(cleanString(source.helper_text || source['helper-text'])
+    ...(getFlowComponentCapabilities(type).supportsHelperText && cleanString(source.helper_text || source['helper-text'])
       ? { helper_text: cleanString(source.helper_text || source['helper-text']) }
       : {}),
-    ...(source.required !== undefined ? { required: Boolean(source.required) } : {}),
-    ...(source.min_length !== undefined || source['min-chars'] !== undefined
+    ...(getFlowComponentCapabilities(type).supportsRequired && source.required !== undefined ? { required: Boolean(source.required) } : {}),
+    ...(getFlowComponentCapabilities(type).supportsMinLength && (source.min_length !== undefined || source['min-chars'] !== undefined)
       ? { min_length: Number(source.min_length ?? source['min-chars']) || 0 }
       : {}),
-    ...(source.max_length !== undefined || source['max-chars'] !== undefined
+    ...(getFlowComponentCapabilities(type).supportsMaxLength && (source.max_length !== undefined || source['max-chars'] !== undefined)
       ? { max_length: Number(source.max_length ?? source['max-chars']) || 0 }
       : {}),
-    ...(source.default_value !== undefined || source['init-value'] !== undefined
+    ...(getFlowComponentCapabilities(type).supportsDefaultValue && (source.default_value !== undefined || source['init-value'] !== undefined)
       ? { default_value: source.default_value ?? source['init-value'] }
       : {}),
-    ...((type === 'Dropdown' || type === 'RadioButtonsGroup' || type === 'CheckboxGroup')
+    ...(getFlowComponentCapabilities(type).supportsOptions
       ? {
         options: (
           Array.isArray(source.options)
@@ -460,10 +487,10 @@ function normalizeComponent(
         ).map((option, optionIndex) => normalizeOption(option, optionIndex)),
       }
       : {}),
-    ...(type === 'CheckboxGroup' && source.min_selections !== undefined
+    ...(getFlowComponentCapabilities(type).supportsSelectionBounds && type === 'CheckboxGroup' && source.min_selections !== undefined
       ? { min_selections: Number(source.min_selections) || 0 }
       : {}),
-    ...(type === 'CheckboxGroup' && source.max_selections !== undefined
+    ...(getFlowComponentCapabilities(type).supportsSelectionBounds && type === 'CheckboxGroup' && source.max_selections !== undefined
       ? { max_selections: Number(source.max_selections) || 0 }
       : {}),
   };
@@ -826,206 +853,74 @@ export function createFlowScreen(title?: string): FlowScreen {
   };
 }
 
-function createCategoryStarterScreen(category: FlowCategory): FlowScreen {
-  switch (category) {
-    case 'SIGN_UP':
-      return createStarterScreen('SIGN_UP', 'Sign up', [
-        createHeading('Create your account'),
-        createBody('Collect the essential details needed to start onboarding.'),
-        createTextInputField('full_name', 'Full name', {
-          helper_text: 'Enter the customer\'s first and last name.',
-          required: true,
-          min_length: 2,
-        }),
-        createTextInputField('email_address', 'Email address', {
-          helper_text: 'Use a valid email for onboarding updates.',
-          required: true,
-          min_length: 5,
-        }),
-        createRadioField('account_type', 'Account type', [
-          { id: 'personal_account', title: 'Personal' },
-          { id: 'business_account', title: 'Business' },
-        ], {
-          helper_text: 'Pick the account experience that matches the request.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'SIGN_IN':
-      return createStarterScreen('SIGN_IN', 'Sign in', [
-        createHeading('Continue your sign-in request'),
-        createBody('Capture the details needed to help the customer sign in successfully.'),
-        createTextInputField('email_address', 'Email address', {
-          helper_text: 'Use the email linked to the account.',
-          required: true,
-          min_length: 5,
-        }),
-        createTextInputField('phone_number', 'Phone number', {
-          helper_text: 'Use the phone number linked to the account.',
-          required: true,
-          min_length: 8,
-        }),
-        createRadioField('sign_in_issue', 'What is blocking sign in?', [
-          { id: 'forgot_password', title: 'Forgot password' },
-          { id: 'access_code_issue', title: 'Access code issue' },
-          { id: 'account_locked', title: 'Account locked' },
-        ], {
-          required: true,
-        }),
-        createFooter('Continue'),
-      ]);
-    case 'LEAD_GENERATION':
-      return createStarterScreen('LEAD_GENERATION', 'Lead generation', [
-        createHeading('Tell us what you need'),
-        createBody('Capture enough context for a fast and relevant sales follow-up.'),
-        createTextInputField('full_name', 'Full name', {
-          required: true,
-          min_length: 2,
-        }),
-        createTextInputField('business_email', 'Business email', {
-          helper_text: 'We will use this to follow up on the request.',
-          required: true,
-          min_length: 5,
-        }),
-        createDropdownField('interest_area', 'What are you interested in?', [
-          { id: 'product_demo', title: 'Product demo' },
-          { id: 'pricing_details', title: 'Pricing details' },
-          { id: 'partnership_options', title: 'Partnership options' },
-        ], {
-          required: true,
-        }),
-        createTextAreaField('business_goal', 'What would you like to achieve?', {
-          helper_text: 'Share a short summary so the right teammate can respond.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'APPOINTMENT_BOOKING':
-      return createStarterScreen('APPOINTMENT_BOOKING', 'Appointment booking', [
-        createHeading('Book an appointment'),
-        createBody('Collect the booking details before confirming the next step.'),
-        createTextInputField('full_name', 'Full name', {
-          required: true,
-          min_length: 2,
-        }),
-        createDropdownField('service_type', 'Which appointment is needed?', [
-          { id: 'consultation', title: 'Consultation' },
-          { id: 'product_demo', title: 'Product demo' },
-          { id: 'follow_up_visit', title: 'Follow-up visit' },
-        ], {
-          required: true,
-        }),
-        createDateField('appointment_date', 'Preferred date', {
-          helper_text: 'Choose the date that works best for the customer.',
-          required: true,
-        }),
-        createTextAreaField('booking_notes', 'Anything we should prepare?', {
-          helper_text: 'Add context such as preferred time or special requests.',
-        }),
-        createFooter('Request booking'),
-      ]);
-    case 'CONTACT_US':
-      return createStarterScreen('CONTACT_US', 'Contact us', [
-        createHeading('Contact us'),
-        createBody('Share the details and we will route the request to the right team.'),
-        createTextInputField('first_name', 'First name', {
-          required: true,
-        }),
-        createTextInputField('last_name', 'Last name', {
-          required: true,
-        }),
-        createTextAreaField('message_details', 'How can we help?', {
-          helper_text: 'Include the key details so the reply is faster.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'CUSTOMER_SUPPORT':
-      return createStarterScreen('CUSTOMER_SUPPORT', 'Customer support', [
-        createHeading('Support request'),
-        createBody('Collect the request details so support can pick it up quickly.'),
-        createTextInputField('customer_name', 'Customer name', {
-          required: true,
-        }),
-        createDropdownField('issue_type', 'What do you need help with?', [
-          { id: 'billing_issue', title: 'Billing issue' },
-          { id: 'order_issue', title: 'Order issue' },
-          { id: 'technical_issue', title: 'Technical issue' },
-        ], {
-          required: true,
-        }),
-        createTextInputField('reference_number', 'Reference number', {
-          helper_text: 'Order ID, invoice number, or ticket number.',
-        }),
-        createTextAreaField('issue_details', 'Describe the issue', {
-          helper_text: 'Include the problem, impact, and any recent changes.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'SURVEY':
-      return createStarterScreen('SURVEY', 'Survey', [
-        createHeading('Quick survey'),
-        createBody('A short survey helps improve the customer experience.'),
-        createRadioField('experience_rating', 'How was the experience?', [
-          { id: 'excellent', title: 'Excellent' },
-          { id: 'good', title: 'Good' },
-          { id: 'average', title: 'Average' },
-          { id: 'poor', title: 'Poor' },
-        ], {
-          required: true,
-        }),
-        createRadioField('recommendation_level', 'Would you recommend us?', [
-          { id: 'very_likely', title: 'Very likely' },
-          { id: 'likely', title: 'Likely' },
-          { id: 'not_sure', title: 'Not sure' },
-        ], {
-          required: true,
-        }),
-        createTextAreaField('additional_feedback', 'Any additional feedback?', {
-          helper_text: 'Optional, but helpful if the customer wants to elaborate.',
-        }),
-        createFooter('Submit'),
-      ]);
-    case 'OTHER':
+function materializeStarterComponent(component: FlowComponent): FlowComponent {
+  switch (component.type) {
+    case 'TextHeading':
+      return createHeading(component.text || 'Heading');
+    case 'TextBody':
+      return createBody(component.text || 'Body text');
+    case 'TextInput':
+      return createTextInputField(component.name || nextFieldName('text_input'), component.label || 'Text input', component);
+    case 'TextArea':
+      return createTextAreaField(component.name || nextFieldName('text_area'), component.label || 'Long answer', component);
+    case 'Dropdown':
+      return createDropdownField(component.name || nextFieldName('dropdown'), component.label || 'Choose an option', deepClone(component.options || []), component);
+    case 'RadioButtonsGroup':
+      return createRadioField(component.name || nextFieldName('radio'), component.label || 'Choose one', deepClone(component.options || []), component);
+    case 'CheckboxGroup':
+      return {
+        type: 'CheckboxGroup',
+        name: component.name || nextFieldName('checkbox'),
+        label: component.label || 'Choose one or more',
+        options: deepClone(component.options || []),
+        ...(cleanString(component.helper_text) ? { helper_text: cleanString(component.helper_text) } : {}),
+        ...(component.required !== undefined ? { required: Boolean(component.required) } : {}),
+        ...(component.min_selections !== undefined ? { min_selections: component.min_selections } : {}),
+        ...(component.max_selections !== undefined ? { max_selections: component.max_selections } : {}),
+      };
+    case 'DatePicker':
+      return createDateField(component.name || nextFieldName('date'), component.label || 'Pick a date', component);
+    case 'Footer':
+      return {
+        ...createFooter(component.label || 'Continue'),
+        action: component.action || { type: 'complete' },
+      };
+    case 'TextSubheading':
+      return { type: 'TextSubheading', text: component.text || 'Subheading' };
+    case 'Image':
+      return {
+        type: 'Image',
+        ...(cleanString(component.image_url) ? { image_url: cleanString(component.image_url) } : {}),
+        ...(cleanString(component.caption) ? { caption: cleanString(component.caption) } : {}),
+      };
     default:
-      return createStarterScreen('OTHER', 'General request', [
-        createHeading('General request'),
-        createBody('Use this starter when none of the standard categories is the right fit.'),
-        createTextInputField('request_title', 'Request title', {
-          required: true,
-          min_length: 3,
-        }),
-        createDropdownField('request_type', 'Request type', [
-          { id: 'general_request', title: 'General request' },
-          { id: 'product_question', title: 'Product question' },
-          { id: 'follow_up', title: 'Follow-up' },
-        ], {
-          required: true,
-        }),
-        createTextAreaField('request_details', 'Details', {
-          helper_text: 'Describe the request or next step.',
-          required: true,
-        }),
-        createFooter('Submit'),
-      ]);
+      return deepClone(component);
   }
+}
+
+function createCategoryStarterScreen(category: FlowCategory, name?: string): FlowScreen {
+  const starter = flowCategoryStarters[category] || flowCategoryStarters.OTHER;
+  const screenTitle = starter.titleFromName
+    ? cleanString(name, starter.title)
+    : starter.title;
+
+  return createStarterScreen(
+    starter.screenId || category,
+    screenTitle,
+    (starter.children || []).map((component) => materializeStarterComponent(component))
+  );
 }
 
 export function createFlowDefinition(name?: string, category?: FlowCategory): FlowDefinition {
   const primaryCategory = resolvePrimaryCategory(category);
-  const screen = createCategoryStarterScreen(primaryCategory);
-  const normalizedName = cleanString(name);
-  const normalizedScreen = normalizedName && primaryCategory === 'OTHER'
-    ? { ...screen, title: normalizedName }
-    : screen;
+  const screen = createCategoryStarterScreen(primaryCategory, name);
   return {
     version: '7.1',
     data_api_version: '3.0',
     routing_model: {
-      START: [normalizedScreen.id],
+      START: [screen.id],
     },
-    screens: [normalizedScreen],
+    screens: [screen],
   };
 }
 

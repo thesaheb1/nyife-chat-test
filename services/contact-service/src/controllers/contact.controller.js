@@ -8,6 +8,7 @@ const {
   listContactsSchema,
   bulkDeleteSchema,
   createTagSchema,
+  listTagsSchema,
   updateTagSchema,
   addTagsSchema,
   addTagByPhoneSchema,
@@ -129,8 +130,9 @@ async function createTag(req, res) {
 
 async function listTags(req, res) {
   const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user.id;
-  const tags = await contactService.listTags(userId);
-  return successResponse(res, { tags }, 'Tags retrieved successfully');
+  const filters = listTagsSchema.parse(req.query);
+  const result = await contactService.listTags(userId, filters);
+  return successResponse(res, { tags: result.tags }, 'Tags retrieved successfully', 200, result.meta ?? null);
 }
 
 async function updateTag(req, res) {

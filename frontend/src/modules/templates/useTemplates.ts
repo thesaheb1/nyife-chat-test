@@ -14,6 +14,7 @@ interface TemplateListParams {
   page?: number;
   limit?: number;
   status?: string;
+  published_only?: boolean;
   category?: string;
   type?: string;
   search?: string;

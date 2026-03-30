@@ -27,7 +27,9 @@ interface ListContactsParams {
   page?: number;
   limit?: number;
   search?: string;
+  ids?: string;
   tag_id?: string;
+  tag_ids?: string;
   group_id?: string;
   source?: string;
   date_from?: string;
@@ -39,9 +41,17 @@ interface ListGroupsParams {
   page?: number;
   limit?: number;
   search?: string;
+  ids?: string;
   type?: Group['type'];
   date_from?: string;
   date_to?: string;
+}
+
+interface ListTagsParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  ids?: string;
 }
 
 interface GroupDetailParams {
@@ -69,7 +79,9 @@ export function useContacts(params: ListContactsParams = {}) {
     page: params.page,
     limit: params.limit,
     search: params.search,
+    ids: params.ids,
     tag_id: params.tag_id,
+    tag_ids: params.tag_ids,
     group_id: params.group_id,
     source: params.source,
     date_from: params.date_from,
@@ -207,14 +219,21 @@ export function downloadGroupCsvSample() {
   return downloadCsvSample(ENDPOINTS.CONTACTS.SAMPLE_GROUP_CSV, 'groups-sample.csv');
 }
 
-export function useTags() {
+export function useTags(params: ListTagsParams = {}) {
   const userId = useSelector((state: RootState) => state.auth.user?.id);
   const { activeOrganization } = useOrganizationContext();
+  const query = buildListQuery({
+    page: params.page,
+    limit: params.limit,
+    search: params.search,
+    ids: params.ids,
+  });
+
   return useQuery({
-    queryKey: organizationQueryKey(['tags'] as const, userId, activeOrganization?.id),
+    queryKey: organizationQueryKey(['tags', params] as const, userId, activeOrganization?.id),
     queryFn: async () => {
-      const { data } = await apiClient.get(ENDPOINTS.CONTACTS.TAGS);
-      return data.data.tags as Tag[];
+      const { data } = await apiClient.get(`${ENDPOINTS.CONTACTS.TAGS}${query}`);
+      return data as ApiResponse<{ tags: Tag[] }> & { meta?: PaginationMeta };
     },
     enabled: Boolean(userId && activeOrganization?.id),
   });
@@ -324,6 +343,7 @@ export function useGroups(params: ListGroupsParams = {}) {
     page: params.page,
     limit: params.limit,
     search: params.search,
+    ids: params.ids,
     type: params.type,
     date_from: params.date_from,
     date_to: params.date_to,

@@ -361,8 +361,25 @@ export interface Campaign {
   status: 'draft' | 'scheduled' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
   type: 'immediate' | 'scheduled';
   target_type: 'group' | 'contacts' | 'tags' | 'all';
-  target_config: Record<string, unknown>;
-  variables_mapping: Record<string, string> | null;
+  target_config: {
+    group_ids?: string[];
+    contact_ids?: string[];
+    tag_ids?: string[];
+    exclude_contact_ids?: string[];
+    exclude_tag_ids?: string[];
+  };
+  variables_mapping: Record<
+    string,
+    | string
+    | {
+        mode: 'static';
+        value: string;
+      }
+    | {
+        mode: 'dynamic';
+        source: 'full_name' | 'email' | 'phone';
+      }
+  > | null;
   scheduled_at: string | null;
   started_at: string | null;
   completed_at: string | null;

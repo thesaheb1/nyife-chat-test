@@ -179,3 +179,24 @@
 
 
 // Like you tested flow template completely. can you please test standard, authentication, carousel, and flow template compeletely  if you can then do the next pass as a live Meta smoke/fix round and close the remaining external verification gap.
+
+// CAMPAIGNS MODULE ON USER PANLE
+
+// CONTEXT:earlier we work on campaigns module and we completed most of the functionality and requirements. 
+// Now we will work on campaigns module to make campaigns module flexible, dynamic and easy to use.
+
+// KEEP IN MEMORY:create list of new functionality and new requirements with check list so we can verify it after work done if anything is remain we will work again.
+// if any new requirements required major changes then discuss with me first before implementation.
+
+// Now let's work on campaigns module on user panel. 
+
+// REQUIREMENTS:
+// 1. when we are creating campaign we must have only published and approved templates in the list of template dropdown.
+// 2. In Target type dropdown when we select All Contacts then we must show a another dropdown called Exclude Contacts and whatever contacts we select in exclude contacts dropdown must be excluded from the list of contacts. means the campaigns must not be sent to those excluded contacts.
+// 3. In Target type dropdown when we select Specific Contacts then we must show a another dropdown called Include Contacts and whatever contacts we select it must be included in the list of contacts. means the campaigns must be sent to those included contacts.
+// 4. In Target type dropdown when we select Contact Group then we must show a another dropdown called Select Group and whatever groups we select it must be included in the list of group. means the campaigns must be sent to those included group contacts.
+// 5. In Target type dropdown when we select Contact Tags then we must show a another dropdown called Select Tags and whatever Tags we select it must be included from the list of tags. means the campaigns must be sent to those included tags contacts.
+// 6. All these dropdown must be mobile, tab and desktop responsive. and scalable with pagination. like we did in language dropdown in template module.
+// 7. When i select any template for campaign and if the template using any variable then we must have UI to add variable value either static or dynamic value for that variable. for dynamic value we can set these following values in variable using dropdown. full name, Email, Phone.
+// these values will be taken from the contacts list.
+// NOTE : Implement all above functionality and requirements in campaigns module with production grade approach. not just quick improvements. Be brutal and never compromise on quality, performance, security, code consistency and Ui consistency and responsive.

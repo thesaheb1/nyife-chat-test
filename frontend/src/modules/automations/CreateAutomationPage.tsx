@@ -54,7 +54,8 @@ export function CreateAutomationPage() {
   const isEdit = !!id;
   const { data: existing } = useAutomation(id);
   const { data: waAccounts } = useWhatsAppAccounts();
-  const { data: tags = [] } = useTags();
+  const tagsQuery = useTags();
+  const tags = tagsQuery.data?.data.tags ?? [];
   const createAuto = useCreateAutomation();
   const updateAuto = useUpdateAutomation();
   const [editorMode, setEditorMode] = useState<EditorMode>('builder');

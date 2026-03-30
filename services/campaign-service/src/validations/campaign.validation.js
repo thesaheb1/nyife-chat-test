@@ -2,6 +2,28 @@
 
 const { z } = require('zod');
 
+const dynamicVariableSourceSchema = z.enum(['full_name', 'email', 'phone']);
+
+const variableBindingSchema = z.union([
+  z.string(),
+  z.object({
+    mode: z.literal('static'),
+    value: z.string(),
+  }),
+  z.object({
+    mode: z.literal('dynamic'),
+    source: dynamicVariableSourceSchema,
+  }),
+]);
+
+const targetConfigSchema = z.object({
+  group_ids: z.array(z.string().uuid()).optional(),
+  contact_ids: z.array(z.string().uuid()).optional(),
+  tag_ids: z.array(z.string().uuid()).optional(),
+  exclude_contact_ids: z.array(z.string().uuid()).optional(),
+  exclude_tag_ids: z.array(z.string().uuid()).optional(),
+});
+
 /**
  * Schema for creating a new campaign.
  */
@@ -16,16 +38,8 @@ const createCampaignSchema = z.object({
   target_type: z.enum(['group', 'contacts', 'tags', 'all'], {
     errorMap: () => ({ message: 'Target type must be one of: group, contacts, tags, all' }),
   }),
-  target_config: z.object({
-    group_ids: z.array(z.string().uuid()).optional(),
-    contact_ids: z.array(z.string().uuid()).optional(),
-    tag_ids: z.array(z.string().uuid()).optional(),
-    exclude_tag_ids: z.array(z.string().uuid()).optional(),
-  }).refine((config) => {
-    // At least one targeting field should be present (except for 'all' which is checked in service)
-    return true;
-  }, { message: 'target_config must contain valid targeting criteria' }),
-  variables_mapping: z.record(z.string(), z.string()).optional(),
+  target_config: targetConfigSchema,
+  variables_mapping: z.record(z.string(), variableBindingSchema).optional(),
   scheduled_at: z.string().datetime({ offset: true }).optional()
     .or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/).optional()),
 });
@@ -40,13 +54,8 @@ const updateCampaignSchema = z.object({
   template_id: z.string().uuid('Invalid template ID').optional(),
   type: z.enum(['immediate', 'scheduled']).optional(),
   target_type: z.enum(['group', 'contacts', 'tags', 'all']).optional(),
-  target_config: z.object({
-    group_ids: z.array(z.string().uuid()).optional(),
-    contact_ids: z.array(z.string().uuid()).optional(),
-    tag_ids: z.array(z.string().uuid()).optional(),
-    exclude_tag_ids: z.array(z.string().uuid()).optional(),
-  }).optional(),
-  variables_mapping: z.record(z.string(), z.string()).optional().nullable(),
+  target_config: targetConfigSchema.optional(),
+  variables_mapping: z.record(z.string(), variableBindingSchema).optional().nullable(),
   scheduled_at: z.string().datetime({ offset: true }).optional().nullable()
     .or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/).optional().nullable()),
 }).refine((data) => Object.keys(data).length > 0, {

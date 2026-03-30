@@ -163,6 +163,7 @@ const listTemplatesSchema = z.object({
   search: z.string().max(255).optional(),
   waba_id: metaWabaIdSchema.optional(),
   wa_account_id: uuidSchema.optional(),
+  published_only: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
   date_from: z.coerce.date().optional(),
   date_to: z.coerce.date().optional(),
 });

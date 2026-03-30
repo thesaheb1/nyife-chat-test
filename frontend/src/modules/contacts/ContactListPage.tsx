@@ -216,7 +216,7 @@ export function ContactListPage() {
   const activeGroup = groupDetailQuery.data?.group ?? groups.find((group) => group.id === activeGroupId) ?? null;
   const activeMembers = groupDetailQuery.data?.members ?? [];
   const activeMembersMeta = groupDetailQuery.data?.meta;
-  const tags = tagsQuery.data ?? [];
+  const tags = tagsQuery.data?.data.tags ?? [];
   const groupEditorContacts = groupEditorContactsQuery.data?.data.contacts ?? [];
   const groupEditorContactsMeta = groupEditorContactsQuery.data?.meta;
   const groupMemberContacts = groupMemberContactsQuery.data?.data.contacts ?? [];

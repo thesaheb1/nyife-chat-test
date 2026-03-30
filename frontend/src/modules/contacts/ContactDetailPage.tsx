@@ -44,7 +44,8 @@ export function ContactDetailPage() {
   const { data: contact, isLoading } = useContact(id);
   const updateContact = useUpdateContact(id!);
   const deleteContact = useDeleteContact();
-  const { data: allTags } = useTags();
+  const tagsQuery = useTags();
+  const allTags = tagsQuery.data?.data.tags ?? [];
   const addTags = useAddTagsToContact();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);

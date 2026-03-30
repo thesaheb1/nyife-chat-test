@@ -1818,7 +1818,19 @@ async function createTemplate(requestContext, data) {
  */
 async function listTemplates(requestContext, filters) {
   const userId = resolveScopeId(requestContext);
-  const { page, limit, status, category, type, search, waba_id, wa_account_id, date_from, date_to } = filters;
+  const {
+    page,
+    limit,
+    status,
+    category,
+    type,
+    search,
+    waba_id,
+    wa_account_id,
+    published_only,
+    date_from,
+    date_to,
+  } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
 
   const where = { user_id: userId };
@@ -1837,6 +1849,9 @@ async function listTemplates(requestContext, filters) {
   }
   if (wa_account_id) {
     where.wa_account_id = wa_account_id;
+  }
+  if (published_only) {
+    where.meta_template_id = { [Op.not]: null };
   }
   if (search) {
     where[Op.or] = [

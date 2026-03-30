@@ -8,6 +8,10 @@ const { TOPICS, publishEvent } = require('@nyife/shared-events');
 const { resolveVariables, buildTemplateComponents } = require('../helpers/variableResolver');
 const config = require('../config');
 
+const CONTACT_SERVICE_PAGE_LIMIT = 100;
+const CONTACT_IDS_BATCH_SIZE = 100;
+const TAG_IDS_BATCH_SIZE = 100;
+
 // ────────────────────────────────────────────────
 // Helper: Inter-service HTTP calls
 // ────────────────────────────────────────────────
@@ -121,6 +125,21 @@ function assertTemplateMatchesWaAccount(template, account) {
     throw AppError.badRequest(
       `Template belongs to WABA ${template.waba_id}, but the selected WhatsApp account belongs to WABA ${account.waba_id}.`
     );
+  }
+}
+
+function isTemplateApproved(template) {
+  const status = String(template?.status || '').trim().toLowerCase();
+  return status === 'approved';
+}
+
+function assertTemplateEligibleForCampaign(template) {
+  if (!isTemplateApproved(template)) {
+    throw AppError.badRequest(`Template is not approved. Current status: ${template?.status || 'unknown'}`);
+  }
+
+  if (!template?.meta_template_id) {
+    throw AppError.badRequest('Template must be published to Meta before it can be used in a campaign.');
   }
 }
 
@@ -271,6 +290,131 @@ async function assertCampaignExecutionAffordable(userId, recipientCount, templat
   return pricing;
 }
 
+function normalizeIdArray(value) {
+  return Array.isArray(value)
+    ? value.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+}
+
+function splitIntoBatches(values, batchSize) {
+  const batches = [];
+
+  for (let index = 0; index < values.length; index += batchSize) {
+    batches.push(values.slice(index, index + batchSize));
+  }
+
+  return batches;
+}
+
+function assertTargetSelection(targetType, targetConfig = {}) {
+  const contactIds = normalizeIdArray(targetConfig.contact_ids);
+  const groupIds = normalizeIdArray(targetConfig.group_ids);
+  const tagIds = normalizeIdArray(targetConfig.tag_ids);
+
+  switch (targetType) {
+    case 'contacts':
+      if (contactIds.length === 0) {
+        throw AppError.badRequest('Select at least one contact for this campaign.');
+      }
+      break;
+    case 'group':
+      if (groupIds.length === 0) {
+        throw AppError.badRequest('Select at least one contact group for this campaign.');
+      }
+      break;
+    case 'tags':
+      if (tagIds.length === 0) {
+        throw AppError.badRequest('Select at least one contact tag for this campaign.');
+      }
+      break;
+    case 'all':
+      break;
+    default:
+      throw AppError.badRequest(`Invalid target type: ${targetType}`);
+  }
+}
+
+async function fetchContactsPage(userId, params) {
+  const response = await axios.get(`${config.contactServiceUrl}/api/v1/contacts`, {
+    params,
+    headers: { 'x-user-id': userId },
+    timeout: 15000,
+  });
+
+  return {
+    contacts: response.data.data?.contacts || response.data.data || [],
+    meta: response.data.meta || null,
+  };
+}
+
+async function fetchAllContactsByQuery(userId, params = {}) {
+  const contacts = [];
+  let page = 1;
+
+  while (true) {
+    const { contacts: pageContacts, meta } = await fetchContactsPage(userId, {
+      ...params,
+      page,
+      limit: CONTACT_SERVICE_PAGE_LIMIT,
+    });
+
+    contacts.push(...pageContacts);
+
+    const totalPages = Number(meta?.totalPages || 0);
+    if (!totalPages || page >= totalPages) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return contacts;
+}
+
+async function fetchContactsByIds(userId, ids) {
+  const contacts = [];
+  const batches = splitIntoBatches(normalizeIdArray(ids), CONTACT_IDS_BATCH_SIZE);
+
+  for (const batch of batches) {
+    contacts.push(
+      ...(await fetchAllContactsByQuery(userId, {
+        ids: batch.join(','),
+      }))
+    );
+  }
+
+  return contacts;
+}
+
+async function fetchContactsByGroupIds(userId, groupIds) {
+  const contacts = [];
+
+  for (const groupId of normalizeIdArray(groupIds)) {
+    contacts.push(
+      ...(await fetchAllContactsByQuery(userId, {
+        group_id: groupId,
+      }))
+    );
+  }
+
+  return contacts;
+}
+
+async function fetchContactsByTagIds(userId, tagIds) {
+  const contacts = [];
+  const batches = splitIntoBatches(normalizeIdArray(tagIds), TAG_IDS_BATCH_SIZE);
+
+  for (const batch of batches) {
+    contacts.push(
+      ...(await fetchAllContactsByQuery(userId, {
+        tag_ids: batch.join(','),
+      }))
+    );
+  }
+
+  return contacts;
+}
+
 /**
  * Resolves contacts from contact-service based on target type and config.
  * @param {string} userId
@@ -279,65 +423,28 @@ async function assertCampaignExecutionAffordable(userId, recipientCount, templat
  * @returns {Promise<Array>} Array of contact objects
  */
 async function resolveContacts(userId, targetType, targetConfig) {
-  const headers = { 'x-user-id': userId };
-  const baseUrl = `${config.contactServiceUrl}/api/v1/contacts`;
+  assertTargetSelection(targetType, targetConfig);
   let contacts = [];
 
   try {
     switch (targetType) {
       case 'contacts': {
-        const contactIds = targetConfig.contact_ids || [];
-        if (contactIds.length === 0) {
-          throw AppError.badRequest('No contact IDs provided in target_config');
-        }
-        const response = await axios.get(baseUrl, {
-          params: { ids: contactIds.join(','), limit: 10000 },
-          headers,
-          timeout: 15000,
-        });
-        contacts = response.data.data?.contacts || response.data.data || [];
+        contacts = await fetchContactsByIds(userId, targetConfig.contact_ids);
         break;
       }
 
       case 'group': {
-        const groupIds = targetConfig.group_ids || [];
-        if (groupIds.length === 0) {
-          throw AppError.badRequest('No group IDs provided in target_config');
-        }
-        // Fetch contacts for each group
-        for (const groupId of groupIds) {
-          const response = await axios.get(baseUrl, {
-            params: { group_id: groupId, limit: 10000 },
-            headers,
-            timeout: 15000,
-          });
-          const groupContacts = response.data.data?.contacts || response.data.data || [];
-          contacts = contacts.concat(groupContacts);
-        }
+        contacts = await fetchContactsByGroupIds(userId, targetConfig.group_ids);
         break;
       }
 
       case 'tags': {
-        const tagIds = targetConfig.tag_ids || [];
-        if (tagIds.length === 0) {
-          throw AppError.badRequest('No tag IDs provided in target_config');
-        }
-        const response = await axios.get(baseUrl, {
-          params: { tag_ids: tagIds.join(','), limit: 10000 },
-          headers,
-          timeout: 15000,
-        });
-        contacts = response.data.data?.contacts || response.data.data || [];
+        contacts = await fetchContactsByTagIds(userId, targetConfig.tag_ids);
         break;
       }
 
       case 'all': {
-        const response = await axios.get(baseUrl, {
-          params: { limit: 10000 },
-          headers,
-          timeout: 15000,
-        });
-        contacts = response.data.data?.contacts || response.data.data || [];
+        contacts = await fetchAllContactsByQuery(userId);
         break;
       }
 
@@ -368,6 +475,12 @@ async function resolveContacts(userId, targetType, targetConfig) {
     });
   }
 
+  const excludeContactIds = normalizeIdArray(targetConfig.exclude_contact_ids);
+  if (excludeContactIds.length > 0) {
+    const excluded = new Set(excludeContactIds);
+    contacts = contacts.filter((contact) => !excluded.has(String(contact.id)));
+  }
+
   return contacts;
 }
 
@@ -388,12 +501,10 @@ async function createCampaign(userId, data) {
     );
   }
 
-  // 2. Validate template exists and is approved
+  // 2. Validate template exists, is published, and is approved
   const templateData = await fetchTemplate(userId, data.template_id);
   const template = templateData.template || templateData;
-  if (template.status && template.status !== 'APPROVED' && template.status !== 'approved') {
-    throw AppError.badRequest(`Template is not approved. Current status: ${template.status}`);
-  }
+  assertTemplateEligibleForCampaign(template);
 
   const account = await findActiveWaAccount(userId, data.wa_account_id);
   if (!account) {
@@ -425,7 +536,10 @@ async function createCampaign(userId, data) {
     type: data.type || 'immediate',
     target_type: data.target_type,
     target_config: data.target_config,
-    variables_mapping: data.variables_mapping || null,
+    variables_mapping:
+      data.variables_mapping && Object.keys(data.variables_mapping).length > 0
+        ? data.variables_mapping
+        : null,
     scheduled_at: data.scheduled_at ? new Date(data.scheduled_at) : null,
     estimated_cost: estimatedCost,
   });
@@ -510,9 +624,7 @@ async function updateCampaign(userId, campaignId, data) {
   if (data.template_id && data.template_id !== campaign.template_id) {
     const templateData = await fetchTemplate(userId, data.template_id);
     const template = templateData.template || templateData;
-    if (template.status && template.status !== 'APPROVED' && template.status !== 'approved') {
-      throw AppError.badRequest(`Template is not approved. Current status: ${template.status}`);
-    }
+    assertTemplateEligibleForCampaign(template);
   }
 
   if (data.wa_account_id || data.template_id) {
@@ -528,6 +640,7 @@ async function updateCampaign(userId, campaignId, data) {
     }
 
     const template = templateData.template || templateData;
+    assertTemplateEligibleForCampaign(template);
     assertTemplateMatchesWaAccount(template, account);
   }
 
@@ -537,6 +650,7 @@ async function updateCampaign(userId, campaignId, data) {
     const targetConfig = data.target_config || campaign.target_config;
     const templateData = await fetchTemplate(userId, data.template_id || campaign.template_id);
     const template = templateData.template || templateData;
+    assertTemplateEligibleForCampaign(template);
     const estimatedRecipients = await estimateCampaignRecipients(userId, targetType, targetConfig);
     const pricing = await getCampaignExecutionPricing(
       userId,
@@ -544,6 +658,10 @@ async function updateCampaign(userId, campaignId, data) {
       template.category
     );
     data.estimated_cost = pricing.estimatedCost;
+  }
+
+  if (data.variables_mapping && Object.keys(data.variables_mapping).length === 0) {
+    data.variables_mapping = null;
   }
 
   await campaign.update(data);
@@ -604,6 +722,7 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
   }
 
   const template = templateData.template || templateData;
+  assertTemplateEligibleForCampaign(template);
   assertTemplateMatchesWaAccount(template, account);
 
   // 1. Resolve target contacts
@@ -735,6 +854,7 @@ async function resumeCampaign(userId, campaignId, kafkaProducer) {
   }
 
   const template = templateData.template || templateData;
+  assertTemplateEligibleForCampaign(template);
   assertTemplateMatchesWaAccount(template, account);
 
   // Find pending messages
@@ -862,6 +982,7 @@ async function retryCampaign(userId, campaignId, kafkaProducer) {
   }
 
   const template = templateData.template || templateData;
+  assertTemplateEligibleForCampaign(template);
   assertTemplateMatchesWaAccount(template, account);
 
   // Find failed messages eligible for retry
@@ -1268,4 +1389,15 @@ module.exports = {
   getCampaignMessages,
   getCampaignAnalytics,
   handleStatusUpdate,
+  __private: {
+    assertTemplateEligibleForCampaign,
+    assertTargetSelection,
+    fetchAllContactsByQuery,
+    fetchContactsByGroupIds,
+    fetchContactsByIds,
+    fetchContactsByTagIds,
+    normalizeIdArray,
+    resolveContacts,
+    splitIntoBatches,
+  },
 };

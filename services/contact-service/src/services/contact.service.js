@@ -811,9 +811,24 @@ async function createTag(userId, data) {
   return tag;
 }
 
-async function listTags(userId) {
-  const tags = await Tag.findAll({
-    where: { user_id: userId },
+async function listTags(userId, filters = {}) {
+  const { page, limit, search, ids } = filters;
+  const parsedIds = ids
+    ? ids.split(',').map((id) => id.trim()).filter(Boolean)
+    : [];
+  const hasPaginationFilters = page !== undefined || limit !== undefined || Boolean(search) || parsedIds.length > 0;
+  const where = { user_id: userId };
+
+  if (parsedIds.length > 0) {
+    where.id = { [Op.in]: parsedIds };
+  }
+
+  if (search) {
+    where.name = { [Op.like]: `%${search}%` };
+  }
+
+  const baseQuery = {
+    where,
     order: [['name', 'ASC']],
     attributes: {
       include: [
@@ -825,9 +840,26 @@ async function listTags(userId) {
         ],
       ],
     },
+  };
+
+  if (!hasPaginationFilters) {
+    const tags = await Tag.findAll(baseQuery);
+    return { tags, meta: null };
+  }
+
+  const currentPage = page || 1;
+  const currentLimit = limit || 20;
+  const { offset, limit: sanitizedLimit } = getPagination(currentPage, currentLimit);
+  const { count, rows } = await Tag.findAndCountAll({
+    ...baseQuery,
+    offset,
+    limit: sanitizedLimit,
   });
 
-  return tags;
+  return {
+    tags: rows,
+    meta: getPaginationMeta(count, currentPage, currentLimit),
+  };
 }
 
 async function updateTag(userId, tagId, data) {
@@ -1198,9 +1230,16 @@ async function createGroup(userId, data) {
 }
 
 async function listGroups(userId, filters = {}) {
-  const { page = 1, limit = 20, search, type, date_from, date_to } = filters;
+  const { page = 1, limit = 20, search, ids, type, date_from, date_to } = filters;
   const { offset, limit: sanitizedLimit } = getPagination(page, limit);
   const where = { user_id: userId };
+  const parsedIds = ids
+    ? ids.split(',').map((id) => id.trim()).filter(Boolean)
+    : [];
+
+  if (parsedIds.length > 0) {
+    where.id = { [Op.in]: parsedIds };
+  }
 
   if (search) {
     where[Op.or] = [

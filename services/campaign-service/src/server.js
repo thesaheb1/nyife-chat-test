@@ -5,7 +5,7 @@ const app = require('./app');
 const config = require('./config');
 const { sequelize } = require('./models');
 const { testConnection, createRedisClient, createKafkaProducer, createKafkaConsumer } = require('@nyife/shared-config');
-const { TOPICS } = require('@nyife/shared-events');
+const { TOPICS, publishEvent } = require('@nyife/shared-events');
 const campaignService = require('./services/campaign.service');
 
 const server = http.createServer(app);
@@ -60,17 +60,13 @@ async function startServer() {
 
           const result = await campaignService.handleStatusUpdate(payload);
 
-          // Emit Socket.IO events if io is available
-          if (app.locals.io && result) {
-            app.locals.io.to(`campaign:${payload.campaignId}`).emit('campaign:status', {
+          if (result && kafkaProducer) {
+            await publishEvent(kafkaProducer, TOPICS.CAMPAIGN_LIVE, payload.campaignId, {
               campaignId: payload.campaignId,
-              contactId: payload.contactId,
+              organizationId: result.organizationId,
               messageId: payload.messageId,
               status: payload.status,
-            });
-
-            app.locals.io.to(`user:${result.userId}`).emit('campaign:updated', {
-              campaignId: payload.campaignId,
+              timestamp: payload.timestamp || new Date().toISOString(),
               stats: result.stats,
             });
           }

@@ -19,7 +19,7 @@ test('fetchContactsByIds batches large contact id lists into contact-service siz
   const requests = [];
 
   axios.get = async (_url, options) => {
-    requests.push(options.params);
+    requests.push(options);
     return {
       data: {
         data: {
@@ -36,11 +36,11 @@ test('fetchContactsByIds batches large contact id lists into contact-service siz
   const contacts = await __private.fetchContactsByIds('user-1', contactIds);
 
   assert.equal(requests.length, 3);
-  assert.equal(requests[0].page, 1);
-  assert.equal(requests[0].limit, 100);
-  assert.equal(requests[0].ids.split(',').length, 100);
-  assert.equal(requests[1].ids.split(',').length, 100);
-  assert.equal(requests[2].ids.split(',').length, 5);
+  assert.equal(requests[0].params.page, 1);
+  assert.equal(requests[0].params.limit, 100);
+  assert.equal(requests[0].params.ids.split(',').length, 100);
+  assert.equal(requests[1].params.ids.split(',').length, 100);
+  assert.equal(requests[2].params.ids.split(',').length, 5);
   assert.equal(contacts.length, 205);
 });
 
@@ -48,7 +48,7 @@ test('fetchContactsByTagIds batches large tag id lists into safe requests', asyn
   const requests = [];
 
   axios.get = async (_url, options) => {
-    requests.push(options.params);
+    requests.push(options);
     return {
       data: {
         data: {
@@ -65,8 +65,8 @@ test('fetchContactsByTagIds batches large tag id lists into safe requests', asyn
   const contacts = await __private.fetchContactsByTagIds('user-1', tagIds);
 
   assert.equal(requests.length, 2);
-  assert.equal(requests[0].tag_ids.split(',').length, 100);
-  assert.equal(requests[1].tag_ids.split(',').length, 1);
+  assert.equal(requests[0].params.tag_ids.split(',').length, 100);
+  assert.equal(requests[1].params.tag_ids.split(',').length, 1);
   assert.equal(contacts.length, 2);
 });
 
@@ -74,7 +74,7 @@ test('resolveContacts paginates through all contacts, deduplicates, and applies 
   const requests = [];
 
   axios.get = async (_url, options) => {
-    requests.push(options.params);
+    requests.push(options);
 
     if (options.params.page === 1) {
       return {
@@ -105,6 +105,69 @@ test('resolveContacts paginates through all contacts, deduplicates, and applies 
     exclude_contact_ids: ['contact-2'],
   });
 
-  assert.deepEqual(requests.map((params) => params.page), [1, 2]);
+  assert.deepEqual(requests.map((request) => request.params.page), [1, 2]);
   assert.deepEqual(contacts.map((contact) => contact.id), ['contact-1', 'contact-3']);
+});
+
+test('fetchTemplate forwards actor and organization headers for internal template-service calls', async () => {
+  let capturedOptions = null;
+
+  axios.get = async (_url, options) => {
+    capturedOptions = options;
+    return {
+      data: {
+        data: {
+          template: {
+            id: 'template-1',
+          },
+        },
+      },
+    };
+  };
+
+  await __private.fetchTemplate(
+    {
+      actorUserId: 'user-1',
+      organizationId: 'org-1',
+      scopeId: 'org-1',
+    },
+    'template-1'
+  );
+
+  assert.deepEqual(capturedOptions.headers, {
+    'x-user-id': 'user-1',
+    'x-organization-id': 'org-1',
+  });
+});
+
+test('fetchContactsByIds forwards actor and organization headers for internal contact-service calls', async () => {
+  let capturedOptions = null;
+
+  axios.get = async (_url, options) => {
+    capturedOptions = options;
+    return {
+      data: {
+        data: {
+          contacts: [{ id: 'contact-1' }],
+        },
+        meta: {
+          totalPages: 1,
+        },
+      },
+    };
+  };
+
+  await __private.fetchContactsByIds(
+    {
+      actorUserId: 'user-1',
+      organizationId: 'org-1',
+      scopeId: 'org-1',
+    },
+    ['contact-1']
+  );
+
+  assert.deepEqual(capturedOptions.headers, {
+    'x-user-id': 'user-1',
+    'x-organization-id': 'org-1',
+  });
 });

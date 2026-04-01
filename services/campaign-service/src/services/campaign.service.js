@@ -6,6 +6,7 @@ const { Campaign, CampaignMessage, sequelize } = require('../models');
 const { AppError, getPagination, getPaginationMeta, generateUUID } = require('@nyife/shared-utils');
 const { TOPICS, publishEvent } = require('@nyife/shared-events');
 const { resolveVariables, buildTemplateComponents } = require('../helpers/variableResolver');
+const { buildInternalOrganizationHeaders, resolveScopeId } = require('../helpers/requestContext');
 const config = require('../config');
 
 const CONTACT_SERVICE_PAGE_LIMIT = 100;
@@ -66,16 +67,16 @@ async function incrementSubscriptionUsage(userId, resource, count = 1) {
 
 /**
  * Fetches template details from template-service.
- * @param {string} userId
+ * @param {object|string} requestContext
  * @param {string} templateId
  * @returns {Promise<object>} Template data
  */
-async function fetchTemplate(userId, templateId) {
+async function fetchTemplate(requestContext, templateId) {
   try {
     const response = await axios.get(
       `${config.templateServiceUrl}/api/v1/templates/${templateId}`,
       {
-        headers: { 'x-user-id': userId },
+        headers: buildInternalOrganizationHeaders(requestContext),
         timeout: 5000,
       }
     );
@@ -84,7 +85,11 @@ async function fetchTemplate(userId, templateId) {
     if (err.response && err.response.status === 404) {
       throw AppError.notFound('Template not found');
     }
-    console.error('[campaign-service] Failed to fetch template:', err.message);
+    console.error('[campaign-service] Failed to fetch template:', {
+      status: err.response?.status || null,
+      message: err.message,
+      data: err.response?.data || null,
+    });
     throw AppError.internal('Unable to fetch template details');
   }
 }
@@ -251,8 +256,8 @@ function getMessageLimitState(subscription) {
   };
 }
 
-async function estimateCampaignRecipients(userId, targetType, targetConfig) {
-  const contacts = await resolveContacts(userId, targetType, targetConfig);
+async function estimateCampaignRecipients(requestContext, targetType, targetConfig) {
+  const contacts = await resolveContacts(requestContext, targetType, targetConfig);
   return contacts.length;
 }
 
@@ -334,10 +339,10 @@ function assertTargetSelection(targetType, targetConfig = {}) {
   }
 }
 
-async function fetchContactsPage(userId, params) {
+async function fetchContactsPage(requestContext, params) {
   const response = await axios.get(`${config.contactServiceUrl}/api/v1/contacts`, {
     params,
-    headers: { 'x-user-id': userId },
+    headers: buildInternalOrganizationHeaders(requestContext),
     timeout: 15000,
   });
 
@@ -347,12 +352,12 @@ async function fetchContactsPage(userId, params) {
   };
 }
 
-async function fetchAllContactsByQuery(userId, params = {}) {
+async function fetchAllContactsByQuery(requestContext, params = {}) {
   const contacts = [];
   let page = 1;
 
   while (true) {
-    const { contacts: pageContacts, meta } = await fetchContactsPage(userId, {
+    const { contacts: pageContacts, meta } = await fetchContactsPage(requestContext, {
       ...params,
       page,
       limit: CONTACT_SERVICE_PAGE_LIMIT,
@@ -371,13 +376,13 @@ async function fetchAllContactsByQuery(userId, params = {}) {
   return contacts;
 }
 
-async function fetchContactsByIds(userId, ids) {
+async function fetchContactsByIds(requestContext, ids) {
   const contacts = [];
   const batches = splitIntoBatches(normalizeIdArray(ids), CONTACT_IDS_BATCH_SIZE);
 
   for (const batch of batches) {
     contacts.push(
-      ...(await fetchAllContactsByQuery(userId, {
+      ...(await fetchAllContactsByQuery(requestContext, {
         ids: batch.join(','),
       }))
     );
@@ -386,12 +391,12 @@ async function fetchContactsByIds(userId, ids) {
   return contacts;
 }
 
-async function fetchContactsByGroupIds(userId, groupIds) {
+async function fetchContactsByGroupIds(requestContext, groupIds) {
   const contacts = [];
 
   for (const groupId of normalizeIdArray(groupIds)) {
     contacts.push(
-      ...(await fetchAllContactsByQuery(userId, {
+      ...(await fetchAllContactsByQuery(requestContext, {
         group_id: groupId,
       }))
     );
@@ -400,13 +405,13 @@ async function fetchContactsByGroupIds(userId, groupIds) {
   return contacts;
 }
 
-async function fetchContactsByTagIds(userId, tagIds) {
+async function fetchContactsByTagIds(requestContext, tagIds) {
   const contacts = [];
   const batches = splitIntoBatches(normalizeIdArray(tagIds), TAG_IDS_BATCH_SIZE);
 
   for (const batch of batches) {
     contacts.push(
-      ...(await fetchAllContactsByQuery(userId, {
+      ...(await fetchAllContactsByQuery(requestContext, {
         tag_ids: batch.join(','),
       }))
     );
@@ -422,29 +427,29 @@ async function fetchContactsByTagIds(userId, tagIds) {
  * @param {object} targetConfig
  * @returns {Promise<Array>} Array of contact objects
  */
-async function resolveContacts(userId, targetType, targetConfig) {
+async function resolveContacts(requestContext, targetType, targetConfig) {
   assertTargetSelection(targetType, targetConfig);
   let contacts = [];
 
   try {
     switch (targetType) {
       case 'contacts': {
-        contacts = await fetchContactsByIds(userId, targetConfig.contact_ids);
+        contacts = await fetchContactsByIds(requestContext, targetConfig.contact_ids);
         break;
       }
 
       case 'group': {
-        contacts = await fetchContactsByGroupIds(userId, targetConfig.group_ids);
+        contacts = await fetchContactsByGroupIds(requestContext, targetConfig.group_ids);
         break;
       }
 
       case 'tags': {
-        contacts = await fetchContactsByTagIds(userId, targetConfig.tag_ids);
+        contacts = await fetchContactsByTagIds(requestContext, targetConfig.tag_ids);
         break;
       }
 
       case 'all': {
-        contacts = await fetchAllContactsByQuery(userId);
+        contacts = await fetchAllContactsByQuery(requestContext);
         break;
       }
 
@@ -492,7 +497,8 @@ async function resolveContacts(userId, targetType, targetConfig) {
  * Creates a new campaign in draft status.
  * Validates subscription limit, template existence, and calculates estimated cost.
  */
-async function createCampaign(userId, data) {
+async function createCampaign(requestContext, data) {
+  const userId = resolveScopeId(requestContext);
   // 1. Check subscription limit for campaigns
   const limitCheck = await checkSubscriptionLimit(userId, 'campaigns');
   if (!limitCheck.allowed) {
@@ -502,7 +508,7 @@ async function createCampaign(userId, data) {
   }
 
   // 2. Validate template exists, is published, and is approved
-  const templateData = await fetchTemplate(userId, data.template_id);
+  const templateData = await fetchTemplate(requestContext, data.template_id);
   const template = templateData.template || templateData;
   assertTemplateEligibleForCampaign(template);
 
@@ -514,7 +520,7 @@ async function createCampaign(userId, data) {
 
   // 3. Estimate recipient count based on target_type
   const estimatedRecipients = await estimateCampaignRecipients(
-    userId,
+    requestContext,
     data.target_type,
     data.target_config
   );
@@ -553,7 +559,8 @@ async function createCampaign(userId, data) {
 /**
  * Lists campaigns for a user with pagination, search, status, and date filters.
  */
-async function listCampaigns(userId, filters) {
+async function listCampaigns(requestContext, filters) {
+  const userId = resolveScopeId(requestContext);
   const { page, limit, status, search, date_from, date_to } = filters;
   const { offset, limit: paginationLimit } = getPagination(page, limit);
 
@@ -592,7 +599,8 @@ async function listCampaigns(userId, filters) {
 /**
  * Gets a single campaign by ID with aggregate stats.
  */
-async function getCampaign(userId, campaignId) {
+async function getCampaign(requestContext, campaignId) {
+  const userId = resolveScopeId(requestContext);
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
   });
@@ -607,7 +615,8 @@ async function getCampaign(userId, campaignId) {
 /**
  * Updates a campaign. Only drafts can be updated.
  */
-async function updateCampaign(userId, campaignId, data) {
+async function updateCampaign(requestContext, campaignId, data) {
+  const userId = resolveScopeId(requestContext);
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
   });
@@ -622,7 +631,7 @@ async function updateCampaign(userId, campaignId, data) {
 
   // If template_id is being changed, validate the new template
   if (data.template_id && data.template_id !== campaign.template_id) {
-    const templateData = await fetchTemplate(userId, data.template_id);
+    const templateData = await fetchTemplate(requestContext, data.template_id);
     const template = templateData.template || templateData;
     assertTemplateEligibleForCampaign(template);
   }
@@ -632,7 +641,7 @@ async function updateCampaign(userId, campaignId, data) {
     const nextTemplateId = data.template_id || campaign.template_id;
     const [account, templateData] = await Promise.all([
       findActiveWaAccount(userId, nextWaAccountId),
-      fetchTemplate(userId, nextTemplateId),
+      fetchTemplate(requestContext, nextTemplateId),
     ]);
 
     if (!account) {
@@ -648,10 +657,10 @@ async function updateCampaign(userId, campaignId, data) {
   if (data.target_config || data.target_type || data.template_id) {
     const targetType = data.target_type || campaign.target_type;
     const targetConfig = data.target_config || campaign.target_config;
-    const templateData = await fetchTemplate(userId, data.template_id || campaign.template_id);
+    const templateData = await fetchTemplate(requestContext, data.template_id || campaign.template_id);
     const template = templateData.template || templateData;
     assertTemplateEligibleForCampaign(template);
-    const estimatedRecipients = await estimateCampaignRecipients(userId, targetType, targetConfig);
+    const estimatedRecipients = await estimateCampaignRecipients(requestContext, targetType, targetConfig);
     const pricing = await getCampaignExecutionPricing(
       userId,
       estimatedRecipients,
@@ -673,7 +682,8 @@ async function updateCampaign(userId, campaignId, data) {
 /**
  * Soft-deletes a campaign. Only drafts can be deleted.
  */
-async function deleteCampaign(userId, campaignId) {
+async function deleteCampaign(requestContext, campaignId) {
+  const userId = resolveScopeId(requestContext);
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
   });
@@ -695,7 +705,8 @@ async function deleteCampaign(userId, campaignId) {
  * Starts campaign execution.
  * Resolves contacts, creates message records, publishes to Kafka in batches of 50.
  */
-async function startCampaign(userId, campaignId, kafkaProducer) {
+async function startCampaign(requestContext, campaignId, kafkaProducer) {
+  const userId = resolveScopeId(requestContext);
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
   });
@@ -714,7 +725,7 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
 
   const [account, templateData] = await Promise.all([
     findActiveWaAccount(userId, campaign.wa_account_id),
-    fetchTemplate(userId, campaign.template_id),
+    fetchTemplate(requestContext, campaign.template_id),
   ]);
 
   if (!account) {
@@ -726,7 +737,7 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
   assertTemplateMatchesWaAccount(template, account);
 
   // 1. Resolve target contacts
-  const contacts = await resolveContacts(userId, campaign.target_type, campaign.target_config);
+  const contacts = await resolveContacts(requestContext, campaign.target_type, campaign.target_config);
 
   if (contacts.length === 0) {
     throw AppError.badRequest('No contacts found matching the target criteria');
@@ -759,7 +770,20 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
   // Bulk create message records
   await CampaignMessage.bulkCreate(messageRecords);
 
-  // 3. Publish to Kafka in batches of 50
+  // 3. Mark the campaign as running before any worker status can race back in.
+  await campaign.update({
+    status: 'running',
+    started_at: new Date(),
+    total_recipients: contacts.length,
+    pending_count: contacts.length,
+    sent_count: 0,
+    delivered_count: 0,
+    read_count: 0,
+    failed_count: 0,
+    estimated_cost: executionPricing.estimatedCost,
+  });
+
+  // 4. Publish to Kafka in batches of 50
   const batchSize = 50;
   for (let i = 0; i < messageRecords.length; i += batchSize) {
     const batch = messageRecords.slice(i, i + batchSize);
@@ -784,19 +808,6 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
     await Promise.all(publishPromises);
   }
 
-  // 4. Update campaign status and counters
-  await campaign.update({
-    status: 'running',
-    started_at: new Date(),
-    total_recipients: contacts.length,
-    pending_count: contacts.length,
-    sent_count: 0,
-    delivered_count: 0,
-    read_count: 0,
-    failed_count: 0,
-    estimated_cost: executionPricing.estimatedCost,
-  });
-
   await campaign.reload();
 
   return campaign;
@@ -805,7 +816,8 @@ async function startCampaign(userId, campaignId, kafkaProducer) {
 /**
  * Pauses a running campaign.
  */
-async function pauseCampaign(userId, campaignId) {
+async function pauseCampaign(requestContext, campaignId) {
+  const userId = resolveScopeId(requestContext);
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
   });
@@ -827,7 +839,8 @@ async function pauseCampaign(userId, campaignId) {
 /**
  * Resumes a paused campaign by re-publishing pending messages to Kafka.
  */
-async function resumeCampaign(userId, campaignId, kafkaProducer) {
+async function resumeCampaign(requestContext, campaignId, kafkaProducer) {
+  const userId = resolveScopeId(requestContext);
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
   });
@@ -846,7 +859,7 @@ async function resumeCampaign(userId, campaignId, kafkaProducer) {
 
   const [account, templateData] = await Promise.all([
     findActiveWaAccount(userId, campaign.wa_account_id),
-    fetchTemplate(userId, campaign.template_id),
+    fetchTemplate(requestContext, campaign.template_id),
   ]);
 
   if (!account) {
@@ -875,6 +888,11 @@ async function resumeCampaign(userId, campaignId, kafkaProducer) {
     template.category
   );
 
+  await campaign.update({
+    status: 'running',
+    pending_count: pendingMessages.length,
+  });
+
   // Re-publish pending messages to Kafka in batches of 50
   const batchSize = 50;
   for (let i = 0; i < pendingMessages.length; i += batchSize) {
@@ -899,9 +917,6 @@ async function resumeCampaign(userId, campaignId, kafkaProducer) {
 
     await Promise.all(publishPromises);
   }
-
-  // Update campaign status
-  await campaign.update({ status: 'running' });
   await campaign.reload();
 
   return campaign;
@@ -910,7 +925,8 @@ async function resumeCampaign(userId, campaignId, kafkaProducer) {
 /**
  * Cancels a campaign. Updates all pending/queued messages to failed.
  */
-async function cancelCampaign(userId, campaignId) {
+async function cancelCampaign(requestContext, campaignId) {
+  const userId = resolveScopeId(requestContext);
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
   });
@@ -955,7 +971,8 @@ async function cancelCampaign(userId, campaignId) {
  * Retries failed messages in a campaign.
  * Only retries messages where retry_count < max_retries.
  */
-async function retryCampaign(userId, campaignId, kafkaProducer) {
+async function retryCampaign(requestContext, campaignId, kafkaProducer) {
+  const userId = resolveScopeId(requestContext);
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
   });
@@ -974,7 +991,7 @@ async function retryCampaign(userId, campaignId, kafkaProducer) {
 
   const [account, templateData] = await Promise.all([
     findActiveWaAccount(userId, campaign.wa_account_id),
-    fetchTemplate(userId, campaign.template_id),
+    fetchTemplate(requestContext, campaign.template_id),
   ]);
 
   if (!account) {
@@ -1019,6 +1036,12 @@ async function retryCampaign(userId, campaignId, kafkaProducer) {
     }
   );
 
+  await campaign.update({
+    status: 'running',
+    failed_count: sequelize.literal(`GREATEST(failed_count - ${failedMessages.length}, 0)`),
+    pending_count: sequelize.literal(`pending_count + ${failedMessages.length}`),
+  });
+
   // Publish to Kafka in batches of 50
   const batchSize = 50;
   for (let i = 0; i < failedMessages.length; i += batchSize) {
@@ -1044,13 +1067,6 @@ async function retryCampaign(userId, campaignId, kafkaProducer) {
     await Promise.all(publishPromises);
   }
 
-  // Update campaign counters
-  await campaign.update({
-    status: 'running',
-    failed_count: sequelize.literal(`failed_count - ${failedMessages.length}`),
-    pending_count: sequelize.literal(`pending_count + ${failedMessages.length}`),
-  });
-
   await campaign.reload();
 
   return campaign;
@@ -1059,7 +1075,8 @@ async function retryCampaign(userId, campaignId, kafkaProducer) {
 /**
  * Lists messages for a campaign with pagination and optional status filter.
  */
-async function getCampaignMessages(userId, campaignId, filters) {
+async function getCampaignMessages(requestContext, campaignId, filters) {
+  const userId = resolveScopeId(requestContext);
   // Verify campaign belongs to user
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
@@ -1093,7 +1110,8 @@ async function getCampaignMessages(userId, campaignId, filters) {
 /**
  * Gets detailed analytics for a campaign.
  */
-async function getCampaignAnalytics(userId, campaignId) {
+async function getCampaignAnalytics(requestContext, campaignId) {
+  const userId = resolveScopeId(requestContext);
   // Verify campaign belongs to user
   const campaign = await Campaign.findOne({
     where: { id: campaignId, user_id: userId },
@@ -1227,17 +1245,27 @@ async function handleStatusUpdate(statusPayload) {
         where: { campaign_id: campaignId, meta_message_id: messageId },
       });
       if (!msgByMetaId) {
-        console.warn(
-          `[campaign-service] CampaignMessage not found for campaign=${campaignId} contact=${contactId} messageId=${messageId}`
-        );
+        console.warn('[campaign-service] Campaign status diagnostic', JSON.stringify({
+          campaign_id: campaignId,
+          contact_id: contactId,
+          message_id: messageId,
+          status,
+          matched_campaign_message: false,
+          lookup: 'contact_id_then_meta_message_id',
+        }));
         return null;
       }
       // Process with the found message
       return await processStatusUpdate(msgByMetaId, campaignId, status, messageId, timestamp, errorCode, errorMessage);
     }
-    console.warn(
-      `[campaign-service] CampaignMessage not found for campaign=${campaignId} contact=${contactId}`
-    );
+    console.warn('[campaign-service] Campaign status diagnostic', JSON.stringify({
+      campaign_id: campaignId,
+      contact_id: contactId,
+      message_id: messageId || null,
+      status,
+      matched_campaign_message: false,
+      lookup: 'contact_id',
+    }));
     return null;
   }
 
@@ -1250,6 +1278,7 @@ async function handleStatusUpdate(statusPayload) {
  */
 async function processStatusUpdate(campaignMessage, campaignId, status, messageId, timestamp, errorCode, errorMessage) {
   const previousStatus = campaignMessage.status;
+  const pendingStatuses = new Set(['pending', 'queued']);
 
   // Determine if this is a forward progression (avoid going backward in status)
   // Order: pending → queued → sent → delivered → read
@@ -1306,8 +1335,8 @@ async function processStatusUpdate(campaignMessage, campaignId, status, messageI
   // Build counter update based on status transition
   const counterUpdate = {};
 
-  // Decrement the previous status counter (if not pending/queued going to sent)
-  if (previousStatus === 'pending' || previousStatus === 'queued') {
+  // Keep pending_count aligned with unresolved pending/queued work.
+  if (pendingStatuses.has(previousStatus) && !pendingStatuses.has(status)) {
     counterUpdate.pending_count = sequelize.literal('GREATEST(pending_count - 1, 0)');
   } else if (previousStatus === 'sent') {
     counterUpdate.sent_count = sequelize.literal('GREATEST(sent_count - 1, 0)');
@@ -1339,7 +1368,7 @@ async function processStatusUpdate(campaignMessage, campaignId, status, messageI
     where: { id: campaignId },
   });
 
-  // Check if all messages are processed (no more pending)
+  // Check if all messages have moved past the pending/queued pipeline stages.
   const pendingCount = await CampaignMessage.count({
     where: {
       campaign_id: campaignId,
@@ -1361,8 +1390,18 @@ async function processStatusUpdate(campaignMessage, campaignId, status, messageI
   // Reload campaign to get updated stats
   await campaign.reload();
 
+  console.log('[campaign-service] Campaign status diagnostic', JSON.stringify({
+    campaign_id: campaignId,
+    campaign_message_id: campaignMessage.id,
+    contact_id: campaignMessage.contact_id,
+    message_id: messageId || campaignMessage.meta_message_id || null,
+    previous_status: previousStatus,
+    next_status: status,
+    matched_campaign_message: true,
+  }));
+
   return {
-    userId: campaign.user_id,
+    organizationId: campaign.user_id,
     stats: {
       total_recipients: campaign.total_recipients,
       sent_count: campaign.sent_count,
@@ -1392,6 +1431,7 @@ module.exports = {
   __private: {
     assertTemplateEligibleForCampaign,
     assertTargetSelection,
+    fetchTemplate,
     fetchAllContactsByQuery,
     fetchContactsByGroupIds,
     fetchContactsByIds,

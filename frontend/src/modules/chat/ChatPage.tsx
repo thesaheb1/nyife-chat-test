@@ -43,6 +43,7 @@ import {
   useAssignConversation,
   useMarkAsRead,
   useUpdateConversationStatus,
+  useChatRealtime,
   useChatSocket,
 } from './useChat';
 import { useDebounce } from '@/core/hooks';
@@ -76,6 +77,8 @@ function useAssignableTeamMembers(organizationId: string | undefined, userId: st
 }
 
 export function ChatPage() {
+  useChatRealtime();
+
   const currentUser = useSelector((state: RootState) => state.auth.user);
   const { activeOrganization } = useOrganizationContext();
   const isOwner = activeOrganization?.organization_role === 'owner';

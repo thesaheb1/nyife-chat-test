@@ -108,8 +108,9 @@ async function getAccountHealth(req, res) {
   const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
   const { id } = accountIdParamSchema.parse(req.params);
   const kafkaProducer = req.app.locals.kafkaProducer || null;
+  const redis = req.app.locals.redis || null;
 
-  const result = await accountService.getAccountHealth(userId, id, kafkaProducer);
+  const result = await accountService.getAccountHealth(userId, id, kafkaProducer, redis);
   return successResponse(res, result, 'WhatsApp account health retrieved');
 }
 
@@ -118,8 +119,9 @@ async function reconcileAccount(req, res) {
   const { id } = accountIdParamSchema.parse(req.params);
   reconcileAccountSchema.parse(req.body ?? {});
   const kafkaProducer = req.app.locals.kafkaProducer || null;
+  const redis = req.app.locals.redis || null;
 
-  const result = await accountService.reconcileAccount(userId, id, kafkaProducer);
+  const result = await accountService.reconcileAccount(userId, id, kafkaProducer, redis);
   return successResponse(res, result, 'WhatsApp account reconciled successfully');
 }
 
@@ -249,13 +251,16 @@ async function verifyWebhook(req, res) {
 async function processWebhook(req, res) {
   // Respond 200 immediately to Meta (they require a fast response)
   res.status(200).json({ status: 'received' });
-  console.log('[whatsapp-service] Webhook received:', JSON.stringify(req.body));
+  console.log(
+    `[whatsapp-service] Webhook received (format=${req.webhookEnvelopeFormat || 'unknown'}, auth=${req.webhookAuth?.strategy || 'unknown'})`
+  );
 
   // Process webhook asynchronously (after response is sent)
   const kafkaProducer = req.app.locals.kafkaProducer || null;
+  const redis = req.app.locals.redis || null;
 
   try {
-    await webhookService.processWebhook(req.body, kafkaProducer);
+    await webhookService.processWebhook(req.body, kafkaProducer, { redis });
   } catch (err) {
     console.error('[whatsapp-service] Webhook processing error:', err.message);
   }

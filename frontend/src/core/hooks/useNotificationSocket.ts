@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSocket } from './useSocket';
@@ -11,9 +11,30 @@ import type { Notification } from '@/core/types';
 export function useNotificationSocket() {
   const { notificationSocket } = useSocket();
   const qc = useQueryClient();
+  const campaignRefreshTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
     if (!notificationSocket) return;
+
+    const queueCampaignRefresh = (campaignId?: string | null) => {
+      if (!campaignId) {
+        return;
+      }
+
+      if (campaignRefreshTimersRef.current.has(campaignId)) {
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        campaignRefreshTimersRef.current.delete(campaignId);
+        qc.invalidateQueries({ queryKey: ['campaigns'] });
+        qc.invalidateQueries({ queryKey: ['campaigns', campaignId] });
+        qc.invalidateQueries({ queryKey: ['campaigns', campaignId, 'analytics'] });
+        qc.invalidateQueries({ queryKey: ['campaigns', campaignId, 'messages'] });
+      }, 150);
+
+      campaignRefreshTimersRef.current.set(campaignId, timer);
+    };
 
     // New notification arrives
     const onNotification = (payload: { notification: Notification }) => {
@@ -40,9 +61,7 @@ export function useNotificationSocket() {
 
     // Campaign status update (real-time progress)
     const onCampaignStatus = (payload: { campaign_id: string; status: string }) => {
-      qc.invalidateQueries({ queryKey: ['campaigns'] });
-      qc.invalidateQueries({ queryKey: ['campaigns', payload.campaign_id] });
-      qc.invalidateQueries({ queryKey: ['campaigns', payload.campaign_id, 'analytics'] });
+      queueCampaignRefresh(payload.campaign_id);
       if (payload.status === 'completed') {
         toast.success('Campaign completed');
       } else if (payload.status === 'failed') {
@@ -52,8 +71,7 @@ export function useNotificationSocket() {
 
     // Campaign progress (sent/delivered/read count updates)
     const onCampaignProgress = (payload: { campaign_id: string }) => {
-      qc.invalidateQueries({ queryKey: ['campaigns', payload.campaign_id, 'analytics'] });
-      qc.invalidateQueries({ queryKey: ['campaigns', payload.campaign_id, 'messages'] });
+      queueCampaignRefresh(payload.campaign_id);
     };
 
     notificationSocket.on('notification', onNotification);
@@ -62,6 +80,8 @@ export function useNotificationSocket() {
     notificationSocket.on('campaign:progress', onCampaignProgress);
 
     return () => {
+      campaignRefreshTimersRef.current.forEach((timer) => clearTimeout(timer));
+      campaignRefreshTimersRef.current.clear();
       notificationSocket.off('notification', onNotification);
       notificationSocket.off('unread-count', onUnreadCount);
       notificationSocket.off('campaign:status', onCampaignStatus);

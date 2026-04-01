@@ -1,10 +1,12 @@
 'use strict';
 
 const { Op, QueryTypes } = require('sequelize');
+const { UniqueConstraintError } = require('sequelize');
 const axios = require('axios');
 const { Conversation, ChatMessage, sequelize } = require('../models');
 const { AppError, getPagination, getPaginationMeta } = require('@nyife/shared-utils');
 const config = require('../config');
+const { buildInternalOrganizationHeaders } = require('../helpers/requestContext');
 
 function normalizeInboundPayload(event) {
   if (!event || typeof event !== 'object') {
@@ -42,6 +44,7 @@ function normalizeStatusPayload(event) {
       id: event.metaMessageId,
       status: event.status,
       recipient_id: event.contactPhone || null,
+      campaign_id: event.campaignId || null,
       pricing: event.pricingCategory || event.pricingModel
         ? {
             category: event.pricingCategory || null,
@@ -59,6 +62,22 @@ function normalizeStatusPayload(event) {
   }
 
   return event;
+}
+
+function parseJsonValue(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+
+  return value;
 }
 
 async function findWaAccountById(userId, waAccountId, requireActive = false) {
@@ -216,6 +235,21 @@ async function emitConversationUpdate(io, organizationId, conversation) {
   }
 }
 
+async function emitConversationMessage(io, organizationId, conversation, chatMessage) {
+  if (!io || !conversation || !chatMessage) {
+    return;
+  }
+
+  const payload = typeof chatMessage.toJSON === 'function'
+    ? chatMessage.toJSON()
+    : { ...chatMessage };
+
+  io.to(`conversation:${conversation.id}`).emit('new:message', {
+    message: payload,
+  });
+  await emitConversationUpdate(io, organizationId, conversation);
+}
+
 // ────────────────────────────────────────────────
 // Conversation List & Detail
 // ────────────────────────────────────────────────
@@ -351,7 +385,7 @@ async function getConversationMessages(scopeId, actor, conversationId, filters) 
  * @param {object} io - Socket.IO server instance
  * @returns {Promise<ChatMessage>}
  */
-async function sendMessage(scopeId, actor, conversationId, data, io) {
+async function sendMessage(scopeId, actor, requestContext, conversationId, data, io) {
   const { type, message, wa_account_id } = data;
 
   // Verify conversation belongs to user
@@ -395,7 +429,7 @@ async function sendMessage(scopeId, actor, conversationId, data, io) {
       },
       {
         headers: {
-          'x-user-id': scopeId,
+          ...buildInternalOrganizationHeaders(requestContext),
           'Content-Type': 'application/json',
         },
         timeout: 30000,
@@ -435,7 +469,6 @@ async function sendMessage(scopeId, actor, conversationId, data, io) {
   // Update the chat message with the Meta message ID and sent status
   await chatMessage.update({
     meta_message_id: metaMessageId,
-    status: 'sent',
   });
 
   // Generate message preview for conversation
@@ -451,12 +484,7 @@ async function sendMessage(scopeId, actor, conversationId, data, io) {
   await chatMessage.reload();
 
   // Emit Socket.IO events for real-time updates
-  if (io) {
-    io.to(`conversation:${conversationId}`).emit('new:message', {
-      message: chatMessage.toJSON(),
-    });
-    await emitConversationUpdate(io, scopeId, conversation);
-  }
+  await emitConversationMessage(io, scopeId, conversation, chatMessage);
 
   return chatMessage;
 }
@@ -625,18 +653,55 @@ async function handleInboundMessage(eventData, io) {
     console.log(`[chat-service] New conversation created for ${contactPhone} (user: ${account.user_id})`);
   }
 
+  if (metaMessageId) {
+    const existingMessage = await ChatMessage.findOne({
+      where: {
+        user_id: account.user_id,
+        meta_message_id: metaMessageId,
+      },
+    });
+
+    if (existingMessage) {
+      await conversation.reload();
+      await emitConversationMessage(io, account.user_id, conversation, existingMessage);
+      return { conversation, message: existingMessage };
+    }
+  }
+
   // Create the inbound chat message record
-  const chatMessage = await ChatMessage.create({
-    conversation_id: conversation.id,
-    user_id: account.user_id,
-    direction: 'inbound',
-    sender_type: 'contact',
-    sender_id: null,
-    type: messageType,
-    content,
-    meta_message_id: metaMessageId,
-    status: 'delivered',
-  });
+  let chatMessage;
+  try {
+    chatMessage = await ChatMessage.create({
+      conversation_id: conversation.id,
+      user_id: account.user_id,
+      direction: 'inbound',
+      sender_type: 'contact',
+      sender_id: null,
+      type: messageType,
+      content,
+      meta_message_id: metaMessageId,
+      status: 'delivered',
+    });
+  } catch (error) {
+    if (!(error instanceof UniqueConstraintError) || !metaMessageId) {
+      throw error;
+    }
+
+    const duplicateMessage = await ChatMessage.findOne({
+      where: {
+        user_id: account.user_id,
+        meta_message_id: metaMessageId,
+      },
+    });
+
+    if (!duplicateMessage) {
+      throw error;
+    }
+
+    await conversation.reload();
+    await emitConversationMessage(io, account.user_id, conversation, duplicateMessage);
+    return { conversation, message: duplicateMessage };
+  }
 
   // Generate preview for the conversation update
   const preview = generateMessagePreview(messageType, content);
@@ -662,13 +727,7 @@ async function handleInboundMessage(eventData, io) {
   await conversation.reload();
 
   // Emit Socket.IO events for real-time chat updates
-  if (io) {
-    // Emit new message to anyone viewing this conversation
-    io.to(`conversation:${conversation.id}`).emit('new:message', {
-      message: chatMessage.toJSON(),
-    });
-    await emitConversationUpdate(io, account.user_id, conversation);
-  }
+  await emitConversationMessage(io, account.user_id, conversation, chatMessage);
 
   return { conversation, message: chatMessage };
 }
@@ -694,7 +753,7 @@ async function handleStatusUpdate(eventData, io) {
   }
 
   const metaMessageId = statusUpdate.id;
-  const newStatus = statusUpdate.status; // sent, delivered, read, failed
+  const newStatus = statusUpdate.status; // queued, sent, delivered, read, failed
 
   if (!metaMessageId || !newStatus) {
     console.warn('[chat-service] Status update missing message ID or status');
@@ -702,33 +761,38 @@ async function handleStatusUpdate(eventData, io) {
   }
 
   // Only process known status values
-  const validStatuses = ['sent', 'delivered', 'read', 'failed'];
+  const validStatuses = ['queued', 'sent', 'delivered', 'read', 'failed'];
   if (!validStatuses.includes(newStatus)) {
     console.warn(`[chat-service] Unknown status value: ${newStatus}`);
     return;
   }
 
   // Find the chat message by Meta message ID
-  const chatMessage = await ChatMessage.findOne({
+  let chatMessage = await ChatMessage.findOne({
     where: { meta_message_id: metaMessageId },
   });
 
+  if (!chatMessage && statusUpdate.campaign_id) {
+    chatMessage = await syncCampaignOutboundMessage(metaMessageId, newStatus, io);
+  }
+
   if (!chatMessage) {
-    // This can happen for campaign messages or messages not tracked in chat
+    // This can happen for messages not tracked in chat.
     return;
   }
 
   // Only update if the new status is a progression (don't downgrade)
   const statusOrder = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 };
+  const normalizedStatus = newStatus === 'queued' ? 'pending' : newStatus;
   const currentOrder = statusOrder[chatMessage.status] || 0;
-  const newOrder = statusOrder[newStatus] || 0;
+  const newOrder = statusOrder[normalizedStatus] || 0;
 
   // Allow 'failed' to override any status, but otherwise only progress forward
-  if (newStatus !== 'failed' && newOrder <= currentOrder) {
+  if (normalizedStatus !== 'failed' && newOrder <= currentOrder) {
     return;
   }
 
-  await chatMessage.update({ status: newStatus });
+  await chatMessage.update({ status: normalizedStatus });
 
   // Emit real-time status update
   if (io) {
@@ -736,9 +800,120 @@ async function handleStatusUpdate(eventData, io) {
       message_id: chatMessage.id,
       conversation_id: chatMessage.conversation_id,
       meta_message_id: metaMessageId,
-      status: newStatus,
+      status: normalizedStatus,
     });
   }
+}
+
+async function syncCampaignOutboundMessage(metaMessageId, status, io) {
+  const rows = await sequelize.query(
+    `SELECT id, user_id, wa_account_id, contact_phone, type, content, meta_message_id, campaign_id, created_at
+     FROM wa_messages
+     WHERE meta_message_id = :metaMessageId
+       AND campaign_id IS NOT NULL
+     LIMIT 1`,
+    {
+      replacements: { metaMessageId },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const waMessage = rows[0];
+  if (!waMessage) {
+    return null;
+  }
+
+  const contactRows = await sequelize.query(
+    `SELECT name, whatsapp_name
+     FROM contact_contacts
+     WHERE user_id = :userId
+       AND phone = :contactPhone
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    {
+      replacements: {
+        userId: waMessage.user_id,
+        contactPhone: waMessage.contact_phone,
+      },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const contactName = contactRows[0]?.name || contactRows[0]?.whatsapp_name || null;
+  const content = parseJsonValue(waMessage.content) || {};
+
+  const [conversation] = await Conversation.findOrCreate({
+    where: {
+      user_id: waMessage.user_id,
+      wa_account_id: waMessage.wa_account_id,
+      contact_phone: waMessage.contact_phone,
+    },
+    defaults: {
+      user_id: waMessage.user_id,
+      wa_account_id: waMessage.wa_account_id,
+      contact_phone: waMessage.contact_phone,
+      contact_name: contactName,
+      status: 'open',
+      last_message_at: waMessage.created_at || new Date(),
+      last_message_preview: generateMessagePreview(waMessage.type, content),
+      unread_count: 0,
+    },
+  });
+
+  if (contactName && contactName !== conversation.contact_name) {
+    await conversation.update({ contact_name: contactName });
+  }
+
+  const existingMessage = await ChatMessage.findOne({
+    where: { meta_message_id: waMessage.meta_message_id },
+  });
+
+  if (existingMessage) {
+    await conversation.reload();
+    await emitConversationMessage(io, waMessage.user_id, conversation, existingMessage);
+    return existingMessage;
+  }
+
+  let chatMessage;
+  try {
+    chatMessage = await ChatMessage.create({
+      conversation_id: conversation.id,
+      user_id: waMessage.user_id,
+      direction: 'outbound',
+      sender_type: 'system',
+      sender_id: waMessage.campaign_id,
+      type: waMessage.type,
+      content,
+      meta_message_id: waMessage.meta_message_id,
+      status: status === 'queued' ? 'pending' : status,
+    });
+  } catch (error) {
+    if (!(error instanceof UniqueConstraintError) || !waMessage.meta_message_id) {
+      throw error;
+    }
+
+    const duplicateMessage = await ChatMessage.findOne({
+      where: { meta_message_id: waMessage.meta_message_id },
+    });
+
+    if (!duplicateMessage) {
+      throw error;
+    }
+
+    await conversation.reload();
+    await emitConversationMessage(io, waMessage.user_id, conversation, duplicateMessage);
+    return duplicateMessage;
+  }
+
+  await conversation.update({
+    last_message_at: waMessage.created_at || new Date(),
+    last_message_preview: generateMessagePreview(waMessage.type, content),
+  });
+  await conversation.reload();
+
+  await emitConversationMessage(io, waMessage.user_id, conversation, chatMessage);
+
+  return chatMessage;
 }
 
 // ────────────────────────────────────────────────

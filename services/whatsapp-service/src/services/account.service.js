@@ -16,6 +16,7 @@ const {
   hasProviderManagementConfig,
 } = require('./metaAccess.service');
 const { normalizeQualityRating } = require('./qualityRating');
+const { getWebhookAlignmentDiagnostics } = require('../helpers/webhookDiagnostics');
 
 const SIGNUP_SESSION_TTL_SECONDS = 10 * 60;
 const signupSessionFallbackStore = new Map();
@@ -1522,7 +1523,25 @@ async function updateAccountStatusByWaba(wabaId, status) {
   );
 }
 
-async function getAccountHealth(userId, accountId, kafkaProducer = null) {
+function appendWebhookAlignmentWarnings(warnings, alignment) {
+  if (!alignment?.latest) {
+    return;
+  }
+
+  if (alignment.exact_phone_number_match === false) {
+    warnings.push(
+      `Latest webhook phone_number_id was ${alignment.latest.phone_number_id}, which does not match this account (${alignment.by_phone_number_id?.phone_number_id || 'unknown'}).`
+    );
+  }
+
+  if (alignment.exact_waba_match === false) {
+    warnings.push(
+      `Latest webhook WABA was ${alignment.latest.waba_id}, which does not match this account (${alignment.by_waba_id?.waba_id || 'unknown'}).`
+    );
+  }
+}
+
+async function getAccountHealth(userId, accountId, kafkaProducer = null, redis = null) {
   const account = await WaAccount.scope('withToken').findOne({
     where: { id: accountId, user_id: userId },
   });
@@ -1544,6 +1563,7 @@ async function getAccountHealth(userId, accountId, kafkaProducer = null) {
   let subscribedApps = initialSubscribedApps;
   let appSubscribed = subscribedApps.some((app) => String(app.id || '') === String(config.meta.appId));
   const warnings = [];
+  const webhookAlignment = await getWebhookAlignmentDiagnostics(redis, account);
 
   if (!appSubscribed) {
     try {
@@ -1568,6 +1588,8 @@ async function getAccountHealth(userId, accountId, kafkaProducer = null) {
   if (accountReviewStatus && String(accountReviewStatus).toUpperCase() !== 'APPROVED') {
     warnings.push(`WhatsApp Business account review status is ${accountReviewStatus}.`);
   }
+
+  appendWebhookAlignmentWarnings(warnings, webhookAlignment);
 
   const nextAccountStatus = account.status === 'inactive' ? 'inactive' : account.status;
 
@@ -1602,12 +1624,13 @@ async function getAccountHealth(userId, accountId, kafkaProducer = null) {
       name_status: phoneDetails?.name_status || null,
       quality_rating: account.quality_rating,
       subscribed_apps_count: subscribedApps.length,
+      webhook_alignment: webhookAlignment,
       warnings,
     },
   };
 }
 
-async function reconcileAccount(userId, accountId, kafkaProducer = null) {
+async function reconcileAccount(userId, accountId, kafkaProducer = null, redis = null) {
   const account = await WaAccount.scope('withAll').findOne({
     where: { id: accountId, user_id: userId },
   });
@@ -1771,6 +1794,7 @@ async function reconcileAccount(userId, accountId, kafkaProducer = null) {
     return {
       account: result.account.toSafeJSON(),
       steps,
+      webhook_alignment: await getWebhookAlignmentDiagnostics(redis, result.account),
       warnings,
     };
   } catch (err) {

@@ -2,6 +2,7 @@
 
 const campaignService = require('../services/campaign.service');
 const { successResponse } = require('@nyife/shared-utils');
+const { resolveCampaignRequestContext } = require('../helpers/requestContext');
 const {
   createCampaignSchema,
   updateCampaignSchema,
@@ -20,10 +21,10 @@ const {
  * Creates a new campaign in draft status.
  */
 async function createCampaign(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const data = createCampaignSchema.parse(req.body);
 
-  const campaign = await campaignService.createCampaign(userId, data);
+  const campaign = await campaignService.createCampaign(requestContext, data);
 
   return successResponse(res, { campaign }, 'Campaign created successfully', 201);
 }
@@ -33,10 +34,10 @@ async function createCampaign(req, res) {
  * Lists campaigns for the authenticated user with pagination and filters.
  */
 async function listCampaigns(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const filters = listCampaignsSchema.parse(req.query);
 
-  const { campaigns, meta } = await campaignService.listCampaigns(userId, filters);
+  const { campaigns, meta } = await campaignService.listCampaigns(requestContext, filters);
 
   return successResponse(res, { campaigns }, 'Campaigns retrieved', 200, meta);
 }
@@ -46,10 +47,10 @@ async function listCampaigns(req, res) {
  * Gets a single campaign by ID.
  */
 async function getCampaign(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = campaignIdSchema.parse(req.params);
 
-  const campaign = await campaignService.getCampaign(userId, id);
+  const campaign = await campaignService.getCampaign(requestContext, id);
 
   return successResponse(res, { campaign }, 'Campaign retrieved');
 }
@@ -59,11 +60,11 @@ async function getCampaign(req, res) {
  * Updates a draft campaign.
  */
 async function updateCampaign(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = campaignIdSchema.parse(req.params);
   const data = updateCampaignSchema.parse(req.body);
 
-  const campaign = await campaignService.updateCampaign(userId, id, data);
+  const campaign = await campaignService.updateCampaign(requestContext, id, data);
 
   return successResponse(res, { campaign }, 'Campaign updated successfully');
 }
@@ -73,10 +74,10 @@ async function updateCampaign(req, res) {
  * Soft-deletes a draft campaign.
  */
 async function deleteCampaign(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = campaignIdSchema.parse(req.params);
 
-  const result = await campaignService.deleteCampaign(userId, id);
+  const result = await campaignService.deleteCampaign(requestContext, id);
 
   return successResponse(res, result, 'Campaign deleted successfully');
 }
@@ -90,11 +91,11 @@ async function deleteCampaign(req, res) {
  * Starts campaign execution: resolves contacts, publishes to Kafka.
  */
 async function startCampaign(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = campaignIdSchema.parse(req.params);
   const kafkaProducer = req.app.locals.kafkaProducer;
 
-  const campaign = await campaignService.startCampaign(userId, id, kafkaProducer);
+  const campaign = await campaignService.startCampaign(requestContext, id, kafkaProducer);
 
   return successResponse(res, { campaign }, 'Campaign started successfully');
 }
@@ -104,10 +105,10 @@ async function startCampaign(req, res) {
  * Pauses a running campaign.
  */
 async function pauseCampaign(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = campaignIdSchema.parse(req.params);
 
-  const campaign = await campaignService.pauseCampaign(userId, id);
+  const campaign = await campaignService.pauseCampaign(requestContext, id);
 
   return successResponse(res, { campaign }, 'Campaign paused successfully');
 }
@@ -117,11 +118,11 @@ async function pauseCampaign(req, res) {
  * Resumes a paused campaign.
  */
 async function resumeCampaign(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = campaignIdSchema.parse(req.params);
   const kafkaProducer = req.app.locals.kafkaProducer;
 
-  const campaign = await campaignService.resumeCampaign(userId, id, kafkaProducer);
+  const campaign = await campaignService.resumeCampaign(requestContext, id, kafkaProducer);
 
   return successResponse(res, { campaign }, 'Campaign resumed successfully');
 }
@@ -131,10 +132,10 @@ async function resumeCampaign(req, res) {
  * Cancels a campaign and marks pending messages as failed.
  */
 async function cancelCampaign(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = campaignIdSchema.parse(req.params);
 
-  const campaign = await campaignService.cancelCampaign(userId, id);
+  const campaign = await campaignService.cancelCampaign(requestContext, id);
 
   return successResponse(res, { campaign }, 'Campaign cancelled successfully');
 }
@@ -144,11 +145,11 @@ async function cancelCampaign(req, res) {
  * Retries failed messages in a campaign.
  */
 async function retryCampaign(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = retryCampaignSchema.parse(req.params);
   const kafkaProducer = req.app.locals.kafkaProducer;
 
-  const campaign = await campaignService.retryCampaign(userId, id, kafkaProducer);
+  const campaign = await campaignService.retryCampaign(requestContext, id, kafkaProducer);
 
   return successResponse(res, { campaign }, 'Campaign retry initiated successfully');
 }
@@ -162,11 +163,11 @@ async function retryCampaign(req, res) {
  * Lists messages for a campaign with pagination.
  */
 async function getCampaignMessages(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = campaignIdSchema.parse(req.params);
   const filters = listCampaignMessagesSchema.parse(req.query);
 
-  const { messages, meta } = await campaignService.getCampaignMessages(userId, id, filters);
+  const { messages, meta } = await campaignService.getCampaignMessages(requestContext, id, filters);
 
   return successResponse(res, { messages }, 'Campaign messages retrieved', 200, meta);
 }
@@ -176,10 +177,10 @@ async function getCampaignMessages(req, res) {
  * Gets detailed analytics for a campaign.
  */
 async function getCampaignAnalytics(req, res) {
-  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  const requestContext = resolveCampaignRequestContext(req);
   const { id } = campaignIdSchema.parse(req.params);
 
-  const analytics = await campaignService.getCampaignAnalytics(userId, id);
+  const analytics = await campaignService.getCampaignAnalytics(requestContext, id);
 
   return successResponse(res, { analytics }, 'Campaign analytics retrieved');
 }

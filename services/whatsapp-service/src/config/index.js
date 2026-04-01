@@ -18,7 +18,7 @@ module.exports = {
     appSecret: process.env.META_APP_SECRET,
     apiVersion: process.env.META_API_VERSION || 'v20.0',
     baseUrl: process.env.META_API_BASE_URL || 'https://graph.facebook.com/v20.0',
-    webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || 'nyife_webhook_verify',
+    webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || '202509290511167caQ',
     systemUserAccessToken: process.env.META_SYSTEM_USER_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || null,
     systemUserId: process.env.META_SYSTEM_USER_ID || null,
     providerBusinessId: process.env.META_PROVIDER_BUSINESS_ID || process.env.META_BUSINESS_ID || null,
@@ -26,6 +26,11 @@ module.exports = {
     creditLineId: process.env.META_CREDIT_LINE_ID || null,
     creditLineCurrency: process.env.META_CREDIT_LINE_CURRENCY || 'INR',
     enableCreditSharing: parseBoolean(process.env.META_ENABLE_CREDIT_SHARING, false),
+    forwardedWebhookSecret: process.env.META_WEBHOOK_FORWARD_SECRET || null,
+    allowUnsignedForwardedWebhooks: parseBoolean(
+      process.env.META_ALLOW_UNSIGNED_FORWARDED_WEBHOOKS,
+      false
+    ),
     allowLegacyAccountTokenFallback: parseBoolean(
       process.env.META_ALLOW_LEGACY_ACCOUNT_TOKEN_FALLBACK,
       true

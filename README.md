@@ -239,6 +239,17 @@ npm run service:start -- whatsapp-service --build
 npm run service:restart -- chat-service --build
 npm run service:restart -- template-service --build
 npm run service:restart -- admin-service --build
+npm run service:restart -- campaign-service --build
+npm run service:restart -- contact-service --build
+npm run service:restart -- email-service --build
+npm run service:restart -- media-service --build
+npm run service:restart -- notification-service --build
+npm run service:restart -- organization-service --build
+npm run service:restart -- subscription-service --build
+npm run service:restart -- support-service --build
+npm run service:restart -- wallet-service --build
+npm run service:restart -- whatsapp-service --build
+
 
 
 ```
@@ -330,3 +341,5 @@ nyife/
 - The seeded admin account is for development and recovery after a reset.
 - Do not use the default seed password in production.
 - For a fully usable admin panel after a fresh reset, run both `npm run seed:admin:defaults` and `npm run seed:admin`.
+
+

@@ -4,6 +4,7 @@ const { TOPICS, ALL_TOPICS } = require('./topics');
 const {
   campaignExecuteSchema,
   campaignStatusSchema,
+  campaignLiveSchema,
   campaignAnalyticsSchema,
   notificationSendSchema,
   emailSendSchema,
@@ -25,6 +26,7 @@ module.exports = {
   ALL_TOPICS,
   campaignExecuteSchema,
   campaignStatusSchema,
+  campaignLiveSchema,
   campaignAnalyticsSchema,
   notificationSendSchema,
   emailSendSchema,

@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, ChevronsUpDown, Search, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -107,7 +106,7 @@ export function CampaignOptionPicker({
       }}
     >
       <span className="min-w-0 flex-1 text-left">
-        <span className={cn('block break-words leading-5', selectedOptions.length ? 'font-medium' : 'text-muted-foreground')}>
+        <span className={cn('block wrap-break-word leading-5', selectedOptions.length ? 'font-medium' : 'text-muted-foreground')}>
           {selectedText}
         </span>
       </span>
@@ -161,21 +160,29 @@ export function CampaignOptionPicker({
                 >
                   <div className="flex h-5 w-5 shrink-0 items-center justify-center pt-0.5">
                     {isMultiple ? (
-                      <Checkbox checked={isSelected} className="pointer-events-none" />
+                      <div
+                        aria-hidden="true"
+                        className={cn(
+                          'flex size-4 shrink-0 items-center justify-center rounded-lg border border-input shadow-xs transition-colors',
+                          isSelected && 'border-primary bg-primary text-primary-foreground'
+                        )}
+                      >
+                        <Check className={cn('h-3.5 w-3.5', isSelected ? 'opacity-100' : 'opacity-0')} />
+                      </div>
                     ) : (
                       <Check className={cn('h-4 w-4', isSelected ? 'opacity-100' : 'opacity-0')} />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                      <span className="break-words font-medium leading-5">{option.label}</span>
+                      <span className="wrap-break-word font-medium leading-5">{option.label}</span>
                       <div className="flex flex-wrap gap-2 sm:justify-end">
                         {option.badge ? <Badge variant="outline" className="text-[10px]">{option.badge}</Badge> : null}
                         {option.meta ? <span className="text-xs text-muted-foreground">{option.meta}</span> : null}
                       </div>
                     </div>
                     {option.description ? (
-                      <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-muted-foreground">
+                      <p className="mt-1 whitespace-normal wrap-break-word text-xs leading-5 text-muted-foreground">
                         {option.description}
                       </p>
                     ) : null}
@@ -267,7 +274,7 @@ export function CampaignOptionPicker({
           <div className="flex flex-wrap gap-2">
             {selectedOptions.map((option) => (
               <Badge key={option.value} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
-                <span className="max-w-[14rem] truncate">{option.label}</span>
+                <span className="max-w-56 truncate">{option.label}</span>
                 <button
                   type="button"
                   onClick={() => onRemove(option)}

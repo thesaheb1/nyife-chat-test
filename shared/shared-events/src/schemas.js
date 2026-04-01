@@ -31,12 +31,31 @@ const campaignExecuteSchema = z.object({
  */
 const campaignStatusSchema = z.object({
   campaignId: z.string(),
+  userId: uuidField.optional(),
   contactId: z.string(),
   messageId: z.string(),
-  status: z.enum(['sent', 'delivered', 'read', 'failed']),
+  status: z.enum(['queued', 'sent', 'delivered', 'read', 'failed']),
   timestamp: timestampField,
   errorCode: z.number().optional(),
   errorMessage: z.string().optional(),
+});
+
+const campaignLiveSchema = z.object({
+  campaignId: z.string(),
+  userId: uuidField.optional(),
+  organizationId: uuidField.optional(),
+  messageId: z.string().optional(),
+  status: z.enum(['queued', 'sent', 'delivered', 'read', 'failed']),
+  timestamp: timestampField,
+  stats: z.object({
+    total_recipients: z.number().int().nonnegative(),
+    sent_count: z.number().int().nonnegative(),
+    delivered_count: z.number().int().nonnegative(),
+    read_count: z.number().int().nonnegative(),
+    failed_count: z.number().int().nonnegative(),
+    pending_count: z.number().int().nonnegative(),
+    status: z.enum(['draft', 'scheduled', 'running', 'paused', 'completed', 'failed', 'cancelled']),
+  }),
 });
 
 /**
@@ -105,7 +124,7 @@ const whatsappMessageStatusSchema = z.object({
   phoneNumberId: z.string(),
   metaMessageId: z.string(),
   contactPhone: z.string().optional(),
-  status: z.enum(['sent', 'delivered', 'read', 'failed']),
+  status: z.enum(['queued', 'sent', 'delivered', 'read', 'failed']),
   pricingModel: z.string().optional(),
   pricingCategory: z.string().optional(),
   errorCode: z.string().optional(),
@@ -231,6 +250,7 @@ const supportEventSchema = z.object({
 const TOPIC_SCHEMAS = {
   'campaign.execute': campaignExecuteSchema,
   'campaign.status': campaignStatusSchema,
+  'campaign.live': campaignLiveSchema,
   'campaign.analytics': campaignAnalyticsSchema,
   'notification.send': notificationSendSchema,
   'email.send': emailSendSchema,
@@ -252,6 +272,7 @@ const TOPIC_SCHEMAS = {
 module.exports = {
   campaignExecuteSchema,
   campaignStatusSchema,
+  campaignLiveSchema,
   campaignAnalyticsSchema,
   notificationSendSchema,
   emailSendSchema,

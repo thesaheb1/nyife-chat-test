@@ -150,6 +150,31 @@ export function useMarkAsRead() {
   });
 }
 
+export function useChatRealtime() {
+  const { chatSocket } = useSocket();
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!chatSocket) return;
+
+    const invalidateInbox = () => {
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    };
+
+    chatSocket.on('conversation:updated', invalidateInbox);
+    chatSocket.on('conversation:status', invalidateInbox);
+    chatSocket.on('conversation:read', invalidateInbox);
+    chatSocket.on('conversation:assigned', invalidateInbox);
+
+    return () => {
+      chatSocket.off('conversation:updated', invalidateInbox);
+      chatSocket.off('conversation:status', invalidateInbox);
+      chatSocket.off('conversation:read', invalidateInbox);
+      chatSocket.off('conversation:assigned', invalidateInbox);
+    };
+  }, [chatSocket, qc]);
+}
+
 // Socket.IO real-time hook for chat
 export function useChatSocket(conversationId: string | undefined, onNewMessage?: (msg: ChatMessage) => void) {
   const { chatSocket } = useSocket();

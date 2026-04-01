@@ -44,7 +44,7 @@ async function startServer() {
   try {
     const { createKafkaConsumer } = require('@nyife/shared-config');
     const { TOPICS } = require('@nyife/shared-events');
-    const messageService = require('./services/message.service');
+    const { processCampaignExecuteMessage } = require('./services/campaignExecution.service');
 
     kafkaConsumer = await createKafkaConsumer('whatsapp-service', 'whatsapp-service-campaign-group');
 
@@ -61,45 +61,14 @@ async function startServer() {
             `[whatsapp-service] Received campaign.execute message: campaign=${payload.campaignId} phone=${payload.phoneNumber}`
           );
 
-          await messageService.sendCampaignMessage({
-            userId: payload.userId,
-            waAccountId: payload.waAccountId,
-            phoneNumber: payload.phoneNumber,
-            campaignId: payload.campaignId,
-            templateName: payload.templateName,
-            templateLanguage: payload.templateLanguage,
-            templateCategory: payload.templateCategory,
-            components: payload.components || [],
-            messageType: payload.messageType || 'template',
-            textContent: payload.textContent,
+          await processCampaignExecuteMessage(payload, {
+            kafkaProducer,
           });
         } catch (err) {
           console.error(
             `[whatsapp-service] Failed to process campaign.execute message:`,
             err.message
           );
-
-          // Publish failure status to campaign.status
-          if (kafkaProducer) {
-            try {
-              const { publishEvent, TOPICS: T } = require('@nyife/shared-events');
-              const payload = JSON.parse(message.value.toString());
-              await publishEvent(kafkaProducer, T.CAMPAIGN_STATUS, payload.campaignId, {
-                campaignId: payload.campaignId,
-                contactId: payload.contactId || payload.phoneNumber,
-                messageId: '',
-                status: 'failed',
-                timestamp: new Date().toISOString(),
-                errorCode: 0,
-                errorMessage: err.message,
-              });
-            } catch (pubErr) {
-              console.error(
-                '[whatsapp-service] Failed to publish campaign failure status:',
-                pubErr.message
-              );
-            }
-          }
         }
       },
     });

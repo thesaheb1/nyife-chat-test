@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -45,6 +45,7 @@ type CampaignTargetType = CreateCampaignFormData['target_type'];
 type OptionMap = Record<string, CampaignPickerOption>;
 
 const PAGE_SIZE = 12;
+const EMPTY_TEMPLATES: Template[] = [];
 const DYNAMIC_VALUE_OPTIONS: Array<{ value: CampaignVariableSource; label: string }> = [
   { value: 'full_name', label: 'Full name' },
   { value: 'email', label: 'Email' },
@@ -73,8 +74,43 @@ function clearOptionMap() {
   return {};
 }
 
+function isRecordEmpty(map: Record<string, unknown>) {
+  return Object.keys(map).length === 0;
+}
+
 function toOptionArray(map: OptionMap) {
   return Object.values(map);
+}
+
+function areVariableBindingsEqual(
+  current: Record<string, CampaignVariableBinding>,
+  next: Record<string, CampaignVariableBinding>
+) {
+  const currentKeys = Object.keys(current);
+  const nextKeys = Object.keys(next);
+
+  if (currentKeys.length !== nextKeys.length) {
+    return false;
+  }
+
+  return currentKeys.every((key) => {
+    const currentBinding = current[key];
+    const nextBinding = next[key];
+
+    if (!currentBinding || !nextBinding || currentBinding.mode !== nextBinding.mode) {
+      return false;
+    }
+
+    if (currentBinding.mode === 'static' && nextBinding.mode === 'static') {
+      return currentBinding.value === nextBinding.value;
+    }
+
+    if (currentBinding.mode === 'dynamic' && nextBinding.mode === 'dynamic') {
+      return currentBinding.source === nextBinding.source;
+    }
+
+    return false;
+  });
 }
 
 function buildTargetConfig(
@@ -167,6 +203,7 @@ export function CreateCampaignPage() {
   const targetType = watch('target_type');
   const selectedWaAccountId = watch('wa_account_id');
   const selectedTemplateId = watch('template_id');
+  const previousWaAccountIdRef = useRef(selectedWaAccountId);
   const selectedWaAccount = useMemo(
     () => findWhatsAppAccount(waAccounts, selectedWaAccountId),
     [selectedWaAccountId, waAccounts]
@@ -229,7 +266,7 @@ export function CreateCampaignPage() {
     search: debouncedTagSearch || undefined,
   });
 
-  const templates = templatesData?.data?.templates ?? [];
+  const templates = templatesData?.data?.templates ?? EMPTY_TEMPLATES;
   const templatesMeta = templatesData?.meta;
   const templateOptions = useMemo(() => templates.map(buildTemplateOption), [templates]);
 
@@ -285,31 +322,30 @@ export function CreateCampaignPage() {
   }, [setValue, targetConfig]);
 
   useEffect(() => {
-    if (!selectedTemplateId) {
-      setSelectedTemplate(null);
-      setVariableBindings({});
-      setValue('variables_mapping', undefined, { shouldValidate: true });
+    if (previousWaAccountIdRef.current === selectedWaAccountId) {
       return;
     }
 
-    const matchingTemplate = templates.find((template) => template.id === selectedTemplateId);
-    if (matchingTemplate) {
-      setSelectedTemplate(matchingTemplate);
-    }
-  }, [selectedTemplateId, setValue, templates]);
-
-  useEffect(() => {
+    previousWaAccountIdRef.current = selectedWaAccountId;
     setTemplateSearch('');
     setTemplatePage(1);
-    setSelectedTemplate(null);
-    setVariableBindings({});
-    setValue('template_id', '', { shouldValidate: true });
-    setValue('variables_mapping', undefined, { shouldValidate: true });
-  }, [selectedWaAccountId, setValue]);
+    setSelectedTemplate((current) => (current ? null : current));
+    setVariableBindings((current) => (isRecordEmpty(current) ? current : {}));
+
+    if (selectedTemplateId) {
+      setValue('template_id', '', { shouldValidate: true });
+      setValue('variables_mapping', undefined, { shouldValidate: true });
+    }
+  }, [selectedTemplateId, selectedWaAccountId, setValue]);
 
   useEffect(() => {
     setVariableBindings((current) => {
       const prunedBindings = pruneCampaignVariableBindings(current, variableFields);
+
+      if (areVariableBindingsEqual(current, prunedBindings)) {
+        return current;
+      }
+
       setValue(
         'variables_mapping',
         Object.keys(prunedBindings).length > 0 ? prunedBindings : undefined,
@@ -333,6 +369,18 @@ export function CreateCampaignPage() {
 
   const updateVariableBinding = (key: string, nextBinding: CampaignVariableBinding) => {
     setVariableBindings((current) => {
+      const currentBinding = current[key];
+      if (
+        currentBinding
+        && currentBinding.mode === nextBinding.mode
+        && (
+          (currentBinding.mode === 'static' && nextBinding.mode === 'static' && currentBinding.value === nextBinding.value)
+          || (currentBinding.mode === 'dynamic' && nextBinding.mode === 'dynamic' && currentBinding.source === nextBinding.source)
+        )
+      ) {
+        return current;
+      }
+
       const next = {
         ...current,
         [key]: nextBinding,

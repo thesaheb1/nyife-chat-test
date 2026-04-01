@@ -6,6 +6,7 @@
 const TOPICS = {
   CAMPAIGN_EXECUTE: 'campaign.execute',
   CAMPAIGN_STATUS: 'campaign.status',
+  CAMPAIGN_LIVE: 'campaign.live',
   CAMPAIGN_ANALYTICS: 'campaign.analytics',
   NOTIFICATION_SEND: 'notification.send',
   EMAIL_SEND: 'email.send',

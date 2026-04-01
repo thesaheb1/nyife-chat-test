@@ -77,6 +77,15 @@ const MSG_STATUS_COLORS: Record<string, string> = {
   failed: 'bg-red-100 text-red-700',
 };
 
+const MSG_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending',
+  queued: 'Accepted',
+  sent: 'Sent',
+  delivered: 'Delivered',
+  read: 'Read',
+  failed: 'Failed',
+};
+
 export function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -151,7 +160,7 @@ export function CampaignDetailPage() {
           const st = getValue() as string;
           return (
             <Badge className={`${MSG_STATUS_COLORS[st] || ''} text-xs`} variant="secondary">
-              {st.charAt(0).toUpperCase() + st.slice(1)}
+              {MSG_STATUS_LABELS[st] || (st.charAt(0).toUpperCase() + st.slice(1))}
             </Badge>
           );
         },
@@ -166,7 +175,23 @@ export function CampaignDetailPage() {
       },
       {
         accessorKey: 'delivered_at',
-        header: 'Delivered',
+        header: 'Delivered At',
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null;
+          return v ? new Date(v).toLocaleString() : '—';
+        },
+      },
+      {
+        accessorKey: 'read_at',
+        header: 'Read At',
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null;
+          return v ? new Date(v).toLocaleString() : '—';
+        },
+      },
+      {
+        accessorKey: 'failed_at',
+        header: 'Failed At',
         cell: ({ getValue }) => {
           const v = getValue() as string | null;
           return v ? new Date(v).toLocaleString() : '—';
@@ -305,11 +330,11 @@ export function CampaignDetailPage() {
       <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         {[
           { label: 'Total', value: campaign.total_recipients, color: '' },
-          { label: 'Sent', value: campaign.sent_count, color: 'text-sky-600' },
+          { label: 'WhatsApp Sent', value: campaign.sent_count, color: 'text-sky-600' },
           { label: 'Delivered', value: campaign.delivered_count, color: 'text-green-600' },
           { label: 'Read', value: campaign.read_count, color: 'text-emerald-600' },
           { label: 'Failed', value: campaign.failed_count, color: 'text-red-600' },
-          { label: 'Pending', value: campaign.pending_count, color: 'text-gray-500' },
+          { label: 'Awaiting Status', value: campaign.pending_count, color: 'text-gray-500' },
         ].map((s) => (
           <Card key={s.label}>
             <CardContent className="pt-4 pb-3 text-center">
@@ -425,6 +450,9 @@ export function CampaignDetailPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 text-sm">
+            <div className="sm:col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+              Accepted means the WhatsApp API accepted the request. Delivered means the message reached the recipient device.
+            </div>
             {campaign.description && (
               <div className="sm:col-span-2">
                 <span className="text-muted-foreground">Description:</span> {campaign.description}
@@ -478,7 +506,7 @@ export function CampaignDetailPage() {
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="queued">Queued</SelectItem>
+                <SelectItem value="queued">Accepted</SelectItem>
                 <SelectItem value="sent">Sent</SelectItem>
                 <SelectItem value="delivered">Delivered</SelectItem>
                 <SelectItem value="read">Read</SelectItem>

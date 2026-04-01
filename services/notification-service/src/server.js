@@ -8,6 +8,7 @@ const { testConnection, createRedisClient, createKafkaConsumer, createKafkaProdu
 const { TOPICS, publishEvent } = require('@nyife/shared-events');
 const { setupSocketIO } = require('./socket');
 const notificationService = require('./services/notification.service');
+const { emitCampaignRealtime } = require('./services/campaignRealtime.service');
 
 const server = http.createServer(app);
 
@@ -53,7 +54,7 @@ async function startServer() {
     console.warn('[notification-service] Could not start Kafka producer:', err.message);
   }
 
-  // ── Kafka Consumer for notification.send ─────────
+  // ── Kafka Consumer for notification.send + campaign.live ─────────
   try {
     kafkaConsumer = await createKafkaConsumer('notification-service', 'notification-service-group');
 
@@ -61,11 +62,20 @@ async function startServer() {
       topic: TOPICS.NOTIFICATION_SEND,
       fromBeginning: false,
     });
+    await kafkaConsumer.subscribe({
+      topic: TOPICS.CAMPAIGN_LIVE,
+      fromBeginning: false,
+    });
 
     await kafkaConsumer.run({
-      eachMessage: async ({ message }) => {
+      eachMessage: async ({ topic, message }) => {
         try {
           const payload = JSON.parse(message.value.toString());
+
+          if (topic === TOPICS.CAMPAIGN_LIVE) {
+            await emitCampaignRealtime(io, payload);
+            return;
+          }
 
           console.log(
             `[notification-service] Received notification.send: userId=${payload.userId} type=${payload.type} title="${payload.title}"`
@@ -104,7 +114,7 @@ async function startServer() {
       },
     });
 
-    console.log('[notification-service] Kafka consumer subscribed to notification.send');
+    console.log('[notification-service] Kafka consumer subscribed to notification.send and campaign.live');
   } catch (err) {
     console.warn('[notification-service] Could not start Kafka consumer:', err.message);
   }

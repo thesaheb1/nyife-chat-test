@@ -2,6 +2,7 @@
 
 const chatService = require('../services/chat.service');
 const { successResponse } = require('@nyife/shared-utils');
+const { resolveChatRequestContext } = require('../helpers/requestContext');
 const {
   listConversationsSchema,
   conversationIdSchema,
@@ -10,6 +11,13 @@ const {
   updateConversationStatusSchema,
   listMessagesSchema,
 } = require('../validations/chat.validation');
+
+function buildActor(req) {
+  return {
+    userId: req.user?.id || req.headers['x-user-id'],
+    role: req.user?.organizationRole || req.user?.role || 'owner',
+  };
+}
 
 // ────────────────────────────────────────────────
 // Conversation Endpoints
@@ -20,14 +28,11 @@ const {
  * Lists conversations for the authenticated user with optional filters.
  */
 async function listConversations(req, res) {
-  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
-  const actor = {
-    userId: req.user?.id || req.headers['x-user-id'],
-    role: req.user?.organizationRole || req.user?.role || 'owner',
-  };
+  const requestContext = resolveChatRequestContext(req);
+  const actor = buildActor(req);
   const filters = listConversationsSchema.parse(req.query);
 
-  const { conversations, meta } = await chatService.listConversations(scopeId, actor, filters);
+  const { conversations, meta } = await chatService.listConversations(requestContext.scopeId, actor, filters);
 
   return successResponse(res, { conversations }, 'Conversations retrieved', 200, meta);
 }
@@ -37,14 +42,11 @@ async function listConversations(req, res) {
  * Gets a single conversation by ID.
  */
 async function getConversation(req, res) {
-  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
-  const actor = {
-    userId: req.user?.id || req.headers['x-user-id'],
-    role: req.user?.organizationRole || req.user?.role || 'owner',
-  };
+  const requestContext = resolveChatRequestContext(req);
+  const actor = buildActor(req);
   const { id } = conversationIdSchema.parse(req.params);
 
-  const conversation = await chatService.getConversation(scopeId, actor, id);
+  const conversation = await chatService.getConversation(requestContext.scopeId, actor, id);
 
   return successResponse(res, { conversation }, 'Conversation retrieved');
 }
@@ -54,15 +56,12 @@ async function getConversation(req, res) {
  * Lists messages for a conversation with pagination.
  */
 async function getConversationMessages(req, res) {
-  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
-  const actor = {
-    userId: req.user?.id || req.headers['x-user-id'],
-    role: req.user?.organizationRole || req.user?.role || 'owner',
-  };
+  const requestContext = resolveChatRequestContext(req);
+  const actor = buildActor(req);
   const { id } = conversationIdSchema.parse(req.params);
   const filters = listMessagesSchema.parse(req.query);
 
-  const { messages, meta } = await chatService.getConversationMessages(scopeId, actor, id, filters);
+  const { messages, meta } = await chatService.getConversationMessages(requestContext.scopeId, actor, id, filters);
 
   return successResponse(res, { messages }, 'Messages retrieved', 200, meta);
 }
@@ -72,18 +71,15 @@ async function getConversationMessages(req, res) {
  * Sends a message in a conversation.
  */
 async function sendMessage(req, res) {
-  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
-  const actor = {
-    userId: req.user?.id || req.headers['x-user-id'],
-    role: req.user?.organizationRole || req.user?.role || 'owner',
-  };
+  const requestContext = resolveChatRequestContext(req);
+  const actor = buildActor(req);
   const { id } = conversationIdSchema.parse(req.params);
   const data = sendMessageSchema.parse(req.body);
 
   // Access Socket.IO instance from app.locals (set in server.js)
   const io = req.app.locals.io || null;
 
-  const message = await chatService.sendMessage(scopeId, actor, id, data, io);
+  const message = await chatService.sendMessage(requestContext.scopeId, actor, requestContext, id, data, io);
 
   return successResponse(res, { message }, 'Message sent successfully', 201);
 }
@@ -93,19 +89,16 @@ async function sendMessage(req, res) {
  * Assigns a conversation to a team member.
  */
 async function assignConversation(req, res) {
-  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
-  const actorUserId = req.user?.id || req.headers['x-user-id'];
-  const actor = {
-    userId: actorUserId,
-    role: req.user?.organizationRole || req.user?.role || 'owner',
-  };
+  const requestContext = resolveChatRequestContext(req);
+  const actor = buildActor(req);
+  const actorUserId = actor.userId;
   const { id } = conversationIdSchema.parse(req.params);
   const { member_user_id } = assignConversationSchema.parse(req.body);
 
   // Access Socket.IO instance
   const io = req.app.locals.io || null;
 
-  const conversation = await chatService.assignConversation(scopeId, actor, id, member_user_id);
+  const conversation = await chatService.assignConversation(requestContext.scopeId, actor, id, member_user_id);
 
   // Emit Socket.IO event for assignment
   if (io) {
@@ -146,18 +139,15 @@ async function assignConversation(req, res) {
  * Updates the status of a conversation.
  */
 async function updateConversationStatus(req, res) {
-  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
-  const actor = {
-    userId: req.user?.id || req.headers['x-user-id'],
-    role: req.user?.organizationRole || req.user?.role || 'owner',
-  };
+  const requestContext = resolveChatRequestContext(req);
+  const actor = buildActor(req);
   const { id } = conversationIdSchema.parse(req.params);
   const { status } = updateConversationStatusSchema.parse(req.body);
 
   // Access Socket.IO instance
   const io = req.app.locals.io || null;
 
-  const conversation = await chatService.updateConversationStatus(scopeId, actor, id, status);
+  const conversation = await chatService.updateConversationStatus(requestContext.scopeId, actor, id, status);
 
   // Emit Socket.IO event for status change
   if (io) {
@@ -187,17 +177,14 @@ async function updateConversationStatus(req, res) {
  * Marks a conversation as read (resets unread count).
  */
 async function markAsRead(req, res) {
-  const scopeId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
-  const actor = {
-    userId: req.user?.id || req.headers['x-user-id'],
-    role: req.user?.organizationRole || req.user?.role || 'owner',
-  };
+  const requestContext = resolveChatRequestContext(req);
+  const actor = buildActor(req);
   const { id } = conversationIdSchema.parse(req.params);
 
   // Access Socket.IO instance
   const io = req.app.locals.io || null;
 
-  const conversation = await chatService.markAsRead(scopeId, actor, id);
+  const conversation = await chatService.markAsRead(requestContext.scopeId, actor, id);
 
   // Emit Socket.IO event for read status
   if (io) {

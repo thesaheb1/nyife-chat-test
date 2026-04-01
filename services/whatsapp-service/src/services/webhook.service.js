@@ -7,6 +7,8 @@ const accountService = require('./account.service');
 const messageService = require('./message.service');
 const config = require('../config');
 const { normalizeQualityRating } = require('./qualityRating');
+const { normalizeWebhookEnvelope } = require('../helpers/webhookEnvelope');
+const { recordWebhookObservation } = require('../helpers/webhookDiagnostics');
 
 /**
  * Verifies the webhook subscription from Meta.
@@ -53,17 +55,55 @@ function verifyWebhook(query) {
  * @param {object} body - The parsed webhook body
  * @param {object|null} kafkaProducer - The Kafka producer instance (may be null)
  */
-async function processWebhook(body, kafkaProducer) {
-  if (!body || body.object !== 'whatsapp_business_account') {
-    console.warn('[whatsapp-service] Webhook received non-WABA object:', body?.object);
+function buildWebhookContext(normalizedWebhook, options = {}) {
+  return {
+    envelopeFormat: normalizedWebhook.format,
+    eventName: normalizedWebhook.eventName,
+    redis: options.redis || null,
+  };
+}
+
+async function emitWebhookDiagnostic(context, observation) {
+  const payload = {
+    ...observation,
+    envelope_format: context.envelopeFormat || null,
+    event_name: context.eventName || null,
+    received_at: observation.received_at || new Date().toISOString(),
+  };
+
+  console.log('[whatsapp-service] Webhook diagnostic', JSON.stringify(payload));
+  await recordWebhookObservation(context.redis, payload);
+}
+
+async function processWebhook(body, kafkaProducer, options = {}) {
+  const normalizedWebhook = normalizeWebhookEnvelope(body);
+  if (!normalizedWebhook) {
+    console.warn('[whatsapp-service] Webhook received unsupported payload shape');
     return;
   }
 
-  const entries = body.entry;
+  const webhookContext = buildWebhookContext(normalizedWebhook, options);
+
+  const entries = normalizedWebhook.envelope.entry;
   if (!Array.isArray(entries) || entries.length === 0) {
     console.warn('[whatsapp-service] Webhook received empty entry array');
     return;
   }
+
+  if (normalizedWebhook.format === 'legacy_forwarded') {
+    console.log(
+      `[whatsapp-service] Processing legacy forwarded webhook${normalizedWebhook.eventName ? ` (${normalizedWebhook.eventName})` : ''}`
+    );
+  }
+
+  console.log(
+    '[whatsapp-service] Processing webhook envelope',
+    JSON.stringify({
+      envelope_format: webhookContext.envelopeFormat,
+      event_name: webhookContext.eventName,
+      entry_count: entries.length,
+    })
+  );
 
   for (const entry of entries) {
     const wabaId = entry.id;
@@ -84,7 +124,7 @@ async function processWebhook(body, kafkaProducer) {
       try {
         switch (field) {
           case 'messages':
-            await handleMessagesField(wabaId, value, kafkaProducer);
+            await handleMessagesField(wabaId, value, kafkaProducer, webhookContext);
             break;
 
           case 'message_template_status_update':
@@ -132,7 +172,7 @@ async function processWebhook(body, kafkaProducer) {
  * @param {object} value - The change value object
  * @param {object|null} kafkaProducer - Kafka producer
  */
-async function handleMessagesField(wabaId, value, kafkaProducer) {
+async function handleMessagesField(wabaId, value, kafkaProducer, webhookContext) {
   const metadata = value.metadata || {};
   const phoneNumberId = metadata.phone_number_id;
   const displayPhone = metadata.display_phone_number;
@@ -141,19 +181,24 @@ async function handleMessagesField(wabaId, value, kafkaProducer) {
   let account = null;
   if (phoneNumberId) {
     account = await accountService.findByPhoneNumberId(phoneNumberId);
+    if (!account) {
+      console.warn(
+        `[whatsapp-service] No local WhatsApp account found for phone_number_id=${phoneNumberId}; inbound messages cannot be attached until the account exists locally`
+      );
+    }
   }
 
   // Process incoming messages
   if (value.messages && Array.isArray(value.messages)) {
     for (const msg of value.messages) {
-      await handleIncomingMessage(account, wabaId, phoneNumberId, displayPhone, msg, value.contacts, kafkaProducer);
+      await handleIncomingMessage(account, wabaId, phoneNumberId, displayPhone, msg, value.contacts, kafkaProducer, webhookContext);
     }
   }
 
   // Process status updates
   if (value.statuses && Array.isArray(value.statuses)) {
     for (const statusUpdate of value.statuses) {
-      await handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, kafkaProducer);
+      await handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, kafkaProducer, webhookContext);
     }
   }
 }
@@ -170,7 +215,7 @@ async function handleMessagesField(wabaId, value, kafkaProducer) {
  * @param {Array} contacts - Contacts array from webhook (contains name info)
  * @param {object|null} kafkaProducer - Kafka producer
  */
-async function handleIncomingMessage(account, wabaId, phoneNumberId, displayPhone, msg, contacts, kafkaProducer) {
+async function handleIncomingMessage(account, wabaId, phoneNumberId, displayPhone, msg, contacts, kafkaProducer, webhookContext) {
   const from = msg.from; // Sender phone number
   const messageId = msg.id; // Meta message ID (wamid)
   const timestamp = msg.timestamp;
@@ -186,9 +231,10 @@ async function handleIncomingMessage(account, wabaId, phoneNumberId, displayPhon
   }
 
   // Create wa_messages record if we found the account
+  let createdMessage = null;
   if (account) {
     try {
-      await WaMessage.create({
+      createdMessage = await WaMessage.create({
         user_id: account.user_id,
         wa_account_id: account.id,
         contact_phone: from,
@@ -254,6 +300,21 @@ async function handleIncomingMessage(account, wabaId, phoneNumberId, displayPhon
       );
     }
   }
+
+  await emitWebhookDiagnostic(webhookContext, {
+    field: 'messages',
+    waba_id: wabaId,
+    phone_number_id: phoneNumberId || null,
+    local_wa_account_id: account?.id || null,
+    local_wa_account_user_id: account?.user_id || null,
+    matched_wa_message_id: createdMessage?.id || null,
+    matched_campaign_id: createdMessage?.campaign_id || null,
+    meta_message_id: messageId,
+    direction: 'inbound',
+    notes: account
+      ? []
+      : ['No local wa_account matched this phone_number_id, so the inbound message was not attached locally.'],
+  });
 }
 
 /**
@@ -467,9 +528,9 @@ async function resolveFlowCompletion(msg, account) {
  * @param {object} statusUpdate - Status update object from Meta webhook
  * @param {object|null} kafkaProducer - Kafka producer
  */
-async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, kafkaProducer) {
+async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, kafkaProducer, webhookContext) {
   const messageId = statusUpdate.id; // Meta message ID (wamid)
-  const status = statusUpdate.status; // sent, delivered, read, failed
+  const status = statusUpdate.status; // queued, sent, delivered, read, failed
   const timestamp = statusUpdate.timestamp;
   const recipientId = statusUpdate.recipient_id;
 
@@ -506,11 +567,31 @@ async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, 
     pricingInfo
   );
 
+  let resolvedAccount = account;
+  if ((!resolvedAccount || !resolvedAccount.id || !resolvedAccount.user_id) && updatedMessage?.wa_account_id) {
+    resolvedAccount = await WaAccount.findByPk(updatedMessage.wa_account_id);
+  }
+
+  await emitWebhookDiagnostic(webhookContext, {
+    field: 'messages',
+    waba_id: wabaId,
+    phone_number_id: phoneNumberId || resolvedAccount?.phone_number_id || null,
+    local_wa_account_id: resolvedAccount?.id || null,
+    local_wa_account_user_id: resolvedAccount?.user_id || null,
+    matched_wa_message_id: updatedMessage?.id || null,
+    matched_campaign_id: updatedMessage?.campaign_id || null,
+    status,
+    meta_message_id: messageId,
+    direction: 'outbound',
+    notes: updatedMessage ? [] : ['No local wa_message matched this Meta message ID.'],
+  });
+
   // If this message is part of a campaign, publish to campaign.status
   if (updatedMessage && updatedMessage.campaign_id && kafkaProducer) {
     try {
       await publishEvent(kafkaProducer, TOPICS.CAMPAIGN_STATUS, updatedMessage.campaign_id, {
         campaignId: updatedMessage.campaign_id,
+        userId: updatedMessage.user_id,
         contactId: recipientId || updatedMessage.contact_phone,
         messageId: messageId,
         status,
@@ -550,13 +631,13 @@ async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, 
     }
   }
 
-  if (kafkaProducer && account?.id && account?.user_id) {
+  if (kafkaProducer && resolvedAccount?.id && resolvedAccount?.user_id) {
     try {
       await publishEvent(kafkaProducer, TOPICS.WHATSAPP_MESSAGE_STATUS, messageId, {
-        userId: account.user_id,
-        waAccountId: account.id,
-        wabaId: String(wabaId),
-        phoneNumberId: String(phoneNumberId),
+        userId: resolvedAccount.user_id,
+        waAccountId: resolvedAccount.id,
+        wabaId: String(resolvedAccount.waba_id || wabaId || ''),
+        phoneNumberId: String(resolvedAccount.phone_number_id || phoneNumberId || ''),
         metaMessageId: messageId,
         contactPhone: recipientId || updatedMessage?.contact_phone || undefined,
         status,

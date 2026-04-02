@@ -74,6 +74,39 @@ async function extractTemplateLinkedFlows(userId, template) {
   return linkedFlows;
 }
 
+function normalizeTemplateComponentType(type) {
+  return typeof type === 'string' ? type.trim().toUpperCase() : '';
+}
+
+function buildTemplateFlowButtonAction(runtimeButton) {
+  if (!runtimeButton || typeof runtimeButton !== 'object') {
+    return { flow_token: 'unused' };
+  }
+
+  if (runtimeButton.action && typeof runtimeButton.action === 'object' && !Array.isArray(runtimeButton.action)) {
+    return runtimeButton.action;
+  }
+
+  if (runtimeButton.value && typeof runtimeButton.value === 'object' && !Array.isArray(runtimeButton.value)) {
+    return runtimeButton.value;
+  }
+
+  const flowToken = typeof runtimeButton.flow_token === 'string' ? runtimeButton.flow_token.trim() : '';
+  const flowActionPayload =
+    runtimeButton.flow_action_payload && typeof runtimeButton.flow_action_payload === 'object' && !Array.isArray(runtimeButton.flow_action_payload)
+      ? runtimeButton.flow_action_payload
+      : null;
+
+  if (!flowToken && !flowActionPayload) {
+    return { flow_token: 'unused' };
+  }
+
+  return {
+    ...(flowToken ? { flow_token: flowToken } : {}),
+    ...(flowActionPayload ? { flow_action_data: flowActionPayload } : {}),
+  };
+}
+
 /**
  * Builds the Meta API message payload for all supported message types.
  *
@@ -895,11 +928,11 @@ async function sendFlowMessage(userId, data) {
  */
 function buildTemplateComponents(template, variables) {
   const components = [];
+  const templateComponents = Array.isArray(template?.components) ? template.components : [];
 
   // Build header component if variables provided
   if (variables.header && Array.isArray(variables.header) && variables.header.length > 0) {
     const headerComponent = { type: 'header', parameters: [] };
-    const templateComponents = template.components || [];
     const headerDef = templateComponents.find((c) => c.type === 'HEADER');
 
     if (headerDef) {
@@ -988,35 +1021,59 @@ function buildTemplateComponents(template, variables) {
     components.push(bodyComponent);
   }
 
-  // Build button component parameters if provided
-  if (variables.buttons && Array.isArray(variables.buttons)) {
-    for (let i = 0; i < variables.buttons.length; i++) {
-      const btn = variables.buttons[i];
-      if (btn) {
-        const buttonComponent = {
-          type: 'button',
-          sub_type: btn.sub_type || btn.type || 'quick_reply',
-          index: String(i),
-          parameters: [],
-        };
+  const buttonsComponent = templateComponents.find((component) => normalizeTemplateComponentType(component?.type) === 'BUTTONS');
+  const templateButtons = Array.isArray(buttonsComponent?.buttons) ? buttonsComponent.buttons : [];
+  const runtimeButtons = Array.isArray(variables.buttons) ? variables.buttons : [];
+  const buttonCount = Math.max(templateButtons.length, runtimeButtons.length);
 
-        if (btn.sub_type === 'url' || btn.type === 'url') {
-          buttonComponent.parameters.push({ type: 'text', text: String(btn.value || btn.text) });
-        } else if (btn.sub_type === 'quick_reply' || btn.type === 'quick_reply') {
-          buttonComponent.parameters.push({ type: 'payload', payload: String(btn.value || btn.payload) });
-        } else if (btn.sub_type === 'copy_code' || btn.type === 'copy_code') {
-          buttonComponent.parameters.push({ type: 'coupon_code', coupon_code: String(btn.value || btn.coupon_code) });
-        } else if (btn.sub_type === 'flow' || btn.type === 'flow') {
-          // Flow buttons may have action payload
-          if (btn.value) {
-            buttonComponent.parameters.push({ type: 'action', action: btn.value });
-          }
-        }
+  for (let i = 0; i < buttonCount; i += 1) {
+    const templateButton = templateButtons[i] || {};
+    const runtimeButton = runtimeButtons[i] || {};
+    const buttonType = normalizeTemplateComponentType(
+      runtimeButton.sub_type || runtimeButton.type || templateButton.type
+    );
+    const buttonComponent = {
+      type: 'button',
+      sub_type: buttonType.toLowerCase() || 'quick_reply',
+      index: String(i),
+      parameters: [],
+    };
 
-        if (buttonComponent.parameters.length > 0) {
-          components.push(buttonComponent);
-        }
+    if (buttonType === 'URL') {
+      const value = runtimeButton.value || runtimeButton.text;
+      const hasTemplatePlaceholder = /\{\{\d+\}\}/.test(String(templateButton.url || ''));
+      if (value !== undefined && value !== null && String(value) !== '') {
+        buttonComponent.parameters.push({ type: 'text', text: String(value) });
+      } else if (!hasTemplatePlaceholder) {
+        continue;
       }
+    } else if (buttonType === 'QUICK_REPLY') {
+      const payload = runtimeButton.value || runtimeButton.payload;
+      if (payload !== undefined && payload !== null && String(payload) !== '') {
+        buttonComponent.parameters.push({ type: 'payload', payload: String(payload) });
+      } else {
+        continue;
+      }
+    } else if (buttonType === 'COPY_CODE') {
+      const couponCode = runtimeButton.value || runtimeButton.coupon_code;
+      if (couponCode !== undefined && couponCode !== null && String(couponCode) !== '') {
+        buttonComponent.parameters.push({ type: 'coupon_code', coupon_code: String(couponCode) });
+      } else {
+        continue;
+      }
+    } else if (buttonType === 'FLOW') {
+      const action = buildTemplateFlowButtonAction(runtimeButton);
+      buttonComponent.parameters.push(
+        action
+          ? { type: 'action', action }
+          : { type: 'action' }
+      );
+    } else {
+      continue;
+    }
+
+    if (buttonComponent.parameters.length > 0) {
+      components.push(buttonComponent);
     }
   }
 
@@ -1512,4 +1569,8 @@ module.exports = {
   sendCampaignMessage,
   resolveCampaignMediaBindings,
   handleFlowDataExchange,
+  __private: {
+    buildTemplateComponents,
+    buildTemplateFlowButtonAction,
+  },
 };

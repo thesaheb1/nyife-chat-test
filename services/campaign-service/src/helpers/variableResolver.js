@@ -159,6 +159,35 @@ function buildUrlButtonComponents(buttons, resolvedVars, keyBuilder) {
   return components;
 }
 
+function buildFlowButtonComponents(buttons) {
+  const components = [];
+
+  (Array.isArray(buttons) ? buttons : []).forEach((button, buttonIndex) => {
+    if (normalizeComponentType(button?.type) !== 'FLOW') {
+      return;
+    }
+
+    // Flow template buttons are runtime-required even when we do not need to
+    // inject any additional action payload. Meta expects the FLOW button
+    // component to be present at send time.
+    components.push({
+      type: 'button',
+      sub_type: 'flow',
+      index: String(buttonIndex),
+      parameters: [
+        {
+          type: 'action',
+          action: {
+            flow_token: 'unused',
+          },
+        },
+      ],
+    });
+  });
+
+  return components;
+}
+
 function getResolvedMediaBinding(resolvedMedia, key) {
   if (!resolvedMedia || typeof resolvedMedia !== 'object') {
     return null;
@@ -461,7 +490,8 @@ function buildTemplateComponents(
         buttonsDef?.buttons,
         resolvedVars,
         (buttonIndex) => `button_url_${buttonIndex}`
-      )
+      ),
+      ...buildFlowButtonComponents(buttonsDef?.buttons)
     );
   }
 

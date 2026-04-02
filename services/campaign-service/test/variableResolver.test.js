@@ -368,3 +368,55 @@ test('buildTemplateComponents supports top-level product headers without re-send
     },
   ]);
 });
+
+test('buildTemplateComponents includes required flow button components for flow templates', () => {
+  const template = {
+    components: [
+      {
+        type: 'BODY',
+        text: 'Hi {{1}}',
+      },
+      {
+        type: 'BUTTONS',
+        buttons: [
+          {
+            type: 'FLOW',
+            text: 'Open flow',
+            flow_id: '2032380730993432',
+            flow_action: 'NAVIGATE',
+            navigate_screen: 'SLOT_BOOKING_START',
+          },
+        ],
+      },
+    ],
+  };
+
+  const components = buildTemplateComponents(template, {
+    body_1: 'Saheb',
+  });
+
+  assert.deepEqual(components, [
+    {
+      type: 'body',
+      parameters: [
+        {
+          type: 'text',
+          text: 'Saheb',
+        },
+      ],
+    },
+    {
+      type: 'button',
+      sub_type: 'flow',
+      index: '0',
+      parameters: [
+        {
+          type: 'action',
+          action: {
+            flow_token: 'unused',
+          },
+        },
+      ],
+    },
+  ]);
+});

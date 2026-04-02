@@ -154,3 +154,58 @@ test('resolveCampaignMediaBindings returns a clear re-upload message when the st
     }
   );
 });
+
+test('direct template builder includes required flow button action parameters for flow templates', async () => {
+  delete require.cache[messageServicePath];
+  const messageService = require('../src/services/message.service');
+
+  const template = {
+    components: [
+      {
+        type: 'BODY',
+        text: 'Hi {{1}}',
+      },
+      {
+        type: 'BUTTONS',
+        buttons: [
+          {
+            type: 'FLOW',
+            text: 'Open flow',
+            flow_id: '2032380730993432',
+            flow_action: 'NAVIGATE',
+            navigate_screen: 'SLOT_BOOKING_START',
+          },
+        ],
+      },
+    ],
+  };
+
+  const components = messageService.__private.buildTemplateComponents(template, {
+    body: ['Saheb'],
+  });
+
+  assert.deepEqual(components, [
+    {
+      type: 'body',
+      parameters: [
+        {
+          type: 'text',
+          text: 'Saheb',
+        },
+      ],
+    },
+    {
+      type: 'button',
+      sub_type: 'flow',
+      index: '0',
+      parameters: [
+        {
+          type: 'action',
+          action: {
+            flow_token: 'unused',
+          },
+        },
+      ],
+    },
+  ]);
+});

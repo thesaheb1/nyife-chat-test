@@ -18,7 +18,8 @@ const {
 const { buildInternalOrganizationHeaders, resolveScopeId } = require('../helpers/requestContext');
 const config = require('../config');
 
-const CONTACT_SERVICE_PAGE_LIMIT = 100;
+const CONTACT_SERVICE_PAGE_LIMIT = 500;
+const CONTACT_FETCH_PARALLEL_PAGES = 10;
 const CONTACT_IDS_BATCH_SIZE = 100;
 const TAG_IDS_BATCH_SIZE = 100;
 
@@ -543,6 +544,11 @@ function splitIntoBatches(values, batchSize) {
   return batches;
 }
 
+function isUuidLike(value) {
+  return typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
 function assertTargetSelection(targetType, targetConfig = {}) {
   const contactIds = normalizeIdArray(targetConfig.contact_ids);
   const groupIds = normalizeIdArray(targetConfig.group_ids);
@@ -585,24 +591,35 @@ async function fetchContactsPage(requestContext, params) {
 }
 
 async function fetchAllContactsByQuery(requestContext, params = {}) {
-  const contacts = [];
-  let page = 1;
+  const firstPage = await fetchContactsPage(requestContext, {
+    ...params,
+    page: 1,
+    limit: CONTACT_SERVICE_PAGE_LIMIT,
+  });
 
-  while (true) {
-    const { contacts: pageContacts, meta } = await fetchContactsPage(requestContext, {
-      ...params,
-      page,
-      limit: CONTACT_SERVICE_PAGE_LIMIT,
-    });
+  const contacts = [...firstPage.contacts];
+  const totalPages = Number(firstPage.meta?.totalPages || 1);
 
-    contacts.push(...pageContacts);
+  if (totalPages <= 1) {
+    return contacts;
+  }
 
-    const totalPages = Number(meta?.totalPages || 0);
-    if (!totalPages || page >= totalPages) {
-      break;
+  const remainingPages = Array.from({ length: totalPages - 1 }, (_, index) => index + 2);
+
+  for (const pageBatch of splitIntoBatches(remainingPages, CONTACT_FETCH_PARALLEL_PAGES)) {
+    const batchResults = await Promise.all(
+      pageBatch.map((page) =>
+        fetchContactsPage(requestContext, {
+          ...params,
+          page,
+          limit: CONTACT_SERVICE_PAGE_LIMIT,
+        })
+      )
+    );
+
+    for (const result of batchResults) {
+      contacts.push(...result.contacts);
     }
-
-    page += 1;
   }
 
   return contacts;
@@ -1069,7 +1086,7 @@ async function startCampaign(requestContext, campaignId, kafkaProducer) {
         normalizedBindings.templateBindings?.products || {}
       );
 
-      return publishEvent(kafkaProducer, TOPICS.CAMPAIGN_EXECUTE, campaign.id, {
+      return publishEvent(kafkaProducer, TOPICS.CAMPAIGN_EXECUTE, msg.id, {
         campaignId: campaign.id,
         campaignMessageId: msg.id,
         userId: userId,
@@ -1211,7 +1228,7 @@ async function resumeCampaign(requestContext, campaignId, kafkaProducer) {
         normalizedBindings.templateBindings?.products || {}
       );
 
-      return publishEvent(kafkaProducer, TOPICS.CAMPAIGN_EXECUTE, campaign.id, {
+      return publishEvent(kafkaProducer, TOPICS.CAMPAIGN_EXECUTE, msg.id, {
         campaignId: campaign.id,
         campaignMessageId: msg.id,
         userId: userId,
@@ -1385,7 +1402,7 @@ async function retryCampaign(requestContext, campaignId, kafkaProducer) {
         normalizedBindings.templateBindings?.products || {}
       );
 
-      return publishEvent(kafkaProducer, TOPICS.CAMPAIGN_EXECUTE, campaign.id, {
+      return publishEvent(kafkaProducer, TOPICS.CAMPAIGN_EXECUTE, msg.id, {
         campaignId: campaign.id,
         campaignMessageId: msg.id,
         userId: userId,
@@ -1622,45 +1639,55 @@ async function getCampaignAnalytics(requestContext, campaignId) {
  * Returns data for Socket.IO emission.
  */
 async function handleStatusUpdate(statusPayload) {
-  const { campaignId, contactId, messageId, status, timestamp, errorCode, errorMessage } = statusPayload;
+  const {
+    campaignId,
+    campaignMessageId,
+    contactId,
+    messageId,
+    status,
+    timestamp,
+    errorCode,
+    errorMessage,
+  } = statusPayload;
 
-  // Find the campaign message by campaignId and contactId
-  const campaignMessage = await CampaignMessage.findOne({
-    where: { campaign_id: campaignId, contact_id: contactId },
-  });
+  let campaignMessage = null;
+  let lookupStrategy = 'none';
+
+  if (campaignMessageId) {
+    campaignMessage = await CampaignMessage.findOne({
+      where: { id: campaignMessageId, campaign_id: campaignId },
+    });
+    lookupStrategy = 'campaign_message_id';
+  }
+
+  if (!campaignMessage && messageId) {
+    campaignMessage = await CampaignMessage.findOne({
+      where: { campaign_id: campaignId, meta_message_id: messageId },
+    });
+    lookupStrategy = lookupStrategy === 'none' ? 'meta_message_id' : `${lookupStrategy}_then_meta_message_id`;
+  }
+
+  if (!campaignMessage && isUuidLike(contactId)) {
+    campaignMessage = await CampaignMessage.findOne({
+      where: { campaign_id: campaignId, contact_id: contactId },
+    });
+    lookupStrategy = lookupStrategy === 'none' ? 'contact_id' : `${lookupStrategy}_then_contact_id`;
+  }
 
   if (!campaignMessage) {
-    // Try to find by meta_message_id if contactId didn't match
-    if (messageId) {
-      const msgByMetaId = await CampaignMessage.findOne({
-        where: { campaign_id: campaignId, meta_message_id: messageId },
-      });
-      if (!msgByMetaId) {
-        console.warn('[campaign-service] Campaign status diagnostic', JSON.stringify({
-          campaign_id: campaignId,
-          contact_id: contactId,
-          message_id: messageId,
-          status,
-          matched_campaign_message: false,
-          lookup: 'contact_id_then_meta_message_id',
-        }));
-        return null;
-      }
-      // Process with the found message
-      return await processStatusUpdate(msgByMetaId, campaignId, status, messageId, timestamp, errorCode, errorMessage);
-    }
     console.warn('[campaign-service] Campaign status diagnostic', JSON.stringify({
       campaign_id: campaignId,
+      campaign_message_id: campaignMessageId || null,
       contact_id: contactId,
       message_id: messageId || null,
       status,
       matched_campaign_message: false,
-      lookup: 'contact_id',
+      lookup: lookupStrategy,
     }));
     return null;
   }
 
-  return await processStatusUpdate(campaignMessage, campaignId, status, messageId, timestamp, errorCode, errorMessage);
+  return processStatusUpdate(campaignMessage, campaignId, status, messageId, timestamp, errorCode, errorMessage);
 }
 
 /**
@@ -1670,13 +1697,22 @@ async function handleStatusUpdate(statusPayload) {
 async function processStatusUpdate(campaignMessage, campaignId, status, messageId, timestamp, errorCode, errorMessage) {
   const previousStatus = campaignMessage.status;
   const pendingStatuses = new Set(['pending', 'queued']);
+  const isSameStatus = status === previousStatus;
 
   // Determine if this is a forward progression (avoid going backward in status)
   // Order: pending → queued → sent → delivered → read
   // failed can happen at any point
   const statusOrder = { pending: 0, queued: 1, sent: 2, delivered: 3, read: 4, failed: -1 };
-  const currentOrder = statusOrder[previousStatus] || 0;
-  const newOrder = statusOrder[status] || 0;
+  const currentOrder = statusOrder[previousStatus] ?? 0;
+  const newOrder = statusOrder[status] ?? 0;
+
+  if (isSameStatus && !(messageId && !campaignMessage.meta_message_id)) {
+    return null;
+  }
+
+  if (previousStatus === 'failed' && status !== 'failed') {
+    return null;
+  }
 
   // For failed status, always allow. For others, only process if advancing forward.
   if (status !== 'failed' && newOrder <= currentOrder && previousStatus !== 'pending' && previousStatus !== 'queued') {
@@ -1717,12 +1753,6 @@ async function processStatusUpdate(campaignMessage, campaignId, status, messageI
 
   await campaignMessage.update(updateData);
 
-  // Update campaign aggregate counters atomically
-  const campaign = await Campaign.findByPk(campaignId);
-  if (!campaign) {
-    return null;
-  }
-
   // Build counter update based on status transition
   const counterUpdate = {};
 
@@ -1738,14 +1768,10 @@ async function processStatusUpdate(campaignMessage, campaignId, status, messageI
   // Increment the new status counter
   switch (status) {
     case 'sent':
-      counterUpdate.sent_count = counterUpdate.sent_count
-        ? sequelize.literal('sent_count')
-        : sequelize.literal('sent_count + 1');
+      counterUpdate.sent_count = sequelize.literal('sent_count + 1');
       break;
     case 'delivered':
-      counterUpdate.delivered_count = counterUpdate.delivered_count
-        ? sequelize.literal('delivered_count')
-        : sequelize.literal('delivered_count + 1');
+      counterUpdate.delivered_count = sequelize.literal('delivered_count + 1');
       break;
     case 'read':
       counterUpdate.read_count = sequelize.literal('read_count + 1');
@@ -1755,38 +1781,52 @@ async function processStatusUpdate(campaignMessage, campaignId, status, messageI
       break;
   }
 
-  await Campaign.update(counterUpdate, {
-    where: { id: campaignId },
-  });
-
-  // Check if all messages have moved past the pending/queued pipeline stages.
-  const pendingCount = await CampaignMessage.count({
-    where: {
-      campaign_id: campaignId,
-      status: { [Op.in]: ['pending', 'queued'] },
-    },
-  });
-
-  if (pendingCount === 0 && ['running', 'paused'].includes(campaign.status)) {
-    const failedCount = await CampaignMessage.count({
-      where: {
-        campaign_id: campaignId,
-        status: 'failed',
-      },
+  if (Object.keys(counterUpdate).length > 0) {
+    await Campaign.update(counterUpdate, {
+      where: { id: campaignId },
     });
+  }
 
-    await Campaign.update(
+  let campaign = await Campaign.findByPk(campaignId, {
+    attributes: [
+      'id',
+      'user_id',
+      'status',
+      'total_recipients',
+      'sent_count',
+      'delivered_count',
+      'read_count',
+      'failed_count',
+      'pending_count',
+    ],
+  });
+  if (!campaign) {
+    return null;
+  }
+
+  if (campaign.pending_count === 0 && !['draft', 'scheduled', 'cancelled'].includes(campaign.status)) {
+    const terminalStatus = campaign.failed_count > 0 ? 'failed' : 'completed';
+    const [finalizedCount] = await Campaign.update(
       {
-        status: failedCount > 0 ? 'failed' : 'completed',
+        status: terminalStatus,
         completed_at: new Date(),
         pending_count: 0,
       },
-      { where: { id: campaignId } }
+      {
+        where: {
+          id: campaignId,
+          status: { [Op.notIn]: ['draft', 'scheduled', 'cancelled'] },
+          pending_count: 0,
+        },
+      }
     );
-  }
 
-  // Reload campaign to get updated stats
-  await campaign.reload();
+    if (finalizedCount > 0) {
+      campaign = campaign.get ? campaign.get({ plain: true }) : { ...campaign };
+      campaign.status = terminalStatus;
+      campaign.pending_count = 0;
+    }
+  }
 
   console.log('[campaign-service] Campaign status diagnostic', JSON.stringify({
     campaign_id: campaignId,

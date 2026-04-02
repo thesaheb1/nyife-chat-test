@@ -56,6 +56,7 @@ async function startServer() {
     });
 
     await kafkaConsumer.run({
+      partitionsConsumedConcurrently: config.kafka.consumerConcurrency,
       eachMessage: async ({ message }) => {
         try {
           const payload = JSON.parse(message.value.toString());
@@ -66,14 +67,19 @@ async function startServer() {
           const result = await campaignService.handleStatusUpdate(payload);
 
           if (result && kafkaProducer) {
-            await publishEvent(kafkaProducer, TOPICS.CAMPAIGN_LIVE, payload.campaignId, {
+            await publishEvent(
+              kafkaProducer,
+              TOPICS.CAMPAIGN_LIVE,
+              payload.messageId || payload.campaignMessageId || payload.campaignId,
+              {
               campaignId: payload.campaignId,
               organizationId: result.organizationId,
               messageId: payload.messageId,
               status: payload.status,
               timestamp: payload.timestamp || new Date().toISOString(),
               stats: result.stats,
-            });
+              }
+            );
           }
         } catch (err) {
           console.error('[campaign-service] Failed to process campaign.status:', err.message);

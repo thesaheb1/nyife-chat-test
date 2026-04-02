@@ -290,11 +290,11 @@ async function processWebhook(req, res) {
   const kafkaProducer = req.app.locals.kafkaProducer || null;
   const redis = req.app.locals.redis || null;
 
-  try {
-    await webhookService.processWebhook(req.body, kafkaProducer, { redis });
-  } catch (err) {
-    console.error('[whatsapp-service] Webhook processing error:', err.message);
-  }
+  setImmediate(() => {
+    webhookService.processWebhook(req.body, kafkaProducer, { redis }).catch((err) => {
+      console.error('[whatsapp-service] Webhook processing error:', err.message);
+    });
+  });
 }
 
 

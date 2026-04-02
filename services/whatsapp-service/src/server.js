@@ -57,6 +57,7 @@ async function startServer() {
     });
 
     await kafkaConsumer.run({
+      partitionsConsumedConcurrently: config.kafka.consumerConcurrency,
       eachMessage: async ({ topic, partition, message }) => {
         try {
           const payload = JSON.parse(message.value.toString());

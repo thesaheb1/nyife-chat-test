@@ -1340,14 +1340,13 @@ async function updateMessageStatus(metaMessageId, status, errorInfo, pricingInfo
 
   if (pricingInfo) {
     if (isWalletBilledMessage(message)) {
-      await reconcileMessageBilling(message, pricingInfo);
+      return reconcileMessageBilling(message, pricingInfo);
     } else {
-      const actualCategory = normalizeBillingCategory(
-        pricingInfo.category,
-        message.billing_category_estimated || message.pricing_category
-      );
-      await message.update({
-        billing_category_actual: actualCategory,
+      return message.update({
+        billing_category_actual: normalizeBillingCategory(
+          pricingInfo.category,
+          message.billing_category_estimated || message.pricing_category
+        ),
         billing_amount_actual: 0,
         billing_status: 'free',
         pricing_billable: typeof pricingInfo.billable === 'boolean' ? pricingInfo.billable : false,
@@ -1355,8 +1354,6 @@ async function updateMessageStatus(metaMessageId, status, errorInfo, pricingInfo
       });
     }
   }
-
-  await message.reload();
 
   return message;
 }
@@ -1383,6 +1380,7 @@ async function sendCampaignMessage(params) {
     waAccountId,
     phoneNumber,
     campaignId,
+    campaignMessageId,
     templateName,
     templateLanguage,
     templateCategory,

@@ -802,11 +802,6 @@ async function handleStatusUpdate(eventData, io) {
       meta_message_id: metaMessageId,
       status: normalizedStatus,
     });
-
-    const conversation = await Conversation.findByPk(chatMessage.conversation_id);
-    if (conversation) {
-      await emitConversationUpdate(io, conversation.user_id, conversation);
-    }
   }
 }
 

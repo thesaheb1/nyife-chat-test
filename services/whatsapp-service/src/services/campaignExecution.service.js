@@ -9,6 +9,7 @@ const messageService = require('./message.service');
 function buildCampaignStatusEvent(payload, status, options = {}) {
   return {
     campaignId: payload.campaignId,
+    campaignMessageId: payload.campaignMessageId || undefined,
     userId: payload.userId,
     contactId: payload.contactId || payload.phoneNumber,
     messageId: options.messageId || '',
@@ -25,7 +26,8 @@ async function publishCampaignStatus(kafkaProducer, payload, status, options = {
   }
 
   const eventPayload = buildCampaignStatusEvent(payload, status, options);
-  await publishEventFn(kafkaProducer, TOPICS.CAMPAIGN_STATUS, payload.campaignId, eventPayload);
+  const partitionKey = options.messageId || payload.campaignMessageId || payload.campaignId;
+  await publishEventFn(kafkaProducer, TOPICS.CAMPAIGN_STATUS, partitionKey, eventPayload);
   return eventPayload;
 }
 
@@ -107,6 +109,7 @@ async function processCampaignExecuteMessage(
       components: payload.components || [],
       messageType: payload.messageType || 'template',
       textContent: payload.textContent,
+      campaignMessageId: payload.campaignMessageId,
     });
 
     try {

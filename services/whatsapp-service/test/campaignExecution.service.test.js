@@ -17,17 +17,18 @@ test('processCampaignExecuteMessage publishes immediate campaign and WhatsApp qu
       phoneNumber: '+15551234567',
       contactId: 'contact-1',
       campaignId: 'campaign-1',
+      campaignMessageId: 'campaign-message-1',
       templateName: 'just_testing',
       templateLanguage: 'en',
       templateCategory: 'MARKETING',
       components: [],
     },
-        {
-          kafkaProducer: { id: 'producer-1' },
-          loadDispatchState: async () => ({ executable: true, reason: 'ready' }),
-          sendCampaignMessage: async () => ({
-            id: 'wa-message-1',
-            meta_message_id: 'wamid-1',
+    {
+      kafkaProducer: { id: 'producer-1' },
+      loadDispatchState: async () => ({ executable: true, reason: 'ready' }),
+      sendCampaignMessage: async () => ({
+        id: 'wa-message-1',
+        meta_message_id: 'wamid-1',
         status: 'sent',
       }),
       accountLookup: async () => ({
@@ -44,7 +45,8 @@ test('processCampaignExecuteMessage publishes immediate campaign and WhatsApp qu
 
   assert.equal(result.status, 'sent');
   assert.equal(publishedEvents.length, 2);
-  assert.equal(publishedEvents[0].key, 'campaign-1');
+  assert.equal(publishedEvents[0].key, 'wamid-1');
+  assert.equal(publishedEvents[0].payload.campaignMessageId, 'campaign-message-1');
   assert.equal(publishedEvents[0].payload.contactId, 'contact-1');
   assert.equal(publishedEvents[0].payload.messageId, 'wamid-1');
   assert.equal(publishedEvents[0].payload.status, 'queued');
@@ -66,6 +68,7 @@ test('processCampaignExecuteMessage publishes an immediate failed status when se
           phoneNumber: '+15551234567',
           contactId: 'contact-1',
           campaignId: 'campaign-1',
+          campaignMessageId: 'campaign-message-1',
           templateName: 'just_testing',
           templateLanguage: 'en',
           components: [],
@@ -85,6 +88,8 @@ test('processCampaignExecuteMessage publishes an immediate failed status when se
   );
 
   assert.equal(publishedEvents.length, 1);
+  assert.equal(publishedEvents[0].key, 'campaign-message-1');
+  assert.equal(publishedEvents[0].payload.campaignMessageId, 'campaign-message-1');
   assert.equal(publishedEvents[0].payload.contactId, 'contact-1');
   assert.equal(publishedEvents[0].payload.status, 'failed');
   assert.equal(publishedEvents[0].payload.errorMessage, 'Meta send failed');

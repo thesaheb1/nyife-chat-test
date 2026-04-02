@@ -63,6 +63,25 @@ function buildWebhookContext(normalizedWebhook, options = {}) {
   };
 }
 
+async function processCollectionInBatches(items, batchSize, handler) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return;
+  }
+
+  const sanitizedBatchSize = Math.max(Number.parseInt(String(batchSize || ''), 10) || 1, 1);
+
+  for (let index = 0; index < items.length; index += sanitizedBatchSize) {
+    const batch = items.slice(index, index + sanitizedBatchSize);
+    const results = await Promise.allSettled(batch.map(handler));
+
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.error('[whatsapp-service] Webhook batch item failed:', result.reason?.message || result.reason);
+      }
+    }
+  }
+}
+
 async function emitWebhookDiagnostic(context, observation) {
   const payload = {
     ...observation,
@@ -219,16 +238,31 @@ async function handleMessagesField(wabaId, value, kafkaProducer, webhookContext)
 
   // Process incoming messages
   if (value.messages && Array.isArray(value.messages)) {
-    for (const msg of value.messages) {
-      await handleIncomingMessage(account, wabaId, phoneNumberId, displayPhone, msg, value.contacts, kafkaProducer, webhookContext);
-    }
+    await processCollectionInBatches(
+      value.messages,
+      config.processing.webhookInboundBatchSize,
+      (msg) =>
+        handleIncomingMessage(
+          account,
+          wabaId,
+          phoneNumberId,
+          displayPhone,
+          msg,
+          value.contacts,
+          kafkaProducer,
+          webhookContext
+        )
+    );
   }
 
   // Process status updates
   if (value.statuses && Array.isArray(value.statuses)) {
-    for (const statusUpdate of value.statuses) {
-      await handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, kafkaProducer, webhookContext);
-    }
+    await processCollectionInBatches(
+      value.statuses,
+      config.processing.webhookStatusBatchSize,
+      (statusUpdate) =>
+        handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, kafkaProducer, webhookContext)
+    );
   }
 }
 
@@ -618,9 +652,11 @@ async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, 
   });
 
   // If this message is part of a campaign, publish to campaign.status
+  const publishTasks = [];
+
   if (updatedMessage && updatedMessage.campaign_id && kafkaProducer) {
-    try {
-      await publishEvent(kafkaProducer, TOPICS.CAMPAIGN_STATUS, updatedMessage.campaign_id, {
+    publishTasks.push(
+      publishEvent(kafkaProducer, TOPICS.CAMPAIGN_STATUS, messageId, {
         campaignId: updatedMessage.campaign_id,
         userId: updatedMessage.user_id,
         contactId: recipientId || updatedMessage.contact_phone,
@@ -631,19 +667,14 @@ async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, 
           : new Date().toISOString(),
         errorCode: errorInfo ? Number(errorInfo.code) || 0 : undefined,
         errorMessage: errorInfo ? errorInfo.message : undefined,
-      });
-    } catch (err) {
-      console.error(
-        '[whatsapp-service] Failed to publish campaign status to Kafka:',
-        err.message
-      );
-    }
+      })
+    );
   }
 
   // Publish to campaign.analytics for all messages with campaign_id
   if (updatedMessage && updatedMessage.campaign_id && kafkaProducer) {
-    try {
-      await publishEvent(kafkaProducer, TOPICS.CAMPAIGN_ANALYTICS, updatedMessage.campaign_id, {
+    publishTasks.push(
+      publishEvent(kafkaProducer, TOPICS.CAMPAIGN_ANALYTICS, messageId, {
         campaignId: updatedMessage.campaign_id,
         userId: updatedMessage.user_id,
         messageId: messageId,
@@ -653,18 +684,13 @@ async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, 
           : new Date().toISOString(),
         conversationType: conversationInfo?.origin?.type || undefined,
         pricingCategory: pricingInfo?.category || undefined,
-      });
-    } catch (err) {
-      console.error(
-        '[whatsapp-service] Failed to publish campaign analytics to Kafka:',
-        err.message
-      );
-    }
+      })
+    );
   }
 
   if (kafkaProducer && resolvedAccount?.id && resolvedAccount?.user_id) {
-    try {
-      await publishEvent(kafkaProducer, TOPICS.WHATSAPP_MESSAGE_STATUS, messageId, {
+    publishTasks.push(
+      publishEvent(kafkaProducer, TOPICS.WHATSAPP_MESSAGE_STATUS, messageId, {
         userId: resolvedAccount.user_id,
         waAccountId: resolvedAccount.id,
         wabaId: String(resolvedAccount.waba_id || wabaId || ''),
@@ -680,12 +706,16 @@ async function handleStatusUpdate(account, wabaId, phoneNumberId, statusUpdate, 
         timestamp: timestamp
           ? new Date(parseInt(timestamp, 10) * 1000).toISOString()
           : new Date().toISOString(),
-      });
-    } catch (err) {
-      console.error(
-        '[whatsapp-service] Failed to publish status update to Kafka:',
-        err.message
-      );
+      })
+    );
+  }
+
+  if (publishTasks.length > 0) {
+    const results = await Promise.allSettled(publishTasks);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.error('[whatsapp-service] Failed to publish webhook downstream event:', result.reason?.message || result.reason);
+      }
     }
   }
 }

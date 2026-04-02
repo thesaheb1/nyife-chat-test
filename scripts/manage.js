@@ -284,7 +284,7 @@ function handleKafkaCommand(action) {
 
   const createCommands = KAFKA_TOPICS.map(
     (topic) =>
-      `kafka-topics --create --bootstrap-server kafka:29092 --topic ${topic} --partitions 3 --replication-factor 1 --if-not-exists || true`
+      `kafka-topics --create --bootstrap-server kafka:29092 --topic ${topic} --partitions 12 --replication-factor 1 --if-not-exists || true`
   ).join(' && ');
 
   const script = `${createCommands} && kafka-topics --list --bootstrap-server kafka:29092`;

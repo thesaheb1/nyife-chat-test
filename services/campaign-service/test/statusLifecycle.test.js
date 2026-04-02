@@ -11,13 +11,11 @@ const { Campaign, CampaignMessage } = require('../src/models');
 const originalCampaignFindByPk = Campaign.findByPk;
 const originalCampaignUpdate = Campaign.update;
 const originalCampaignMessageFindOne = CampaignMessage.findOne;
-const originalCampaignMessageCount = CampaignMessage.count;
 
 afterEach(() => {
   Campaign.findByPk = originalCampaignFindByPk;
   Campaign.update = originalCampaignUpdate;
   CampaignMessage.findOne = originalCampaignMessageFindOne;
-  CampaignMessage.count = originalCampaignMessageCount;
 });
 
 test('handleStatusUpdate completes a running single-recipient campaign after immediate sent status', async () => {
@@ -47,7 +45,7 @@ test('handleStatusUpdate completes a running single-recipient campaign after imm
   };
 
   CampaignMessage.findOne = async ({ where }) => {
-    if (where.campaign_id === 'campaign-1' && where.contact_id === 'contact-1') {
+    if (where.id === 'campaign-message-1' && where.campaign_id === 'campaign-1') {
       return campaignMessage;
     }
 
@@ -55,8 +53,13 @@ test('handleStatusUpdate completes a running single-recipient campaign after imm
   };
 
   Campaign.findByPk = async () => campaign;
-  CampaignMessage.count = async () => 0;
   Campaign.update = async (values) => {
+    if (values.pending_count) {
+      campaign.pending_count = 0;
+    }
+    if (values.sent_count) {
+      campaign.sent_count = 1;
+    }
     if (values.status === 'completed') {
       campaign.status = 'completed';
       campaign.pending_count = 0;
@@ -67,6 +70,7 @@ test('handleStatusUpdate completes a running single-recipient campaign after imm
 
   const result = await campaignService.handleStatusUpdate({
     campaignId: 'campaign-1',
+    campaignMessageId: 'campaign-message-1',
     contactId: 'contact-1',
     messageId: 'wamid-1',
     status: 'sent',
@@ -108,7 +112,7 @@ test('handleStatusUpdate keeps pending_count intact when a pending message becom
   };
 
   CampaignMessage.findOne = async ({ where }) => {
-    if (where.campaign_id === 'campaign-queued' && where.contact_id === 'contact-queued') {
+    if (where.id === 'campaign-message-queued' && where.campaign_id === 'campaign-queued') {
       return campaignMessage;
     }
 
@@ -116,10 +120,12 @@ test('handleStatusUpdate keeps pending_count intact when a pending message becom
   };
 
   Campaign.findByPk = async () => campaign;
-  CampaignMessage.count = async () => 1;
   Campaign.update = async (values) => {
     if (values.pending_count) {
       campaign.pending_count = 1;
+    }
+    if (values.status) {
+      campaign.status = values.status;
     }
 
     return [1];
@@ -127,6 +133,7 @@ test('handleStatusUpdate keeps pending_count intact when a pending message becom
 
   const result = await campaignService.handleStatusUpdate({
     campaignId: 'campaign-queued',
+    campaignMessageId: 'campaign-message-queued',
     contactId: 'contact-queued',
     messageId: 'wamid-queued',
     status: 'queued',
@@ -168,20 +175,21 @@ test('handleStatusUpdate marks the campaign failed when the final unresolved mes
   };
 
   CampaignMessage.findOne = async ({ where }) => {
-    if (where.campaign_id === 'campaign-failed' && where.contact_id === 'contact-failed') {
+    if (where.campaign_id === 'campaign-failed' && where.meta_message_id === 'wamid-failed') {
       return campaignMessage;
     }
 
     return null;
   };
 
-  let countCall = 0;
   Campaign.findByPk = async () => campaign;
-  CampaignMessage.count = async () => {
-    countCall += 1;
-    return countCall === 1 ? 0 : 1;
-  };
   Campaign.update = async (values) => {
+    if (values.pending_count) {
+      campaign.pending_count = 0;
+    }
+    if (values.failed_count) {
+      campaign.failed_count = 1;
+    }
     if (values.status === 'failed') {
       campaign.status = 'failed';
       campaign.pending_count = 0;
@@ -222,7 +230,7 @@ test('handleStatusUpdate can complete a paused campaign when the final in-flight
     id: 'campaign-paused-final',
     user_id: 'org-1',
     status: 'paused',
-    pending_count: 1,
+    pending_count: 0,
     sent_count: 1,
     delivered_count: 0,
     read_count: 0,
@@ -233,20 +241,21 @@ test('handleStatusUpdate can complete a paused campaign when the final in-flight
   };
 
   CampaignMessage.findOne = async ({ where }) => {
-    if (where.campaign_id === 'campaign-paused-final' && where.contact_id === 'contact-paused-final') {
+    if (where.id === 'campaign-message-paused-final' && where.campaign_id === 'campaign-paused-final') {
       return campaignMessage;
     }
 
     return null;
   };
 
-  let countCall = 0;
   Campaign.findByPk = async () => campaign;
-  CampaignMessage.count = async () => {
-    countCall += 1;
-    return 0;
-  };
   Campaign.update = async (values) => {
+    if (values.delivered_count) {
+      campaign.delivered_count = 1;
+    }
+    if (values.sent_count) {
+      campaign.sent_count = 0;
+    }
     if (values.status === 'completed') {
       campaign.status = 'completed';
       campaign.pending_count = 0;
@@ -257,7 +266,8 @@ test('handleStatusUpdate can complete a paused campaign when the final in-flight
 
   const result = await campaignService.handleStatusUpdate({
     campaignId: 'campaign-paused-final',
-    contactId: 'contact-paused-final',
+    campaignMessageId: 'campaign-message-paused-final',
+    contactId: '+918800281734',
     messageId: 'wamid-paused-final',
     status: 'delivered',
     timestamp: '2026-04-01T10:00:00.000Z',

@@ -192,7 +192,7 @@ test('handleStatusUpdate creates a missing outbound chat message for campaign me
   assert.equal(conversation.last_message_preview, '[Template] just_testing');
 });
 
-test('handleStatusUpdate emits both message and conversation updates so the inbox refreshes live', async () => {
+test('handleStatusUpdate emits message status updates without reloading the whole conversation', async () => {
   const emittedEvents = [];
   const conversation = {
     id: 'conversation-2',
@@ -237,15 +237,6 @@ test('handleStatusUpdate emits both message and conversation updates so the inbo
 
   ChatMessage.findOne = async ({ where }) =>
     where.meta_message_id === 'wamid-2' ? chatMessage : null;
-  Conversation.findByPk = async (id) => (id === 'conversation-2' ? conversation : null);
-  sequelize.query = async (sql) => {
-    if (sql.includes('FROM org_organizations')) {
-      return [{ user_id: 'owner-1' }];
-    }
-
-    return [];
-  };
-
   await chatService.handleStatusUpdate(
     {
       metaMessageId: 'wamid-2',
@@ -258,10 +249,7 @@ test('handleStatusUpdate emits both message and conversation updates so the inbo
   assert.equal(chatMessage.status, 'sent');
   assert.deepEqual(
     emittedEvents.map(({ room, event }) => `${room}:${event}`),
-    [
-      'conversation:conversation-2:message:status',
-      'user:owner-1:conversation:updated',
-    ]
+    ['conversation:conversation-2:message:status']
   );
 });
 

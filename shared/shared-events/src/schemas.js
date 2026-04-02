@@ -32,6 +32,7 @@ const campaignExecuteSchema = z.object({
  */
 const campaignStatusSchema = z.object({
   campaignId: z.string(),
+  campaignMessageId: uuidField.optional(),
   userId: uuidField.optional(),
   contactId: z.string(),
   messageId: z.string(),

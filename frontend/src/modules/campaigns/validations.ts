@@ -13,6 +13,33 @@ const variableBindingSchema = z.union([
   }),
 ]);
 
+const campaignMediaBindingSchema = z.object({
+  file_id: z.string().regex(uuidRegex, 'Invalid media file'),
+  media_type: z.enum(['image', 'video', 'document']),
+  original_name: z.string().trim().min(1).max(255),
+  mime_type: z.string().trim().min(1).max(255),
+  size: z.number().int().nonnegative(),
+  preview_url: z.string().trim().optional(),
+});
+
+const campaignLocationBindingSchema = z.object({
+  latitude: z.number().finite(),
+  longitude: z.number().finite(),
+  name: z.string().trim().max(255).optional(),
+  address: z.string().trim().max(500).optional(),
+});
+
+const campaignProductBindingSchema = z.object({
+  product_retailer_id: z.string().trim().min(1).max(255),
+});
+
+const templateBindingsSchema = z.object({
+  variables: z.record(z.string(), variableBindingSchema).optional(),
+  media: z.record(z.string(), campaignMediaBindingSchema).optional(),
+  locations: z.record(z.string(), campaignLocationBindingSchema).optional(),
+  products: z.record(z.string(), campaignProductBindingSchema).optional(),
+});
+
 const targetConfigSchema = z.object({
   group_ids: z.array(z.string()).optional(),
   contact_ids: z.array(z.string()).optional(),
@@ -31,6 +58,7 @@ export const createCampaignSchema = z
     target_type: z.enum(['group', 'contacts', 'tags', 'all']),
     target_config: targetConfigSchema,
     variables_mapping: z.record(z.string(), variableBindingSchema).optional(),
+    template_bindings: templateBindingsSchema.optional(),
     scheduled_at: z.string().trim().optional(),
   })
   .refine(
@@ -74,6 +102,7 @@ export const updateCampaignSchema = z.object({
   target_type: z.enum(['group', 'contacts', 'tags', 'all']).optional(),
   target_config: targetConfigSchema.optional(),
   variables_mapping: z.record(z.string(), variableBindingSchema).optional(),
+  template_bindings: templateBindingsSchema.optional().nullable(),
   scheduled_at: z.string().trim().optional(),
 });
 export type UpdateCampaignFormData = z.infer<typeof updateCampaignSchema>;

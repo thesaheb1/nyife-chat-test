@@ -22,11 +22,12 @@ test('processCampaignExecuteMessage publishes immediate campaign and WhatsApp qu
       templateCategory: 'MARKETING',
       components: [],
     },
-    {
-      kafkaProducer: { id: 'producer-1' },
-      sendCampaignMessage: async () => ({
-        id: 'wa-message-1',
-        meta_message_id: 'wamid-1',
+        {
+          kafkaProducer: { id: 'producer-1' },
+          loadDispatchState: async () => ({ executable: true, reason: 'ready' }),
+          sendCampaignMessage: async () => ({
+            id: 'wa-message-1',
+            meta_message_id: 'wamid-1',
         status: 'sent',
       }),
       accountLookup: async () => ({
@@ -71,6 +72,7 @@ test('processCampaignExecuteMessage publishes an immediate failed status when se
         },
         {
           kafkaProducer: { id: 'producer-1' },
+          loadDispatchState: async () => ({ executable: true, reason: 'ready' }),
           sendCampaignMessage: async () => {
             throw new Error('Meta send failed');
           },
@@ -86,4 +88,41 @@ test('processCampaignExecuteMessage publishes an immediate failed status when se
   assert.equal(publishedEvents[0].payload.contactId, 'contact-1');
   assert.equal(publishedEvents[0].payload.status, 'failed');
   assert.equal(publishedEvents[0].payload.errorMessage, 'Meta send failed');
+});
+
+test('processCampaignExecuteMessage skips sending when campaign execution is paused or otherwise not executable', async () => {
+  let sendAttempted = false;
+
+  const result = await campaignExecutionService.processCampaignExecuteMessage(
+    {
+      userId: 'org-1',
+      waAccountId: 'wa-1',
+      phoneNumber: '+15551234567',
+      contactId: 'contact-1',
+      campaignId: 'campaign-1',
+      campaignMessageId: 'campaign-message-1',
+      templateName: 'just_testing',
+      templateLanguage: 'en',
+      components: [],
+    },
+    {
+      loadDispatchState: async () => ({
+        executable: false,
+        reason: 'campaign_paused',
+        campaignStatus: 'paused',
+        messageStatus: 'pending',
+      }),
+      sendCampaignMessage: async () => {
+        sendAttempted = true;
+      },
+    }
+  );
+
+  assert.equal(sendAttempted, false);
+  assert.deepEqual(result, {
+    skipped: true,
+    reason: 'campaign_paused',
+    campaignStatus: 'paused',
+    messageStatus: 'pending',
+  });
 });

@@ -159,12 +159,188 @@ function buildUrlButtonComponents(buttons, resolvedVars, keyBuilder) {
   return components;
 }
 
-function buildCarouselCards(templateCards, resolvedVars) {
+function getResolvedMediaBinding(resolvedMedia, key) {
+  if (!resolvedMedia || typeof resolvedMedia !== 'object') {
+    return null;
+  }
+
+  const binding = resolvedMedia[key];
+  if (!binding || typeof binding !== 'object') {
+    return null;
+  }
+
+  const mediaId = String(binding.id || binding.whatsapp_media_id || '').trim();
+  if (!mediaId) {
+    return null;
+  }
+
+  return {
+    id: mediaId,
+    media_type: String(binding.media_type || '').trim().toLowerCase(),
+    original_name: String(binding.original_name || binding.filename || '').trim(),
+  };
+}
+
+function getResolvedLocationBinding(resolvedLocations, key) {
+  if (!resolvedLocations || typeof resolvedLocations !== 'object') {
+    return null;
+  }
+
+  const binding = resolvedLocations[key];
+  if (!binding || typeof binding !== 'object') {
+    return null;
+  }
+
+  const latitude = Number(binding.latitude);
+  const longitude = Number(binding.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  return {
+    latitude,
+    longitude,
+    ...(typeof binding.name === 'string' && binding.name.trim() ? { name: binding.name.trim() } : {}),
+    ...(typeof binding.address === 'string' && binding.address.trim() ? { address: binding.address.trim() } : {}),
+  };
+}
+
+function buildHeaderMediaComponent(format, binding) {
+  if (!binding) {
+    return null;
+  }
+
+  const normalizedFormat = normalizeComponentType(format);
+  if (!['IMAGE', 'VIDEO', 'DOCUMENT'].includes(normalizedFormat)) {
+    return null;
+  }
+
+  if (normalizedFormat === 'IMAGE') {
+    return {
+      type: 'header',
+      parameters: [
+        {
+          type: 'image',
+          image: { id: binding.id },
+        },
+      ],
+    };
+  }
+
+  if (normalizedFormat === 'VIDEO') {
+    return {
+      type: 'header',
+      parameters: [
+        {
+          type: 'video',
+          video: { id: binding.id },
+        },
+      ],
+    };
+  }
+
+  const document = { id: binding.id };
+  if (binding.original_name) {
+    document.filename = binding.original_name;
+  }
+
+  return {
+    type: 'header',
+    parameters: [
+      {
+        type: 'document',
+        document,
+      },
+    ],
+  };
+}
+
+function buildHeaderLocationComponent(binding) {
+  if (!binding) {
+    return null;
+  }
+
+  return {
+    type: 'header',
+    parameters: [
+      {
+        type: 'location',
+        location: {
+          latitude: String(binding.latitude),
+          longitude: String(binding.longitude),
+          ...(binding.name ? { name: binding.name } : {}),
+          ...(binding.address ? { address: binding.address } : {}),
+        },
+      },
+    ],
+  };
+}
+
+function getResolvedProductBinding(resolvedProducts, key) {
+  if (!resolvedProducts || typeof resolvedProducts !== 'object') {
+    return null;
+  }
+
+  const binding = resolvedProducts[key];
+  if (!binding || typeof binding !== 'object') {
+    return null;
+  }
+
+  const productRetailerId = String(binding.product_retailer_id || '').trim();
+  if (!productRetailerId) {
+    return null;
+  }
+
+  return {
+    product_retailer_id: productRetailerId,
+  };
+}
+
+function buildHeaderProductComponent(binding, format) {
+  if (!binding) {
+    return null;
+  }
+
+  if (normalizeComponentType(format) !== 'PRODUCT') {
+    return null;
+  }
+
+  return {
+    type: 'header',
+    parameters: [
+      {
+        type: 'product',
+        product: {
+          product_retailer_id: binding.product_retailer_id,
+        },
+      },
+    ],
+  };
+}
+
+function buildCarouselCards(templateCards, resolvedVars, resolvedMedia, resolvedProducts) {
   return (Array.isArray(templateCards) ? templateCards : []).map((card, cardIndex) => {
     const cardComponents = [];
+    const templateCardComponents = Array.isArray(card?.components) ? card.components : [];
 
-    for (const component of card?.components || []) {
+    for (const component of templateCardComponents) {
       const componentType = normalizeComponentType(component?.type);
+
+      if (componentType === 'HEADER') {
+        const headerComponent =
+          buildHeaderProductComponent(
+            getResolvedProductBinding(resolvedProducts, `card_${cardIndex}_header_product`),
+            component?.format
+          )
+          || buildHeaderMediaComponent(
+            component?.format,
+            getResolvedMediaBinding(resolvedMedia, `card_${cardIndex}_header_media`)
+          );
+
+        if (headerComponent) {
+          cardComponents.push(headerComponent);
+        }
+      }
 
       if (componentType === 'BODY') {
         const bodyParameters = buildTextParameters(
@@ -201,29 +377,63 @@ function buildCarouselCards(templateCards, resolvedVars) {
 
 /**
  * Builds the Meta API components array from a template definition and resolved variables.
- * Supports top-level header/body parameters, URL buttons, and carousel card body/URL parameters.
+ * Supports top-level header/body parameters, media/location/product headers,
+ * and carousel card body/URL/media/product components.
  *
  * @param {object} template - Template object with a `components` array
  * @param {object} resolvedVars - Resolved variables keyed by stable placeholder keys
+ * @param {object} resolvedMedia - Resolved media keyed by stable media keys
+ * @param {object} resolvedLocations - Resolved locations keyed by stable location keys
+ * @param {object} resolvedProducts - Resolved products keyed by stable product keys
  * @returns {Array} Components array ready for Meta API
  */
-function buildTemplateComponents(template, resolvedVars) {
+function buildTemplateComponents(
+  template,
+  resolvedVars,
+  resolvedMedia = {},
+  resolvedLocations = {},
+  resolvedProducts = {}
+) {
   const components = [];
   const templateComponents = Array.isArray(template?.components) ? template.components : [];
 
   const headerDef = templateComponents.find((component) => normalizeComponentType(component?.type) === 'HEADER');
-  if (headerDef && normalizeComponentType(headerDef.format) === 'TEXT') {
-    const headerParameters = buildTextParameters(
-      headerDef?.text,
-      resolvedVars,
-      (placeholderIndex) => `header_${placeholderIndex}`
-    );
+  if (headerDef) {
+    const headerFormat = normalizeComponentType(headerDef.format);
 
-    if (headerParameters.length > 0) {
-      components.push({
-        type: 'header',
-        parameters: headerParameters,
-      });
+    if (headerFormat === 'TEXT') {
+      const headerParameters = buildTextParameters(
+        headerDef?.text,
+        resolvedVars,
+        (placeholderIndex) => `header_${placeholderIndex}`
+      );
+
+      if (headerParameters.length > 0) {
+        components.push({
+          type: 'header',
+          parameters: headerParameters,
+        });
+      }
+    } else {
+      const headerProductComponent = buildHeaderProductComponent(
+        getResolvedProductBinding(resolvedProducts, 'header_product'),
+        headerDef?.format
+      );
+      const headerLocationComponent = headerFormat === 'LOCATION'
+        ? buildHeaderLocationComponent(getResolvedLocationBinding(resolvedLocations, 'header_location'))
+        : null;
+      const headerMediaComponent = buildHeaderMediaComponent(
+        headerDef?.format,
+        getResolvedMediaBinding(resolvedMedia, 'header_media')
+      );
+
+      if (headerProductComponent) {
+        components.push(headerProductComponent);
+      } else if (headerLocationComponent) {
+        components.push(headerLocationComponent);
+      } else if (headerMediaComponent) {
+        components.push(headerMediaComponent);
+      }
     }
   }
 
@@ -257,7 +467,7 @@ function buildTemplateComponents(template, resolvedVars) {
 
   const carouselDef = templateComponents.find((component) => normalizeComponentType(component?.type) === 'CAROUSEL');
   if (carouselDef) {
-    const cards = buildCarouselCards(carouselDef?.cards, resolvedVars);
+    const cards = buildCarouselCards(carouselDef?.cards, resolvedVars, resolvedMedia, resolvedProducts);
     if (cards.length > 0) {
       components.push({
         type: 'carousel',

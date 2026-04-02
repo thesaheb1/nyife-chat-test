@@ -368,6 +368,7 @@ export interface Campaign {
     exclude_contact_ids?: string[];
     exclude_tag_ids?: string[];
   };
+  template_bindings: CampaignTemplateBindings | null;
   variables_mapping: Record<
     string,
     | string
@@ -413,6 +414,44 @@ export interface CampaignMessage {
   cost: number;
   retry_count: number;
   created_at: string;
+}
+
+export interface CampaignMediaBinding {
+  file_id: string;
+  media_type: 'image' | 'video' | 'document';
+  original_name: string;
+  mime_type: string;
+  size: number;
+  preview_url?: string;
+}
+
+export interface CampaignLocationBinding {
+  latitude?: number;
+  longitude?: number;
+  name?: string;
+  address?: string;
+}
+
+export interface CampaignProductBinding {
+  product_retailer_id: string;
+}
+
+export interface CampaignTemplateBindings {
+  variables?: Record<
+    string,
+    | string
+    | {
+        mode: 'static';
+        value: string;
+      }
+    | {
+        mode: 'dynamic';
+        source: 'full_name' | 'email' | 'phone';
+      }
+  >;
+  media?: Record<string, CampaignMediaBinding>;
+  locations?: Record<string, CampaignLocationBinding>;
+  products?: Record<string, CampaignProductBinding>;
 }
 
 // Chat
@@ -563,6 +602,14 @@ export interface WaAccountHealthResult {
     name_status: string | null;
     quality_rating: WaAccount['quality_rating'];
     subscribed_apps_count: number;
+    product_catalogs: {
+      linked: boolean;
+      count: number;
+      items: Array<{
+        id: string;
+        name: string | null;
+      }>;
+    };
     warnings: string[];
   };
 }

@@ -3,7 +3,7 @@
 const WEBHOOK_DIAGNOSTIC_TTL_SECONDS = 60 * 60 * 24 * 14;
 
 function buildRedisKey(kind, value = 'latest') {
-  return `whatsapp:webhook-diagnostics:${kind}:${value}`;
+  return `webhook-diagnostics:${kind}:${value}`;
 }
 
 function normalizeObservation(observation = {}) {
@@ -107,4 +107,7 @@ async function getWebhookAlignmentDiagnostics(redis, account) {
 module.exports = {
   recordWebhookObservation,
   getWebhookAlignmentDiagnostics,
+  __private: {
+    buildRedisKey,
+  },
 };

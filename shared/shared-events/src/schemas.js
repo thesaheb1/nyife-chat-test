@@ -11,6 +11,7 @@ const timestampField = z.string();
  */
 const campaignExecuteSchema = z.object({
   campaignId: uuidField,
+  campaignMessageId: uuidField.optional(),
   userId: uuidField,
   waAccountId: uuidField,
   contactId: uuidField,

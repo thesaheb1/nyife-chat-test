@@ -50,6 +50,8 @@ module.exports = {
   },
   subscriptionServiceUrl: process.env.SUBSCRIPTION_SERVICE_URL || 'http://localhost:3003',
   walletServiceUrl: process.env.WALLET_SERVICE_URL || 'http://localhost:3004',
+  campaignServiceUrl: process.env.CAMPAIGN_SERVICE_URL || 'http://localhost:3007',
   templateServiceUrl: process.env.TEMPLATE_SERVICE_URL || 'http://localhost:3006',
+  mediaServiceUrl: process.env.MEDIA_SERVICE_URL || 'http://localhost:3017',
   organizationServiceUrl: process.env.ORGANIZATION_SERVICE_URL || 'http://localhost:3011',
 };

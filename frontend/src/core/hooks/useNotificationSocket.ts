@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSocket } from './useSocket';
 import type { Notification } from '@/core/types';
+import { invalidateOrganizationScopedQueryPrefixes } from '@/core/queryKeys';
 
 /**
  * Global hook that listens on the notification socket for real-time events.
@@ -27,10 +28,12 @@ export function useNotificationSocket() {
 
       const timer = setTimeout(() => {
         campaignRefreshTimersRef.current.delete(campaignId);
-        qc.invalidateQueries({ queryKey: ['campaigns'] });
-        qc.invalidateQueries({ queryKey: ['campaigns', campaignId] });
-        qc.invalidateQueries({ queryKey: ['campaigns', campaignId, 'analytics'] });
-        qc.invalidateQueries({ queryKey: ['campaigns', campaignId, 'messages'] });
+        invalidateOrganizationScopedQueryPrefixes(qc, [
+          ['campaigns'],
+          ['campaigns', campaignId],
+          ['campaigns', campaignId, 'analytics'],
+          ['campaigns', campaignId, 'messages'],
+        ]);
       }, 150);
 
       campaignRefreshTimersRef.current.set(campaignId, timer);

@@ -3,6 +3,7 @@
 const { z } = require('zod');
 
 const dynamicVariableSourceSchema = z.enum(['full_name', 'email', 'phone']);
+const campaignMediaTypeSchema = z.enum(['image', 'video', 'document']);
 
 const variableBindingSchema = z.union([
   z.string(),
@@ -15,6 +16,33 @@ const variableBindingSchema = z.union([
     source: dynamicVariableSourceSchema,
   }),
 ]);
+
+const campaignMediaBindingSchema = z.object({
+  file_id: z.string().uuid('Invalid media file ID'),
+  media_type: campaignMediaTypeSchema,
+  original_name: z.string().min(1).max(255),
+  mime_type: z.string().min(1).max(255),
+  size: z.number().int().nonnegative(),
+  preview_url: z.string().url().optional().or(z.string().startsWith('/').optional()),
+});
+
+const campaignLocationBindingSchema = z.object({
+  latitude: z.number().finite(),
+  longitude: z.number().finite(),
+  name: z.string().trim().max(255).optional(),
+  address: z.string().trim().max(500).optional(),
+});
+
+const campaignProductBindingSchema = z.object({
+  product_retailer_id: z.string().trim().min(1).max(255),
+});
+
+const templateBindingsSchema = z.object({
+  variables: z.record(z.string(), variableBindingSchema).optional(),
+  media: z.record(z.string(), campaignMediaBindingSchema).optional(),
+  locations: z.record(z.string(), campaignLocationBindingSchema).optional(),
+  products: z.record(z.string(), campaignProductBindingSchema).optional(),
+});
 
 const targetConfigSchema = z.object({
   group_ids: z.array(z.string().uuid()).optional(),
@@ -40,6 +68,7 @@ const createCampaignSchema = z.object({
   }),
   target_config: targetConfigSchema,
   variables_mapping: z.record(z.string(), variableBindingSchema).optional(),
+  template_bindings: templateBindingsSchema.optional(),
   scheduled_at: z.string().datetime({ offset: true }).optional()
     .or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/).optional()),
 });
@@ -56,6 +85,7 @@ const updateCampaignSchema = z.object({
   target_type: z.enum(['group', 'contacts', 'tags', 'all']).optional(),
   target_config: targetConfigSchema.optional(),
   variables_mapping: z.record(z.string(), variableBindingSchema).optional().nullable(),
+  template_bindings: templateBindingsSchema.optional().nullable(),
   scheduled_at: z.string().datetime({ offset: true }).optional().nullable()
     .or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/).optional().nullable()),
 }).refine((data) => Object.keys(data).length > 0, {
@@ -99,6 +129,11 @@ const retryCampaignSchema = z.object({
   id: z.string().uuid('Invalid campaign ID'),
 });
 
+const executionDispatchStateSchema = z.object({
+  campaignId: z.string().uuid('Invalid campaign ID'),
+  campaignMessageId: z.string().uuid('Invalid campaign message ID'),
+});
+
 module.exports = {
   createCampaignSchema,
   updateCampaignSchema,
@@ -106,4 +141,5 @@ module.exports = {
   campaignIdSchema,
   listCampaignMessagesSchema,
   retryCampaignSchema,
+  executionDispatchStateSchema,
 };

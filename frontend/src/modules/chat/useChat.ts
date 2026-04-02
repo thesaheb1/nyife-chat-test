@@ -4,7 +4,7 @@ import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
 import { useSocket } from '@/core/hooks';
-import { organizationQueryKey } from '@/core/queryKeys';
+import { invalidateOrganizationScopedQueryPrefixes, organizationQueryKey } from '@/core/queryKeys';
 import type { RootState } from '@/core/store';
 import type { Conversation, ChatMessage, ApiResponse, PaginationMeta } from '@/core/types';
 import { useOrganizationContext } from '@/modules/organizations/useOrganizationContext';
@@ -17,6 +17,19 @@ interface ConversationListParams {
   unread?: boolean;
   wa_account_id?: string;
   assigned_to?: string;
+}
+
+function invalidateChatQueries(queryClient: ReturnType<typeof useQueryClient>, conversationId?: string) {
+  const prefixes: Array<readonly unknown[]> = [['conversations']];
+
+  if (conversationId) {
+    prefixes.push(
+      ['conversations', conversationId],
+      ['messages', conversationId]
+    );
+  }
+
+  invalidateOrganizationScopedQueryPrefixes(queryClient, prefixes);
 }
 
 // List conversations
@@ -103,8 +116,7 @@ export function useSendMessage() {
       return data.data.message;
     },
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['messages', vars.conversationId] });
-      qc.invalidateQueries({ queryKey: ['conversations'] });
+      invalidateChatQueries(qc, vars.conversationId);
     },
   });
 }
@@ -120,7 +132,7 @@ export function useAssignConversation() {
       );
       return data.data.conversation;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+    onSuccess: (conversation) => invalidateChatQueries(qc, conversation?.id),
   });
 }
 
@@ -135,7 +147,7 @@ export function useUpdateConversationStatus() {
       );
       return data.data.conversation;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+    onSuccess: (conversation) => invalidateChatQueries(qc, conversation?.id),
   });
 }
 
@@ -146,7 +158,7 @@ export function useMarkAsRead() {
     mutationFn: async (id: string) => {
       await apiClient.post(`${ENDPOINTS.CHAT.CONVERSATIONS}/${id}/read`);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+    onSuccess: (_data, id) => invalidateChatQueries(qc, id),
   });
 }
 
@@ -158,7 +170,7 @@ export function useChatRealtime() {
     if (!chatSocket) return;
 
     const invalidateInbox = () => {
-      qc.invalidateQueries({ queryKey: ['conversations'] });
+      invalidateChatQueries(qc);
     };
 
     chatSocket.on('conversation:updated', invalidateInbox);
@@ -196,8 +208,7 @@ export function useChatSocket(conversationId: string | undefined, onNewMessage?:
     if (!chatSocket) return;
     const handler = (payload: { message: ChatMessage }) => {
       callbackRef.current?.(payload.message);
-      qc.invalidateQueries({ queryKey: ['messages', conversationId] });
-      qc.invalidateQueries({ queryKey: ['conversations'] });
+      invalidateChatQueries(qc, conversationId);
     };
     chatSocket.on('new:message', handler);
     return () => {
@@ -209,7 +220,7 @@ export function useChatSocket(conversationId: string | undefined, onNewMessage?:
   useEffect(() => {
     if (!chatSocket) return;
     const handler = () => {
-      qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+      invalidateChatQueries(qc, conversationId);
     };
     chatSocket.on('message:status', handler);
     return () => {
@@ -221,7 +232,7 @@ export function useChatSocket(conversationId: string | undefined, onNewMessage?:
   useEffect(() => {
     if (!chatSocket) return;
     const handler = () => {
-      qc.invalidateQueries({ queryKey: ['conversations'] });
+      invalidateChatQueries(qc, conversationId);
     };
     chatSocket.on('conversation:updated', handler);
     chatSocket.on('conversation:status', handler);

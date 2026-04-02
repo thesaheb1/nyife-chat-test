@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus } from 'lucide-react';
+import { Pencil, Plus } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -120,6 +120,26 @@ export function CampaignListPage() {
         accessorKey: 'created_at',
         header: 'Created',
         cell: ({ getValue }) => new Date(getValue() as string).toLocaleDateString(),
+      },
+      {
+        id: 'actions',
+        header: '',
+        cell: ({ row }) => (
+          row.original.status === 'draft' ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                navigate(`/campaigns/${row.original.id}/edit`);
+              }}
+            >
+              <Pencil className="mr-2 h-4 w-4" />
+              Edit Draft
+            </Button>
+          ) : null
+        ),
       },
     ],
     [navigate]

@@ -17,5 +17,6 @@ module.exports = {
   walletServiceUrl: process.env.WALLET_SERVICE_URL || 'http://localhost:3004',
   contactServiceUrl: process.env.CONTACT_SERVICE_URL || 'http://localhost:3005',
   templateServiceUrl: process.env.TEMPLATE_SERVICE_URL || 'http://localhost:3006',
+  mediaServiceUrl: process.env.MEDIA_SERVICE_URL || 'http://localhost:3017',
   whatsappServiceUrl: process.env.WHATSAPP_SERVICE_URL || 'http://localhost:3009',
 };

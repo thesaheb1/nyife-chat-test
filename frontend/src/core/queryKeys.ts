@@ -1,4 +1,4 @@
-import type { Query, QueryKey } from '@tanstack/react-query';
+import type { Query, QueryClient, QueryKey } from '@tanstack/react-query';
 
 const SESSION_MARKER = 'session';
 const ORGANIZATION_MARKER = 'org';
@@ -35,4 +35,23 @@ export function isOrganizationScopedQuery(query: Query, roots?: Set<string>) {
   }
 
   return query.queryKey.includes(ORGANIZATION_MARKER);
+}
+
+export function queryKeyStartsWith(queryKey: QueryKey, prefix: readonly unknown[]) {
+  if (prefix.length > queryKey.length) {
+    return false;
+  }
+
+  return prefix.every((segment, index) => queryKey[index] === segment);
+}
+
+export function invalidateOrganizationScopedQueryPrefixes(
+  queryClient: QueryClient,
+  prefixes: ReadonlyArray<readonly unknown[]>
+) {
+  queryClient.invalidateQueries({
+    predicate: (query) =>
+      isOrganizationScopedQuery(query) &&
+      prefixes.some((prefix) => queryKeyStartsWith(query.queryKey, prefix)),
+  });
 }

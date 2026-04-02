@@ -45,6 +45,7 @@ interface ListGroupsParams {
   type?: Group['type'];
   date_from?: string;
   date_to?: string;
+  enabled?: boolean;
 }
 
 interface ListTagsParams {
@@ -52,6 +53,7 @@ interface ListTagsParams {
   limit?: number;
   search?: string;
   ids?: string;
+  enabled?: boolean;
 }
 
 interface GroupDetailParams {
@@ -235,7 +237,7 @@ export function useTags(params: ListTagsParams = {}) {
       const { data } = await apiClient.get(`${ENDPOINTS.CONTACTS.TAGS}${query}`);
       return data as ApiResponse<{ tags: Tag[] }> & { meta?: PaginationMeta };
     },
-    enabled: Boolean(userId && activeOrganization?.id),
+    enabled: (params.enabled ?? true) && Boolean(userId && activeOrganization?.id),
   });
 }
 
@@ -355,7 +357,7 @@ export function useGroups(params: ListGroupsParams = {}) {
       const { data } = await apiClient.get(`${ENDPOINTS.CONTACTS.GROUPS}${query}`);
       return data as ApiResponse<{ groups: Group[] }> & { meta: PaginationMeta };
     },
-    enabled: Boolean(userId && activeOrganization?.id),
+    enabled: (params.enabled ?? true) && Boolean(userId && activeOrganization?.id),
   });
 }
 

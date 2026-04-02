@@ -31,8 +31,7 @@ async function createFileRecord(userId, file) {
     );
   }
 
-  const uploadsRoot = path.join(process.cwd(), 'uploads');
-  const relativePath = path.relative(uploadsRoot, file.path).replace(/\\/g, '/');
+  const relativePath = path.relative(config.upload.rootDir, file.path).replace(/\\/g, '/');
 
   const record = await MediaFile.create({
     user_id: userId,
@@ -89,7 +88,7 @@ async function getFileById(userId, fileId) {
 
 async function getFilePath(userId, fileId) {
   const file = await getFileById(userId, fileId);
-  const fullPath = path.join(process.cwd(), 'uploads', file.path);
+  const fullPath = path.join(config.upload.rootDir, file.path);
 
   if (!fs.existsSync(fullPath)) {
     throw AppError.notFound('File not found on disk');
@@ -106,7 +105,7 @@ async function deleteFile(userId, fileId) {
 
 async function uploadToWhatsApp(userId, fileId, phoneNumberId, accessToken) {
   const file = await getFileById(userId, fileId);
-  const fullPath = path.join(process.cwd(), 'uploads', file.path);
+  const fullPath = path.join(config.upload.rootDir, file.path);
 
   if (!fs.existsSync(fullPath)) {
     throw AppError.notFound('File not found on disk');

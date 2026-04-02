@@ -15,7 +15,7 @@
 // 4. In Target type dropdown when we select Contact Group then we must show a another dropdown called Select Group and whatever groups we select it must be included in the list of group. means the campaigns must be sent to those included group contacts.
 // 5. In Target type dropdown when we select Contact Tags then we must show a another dropdown called Select Tags and whatever Tags we select it must be included from the list of tags. means the campaigns must be sent to those included tags contacts.
 // 6. All these dropdown must be mobile, tab and desktop responsive. and scalable with pagination. like we did in language dropdown in template module.
-// 7. When i select any template for campaign and if the template using any variable then we must have UI to add variable value either static or dynamic value for that variable. for dynamic value we can set these following values in variable using dropdown. First Name, Last Name, Email, Phone.
+// 7. When i select any template for campaign and if the template using any variable, video, image, document or etc then we must have UI to add variable value either static or dynamic value for that variable. for dynamic value we can set these following values in variable using dropdown. First Name, Last Name, Email, Phone.
 // these values will be taken from the contacts list.
 // NOTE : Implement all above functionality and requirements in campaigns module with production grade approach. not just quick improvements. Be brutal and never compromise on quality, performance, security, code consistency and Ui consistency and responsive.
 
@@ -200,3 +200,5 @@
 // 7. When i select any template for campaign and if the template using any variable then we must have UI to add variable value either static or dynamic value for that variable. for dynamic value we can set these following values in variable using dropdown. full name, Email, Phone.
 // these values will be taken from the contacts list.
 // NOTE : Implement all above functionality and requirements in campaigns module with production grade approach. not just quick improvements. Be brutal and never compromise on quality, performance, security, code consistency and Ui consistency and responsive.
+
+

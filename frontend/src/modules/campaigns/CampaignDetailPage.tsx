@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Play,
   Pause,
+  Pencil,
   RefreshCw,
   XCircle,
   Trash2,
@@ -252,6 +253,16 @@ export function CampaignDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          {campaign.status === 'draft' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/campaigns/${campaign.id}/edit`)}
+            >
+              <Pencil className="mr-2 h-4 w-4" />
+              Edit Draft
+            </Button>
+          )}
           {(campaign.status === 'draft' || campaign.status === 'scheduled') && (
             <Button
               size="sm"

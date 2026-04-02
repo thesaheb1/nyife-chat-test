@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from 'react-redux';
 import { apiClient } from '@/core/api/client';
 import { ENDPOINTS } from '@/core/api/endpoints';
-import { organizationQueryKey } from '@/core/queryKeys';
+import { invalidateOrganizationScopedQueryPrefixes, organizationQueryKey } from '@/core/queryKeys';
 import type { RootState } from '@/core/store';
 import type { Campaign, CampaignMessage, ApiResponse, PaginationMeta } from '@/core/types';
 import type { CreateCampaignFormData, UpdateCampaignFormData } from './validations';
@@ -40,6 +40,20 @@ interface CampaignAnalytics {
   failure_reasons: Array<{ reason: string; count: number }>;
   cost: { estimated: number; actual: number };
   hourly_timeline: Array<{ hour: string; count: number }>;
+}
+
+function invalidateCampaignQueries(queryClient: ReturnType<typeof useQueryClient>, campaignId?: string) {
+  const prefixes: Array<readonly unknown[]> = [['campaigns']];
+
+  if (campaignId) {
+    prefixes.push(
+      ['campaigns', campaignId],
+      ['campaigns', campaignId, 'analytics'],
+      ['campaigns', campaignId, 'messages']
+    );
+  }
+
+  invalidateOrganizationScopedQueryPrefixes(queryClient, prefixes);
 }
 
 // List campaigns
@@ -110,7 +124,7 @@ export function useCreateCampaign() {
       const { data } = await apiClient.post<ApiResponse<{ campaign: Campaign }>>(ENDPOINTS.CAMPAIGNS.BASE, body);
       return data.data.campaign;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['campaigns'] }),
+    onSuccess: (campaign) => invalidateCampaignQueries(qc, campaign?.id),
   });
 }
 
@@ -122,7 +136,7 @@ export function useUpdateCampaign() {
       const { data } = await apiClient.put<ApiResponse<{ campaign: Campaign }>>(`${ENDPOINTS.CAMPAIGNS.BASE}/${id}`, body);
       return data.data.campaign;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['campaigns'] }),
+    onSuccess: (campaign) => invalidateCampaignQueries(qc, campaign?.id),
   });
 }
 
@@ -133,7 +147,7 @@ export function useDeleteCampaign() {
     mutationFn: async (id: string) => {
       await apiClient.delete(`${ENDPOINTS.CAMPAIGNS.BASE}/${id}`);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['campaigns'] }),
+    onSuccess: (_data, id) => invalidateCampaignQueries(qc, id),
   });
 }
 
@@ -145,7 +159,7 @@ function useCampaignAction(action: string) {
       const { data } = await apiClient.post<ApiResponse<{ campaign: Campaign }>>(`${ENDPOINTS.CAMPAIGNS.BASE}/${id}/${action}`);
       return data.data.campaign;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['campaigns'] }),
+    onSuccess: (campaign, id) => invalidateCampaignQueries(qc, campaign?.id || id),
   });
 }
 

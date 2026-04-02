@@ -2,7 +2,13 @@
 
 const { createDatabase, testConnection } = require('./database');
 const { createRedisClient } = require('./redis');
-const { createKafkaClient, createKafkaProducer, createKafkaConsumer } = require('./kafka');
+const {
+  createKafkaClient,
+  createKafkaProducer,
+  createKafkaProducerWithRetry,
+  createKafkaConsumer,
+  createKafkaConsumerWithRetry,
+} = require('./kafka');
 const {
   USER_ROLES,
   ADMIN_ROLES,
@@ -33,7 +39,9 @@ module.exports = {
   // Kafka
   createKafkaClient,
   createKafkaProducer,
+  createKafkaProducerWithRetry,
   createKafkaConsumer,
+  createKafkaConsumerWithRetry,
 
   // Constants
   USER_ROLES,

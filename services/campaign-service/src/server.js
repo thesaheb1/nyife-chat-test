@@ -4,7 +4,12 @@ const http = require('http');
 const app = require('./app');
 const config = require('./config');
 const { sequelize } = require('./models');
-const { testConnection, createRedisClient, createKafkaProducer, createKafkaConsumer } = require('@nyife/shared-config');
+const {
+  testConnection,
+  createRedisClient,
+  createKafkaProducerWithRetry,
+  createKafkaConsumerWithRetry,
+} = require('@nyife/shared-config');
 const { TOPICS, publishEvent } = require('@nyife/shared-events');
 const campaignService = require('./services/campaign.service');
 
@@ -33,7 +38,7 @@ async function startServer() {
 
   // Connect to Kafka producer
   try {
-    kafkaProducer = await createKafkaProducer('campaign-service');
+    kafkaProducer = await createKafkaProducerWithRetry('campaign-service');
     app.locals.kafkaProducer = kafkaProducer;
     console.log('[campaign-service] Kafka producer connected');
   } catch (err) {
@@ -43,7 +48,7 @@ async function startServer() {
 
   // Connect to Kafka consumer for campaign.status topic
   try {
-    kafkaConsumer = await createKafkaConsumer('campaign-service', 'campaign-service-status-group');
+    kafkaConsumer = await createKafkaConsumerWithRetry('campaign-service', 'campaign-service-status-group');
 
     await kafkaConsumer.subscribe({
       topic: TOPICS.CAMPAIGN_STATUS,

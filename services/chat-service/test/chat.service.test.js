@@ -13,6 +13,7 @@ const { Conversation, ChatMessage, sequelize } = require('../src/models');
 const originalAxiosPost = axios.post;
 const originalConversationFindOne = Conversation.findOne;
 const originalConversationFindOrCreate = Conversation.findOrCreate;
+const originalConversationFindByPk = Conversation.findByPk;
 const originalChatMessageFindOne = ChatMessage.findOne;
 const originalChatMessageCreate = ChatMessage.create;
 const originalSequelizeQuery = sequelize.query;
@@ -21,6 +22,7 @@ afterEach(() => {
   axios.post = originalAxiosPost;
   Conversation.findOne = originalConversationFindOne;
   Conversation.findOrCreate = originalConversationFindOrCreate;
+  Conversation.findByPk = originalConversationFindByPk;
   ChatMessage.findOne = originalChatMessageFindOne;
   ChatMessage.create = originalChatMessageCreate;
   sequelize.query = originalSequelizeQuery;
@@ -188,6 +190,79 @@ test('handleStatusUpdate creates a missing outbound chat message for campaign me
   assert.equal(createdMessages[0].status, 'pending');
   assert.equal(conversation.contact_name, 'Campaign Contact');
   assert.equal(conversation.last_message_preview, '[Template] just_testing');
+});
+
+test('handleStatusUpdate emits both message and conversation updates so the inbox refreshes live', async () => {
+  const emittedEvents = [];
+  const conversation = {
+    id: 'conversation-2',
+    user_id: 'org-1',
+    contact_phone: '+918800281734',
+    contact_name: 'Realtime Contact',
+    last_message_at: new Date('2026-04-02T08:00:00.000Z'),
+    last_message_preview: 'Latest preview',
+    unread_count: 0,
+    status: 'open',
+    wa_account_id: 'wa-1',
+    assigned_to: null,
+    assigned_at: null,
+    assigned_by: null,
+    async reload() {
+      return this;
+    },
+    toJSON() {
+      return { ...this };
+    },
+  };
+  const chatMessage = {
+    id: 'chat-message-2',
+    conversation_id: 'conversation-2',
+    user_id: 'org-1',
+    meta_message_id: 'wamid-2',
+    status: 'pending',
+    async update(values) {
+      Object.assign(this, values);
+      return this;
+    },
+  };
+  const io = {
+    to(room) {
+      return {
+        emit(event, payload) {
+          emittedEvents.push({ room, event, payload });
+        },
+      };
+    },
+  };
+
+  ChatMessage.findOne = async ({ where }) =>
+    where.meta_message_id === 'wamid-2' ? chatMessage : null;
+  Conversation.findByPk = async (id) => (id === 'conversation-2' ? conversation : null);
+  sequelize.query = async (sql) => {
+    if (sql.includes('FROM org_organizations')) {
+      return [{ user_id: 'owner-1' }];
+    }
+
+    return [];
+  };
+
+  await chatService.handleStatusUpdate(
+    {
+      metaMessageId: 'wamid-2',
+      status: 'sent',
+      contactPhone: '+918800281734',
+    },
+    io
+  );
+
+  assert.equal(chatMessage.status, 'sent');
+  assert.deepEqual(
+    emittedEvents.map(({ room, event }) => `${room}:${event}`),
+    [
+      'conversation:conversation-2:message:status',
+      'user:owner-1:conversation:updated',
+    ]
+  );
 });
 
 test('handleInboundMessage is idempotent for duplicate webhook deliveries', async () => {

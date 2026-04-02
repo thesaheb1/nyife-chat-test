@@ -6,6 +6,15 @@ const { Campaign, CampaignMessage, sequelize } = require('../models');
 const { AppError, getPagination, getPaginationMeta, generateUUID } = require('@nyife/shared-utils');
 const { TOPICS, publishEvent } = require('@nyife/shared-events');
 const { resolveVariables, buildTemplateComponents } = require('../helpers/variableResolver');
+const {
+  buildLegacyVariablesMapping,
+  buildPersistedTemplateBindings,
+  extractTemplateBindingRequirements,
+  normalizeStoredTemplateBindings,
+  pruneTemplateBindings,
+  templateRequiresCatalogSupport,
+  validateTemplateBindings,
+} = require('../helpers/templateBindings');
 const { buildInternalOrganizationHeaders, resolveScopeId } = require('../helpers/requestContext');
 const config = require('../config');
 
@@ -91,6 +100,229 @@ async function fetchTemplate(requestContext, templateId) {
       data: err.response?.data || null,
     });
     throw AppError.internal('Unable to fetch template details');
+  }
+}
+
+function buildCampaignMediaPreviewUrl(fileId) {
+  return fileId ? `/api/v1/media/${encodeURIComponent(fileId)}/download` : undefined;
+}
+
+async function fetchMediaFile(requestContext, fileId) {
+  try {
+    const response = await axios.get(
+      `${config.mediaServiceUrl}/api/v1/media/${fileId}`,
+      {
+        headers: buildInternalOrganizationHeaders(requestContext),
+        timeout: 10000,
+      }
+    );
+
+    return response.data?.data || null;
+  } catch (err) {
+    if (err.response?.status === 404) {
+      throw AppError.badRequest('One of the selected campaign media files no longer exists.');
+    }
+
+    console.error('[campaign-service] Failed to fetch media file:', {
+      fileId,
+      status: err.response?.status || null,
+      message: err.message,
+      data: err.response?.data || null,
+    });
+    throw AppError.internal('Unable to validate campaign media files');
+  }
+}
+
+async function canonicalizeTemplateMediaBindings(requestContext, mediaRequirements, mediaBindings) {
+  const requirementByKey = new Map((mediaRequirements || []).map((field) => [field.key, field]));
+  const normalizedBindings =
+    mediaBindings && typeof mediaBindings === 'object' && !Array.isArray(mediaBindings)
+      ? mediaBindings
+      : {};
+  const uniqueFileIds = [...new Set(
+    Object.values(normalizedBindings)
+      .map((binding) => (binding && typeof binding === 'object' ? String(binding.file_id || '').trim() : ''))
+      .filter(Boolean)
+  )];
+
+  const fileRecords = new Map();
+  await Promise.all(
+    uniqueFileIds.map(async (fileId) => {
+      const file = await fetchMediaFile(requestContext, fileId);
+      if (file) {
+        fileRecords.set(String(file.id), file);
+      }
+    })
+  );
+
+  const canonicalized = {};
+
+  for (const [key, binding] of Object.entries(normalizedBindings)) {
+    const requirement = requirementByKey.get(key);
+    if (!requirement) {
+      continue;
+    }
+
+    const fileId = String(binding?.file_id || '').trim();
+    if (!fileId) {
+      continue;
+    }
+
+    const file = fileRecords.get(fileId);
+    if (!file) {
+      throw AppError.badRequest(`The selected file for ${requirement.label.toLowerCase()} is no longer available.`);
+    }
+
+    const actualType = String(file.type || '').trim().toLowerCase();
+    if (actualType !== requirement.media_type) {
+      throw AppError.badRequest(
+        `${requirement.label} expects a ${requirement.media_type} file, but the selected file is ${actualType || 'invalid'}.`
+      );
+    }
+
+    canonicalized[key] = {
+      file_id: file.id,
+      media_type: actualType,
+      original_name: file.original_name,
+      mime_type: file.mime_type,
+      size: Number(file.size || 0),
+      ...(buildCampaignMediaPreviewUrl(file.id) ? { preview_url: buildCampaignMediaPreviewUrl(file.id) } : {}),
+    };
+  }
+
+  return canonicalized;
+}
+
+async function normalizeCampaignTemplateBindings(requestContext, template, templateBindings, legacyVariablesMapping = null) {
+  const requirements = extractTemplateBindingRequirements(template);
+  const normalizedBindings = normalizeStoredTemplateBindings(templateBindings, legacyVariablesMapping);
+  const prunedBindings = pruneTemplateBindings(normalizedBindings, requirements);
+  const canonicalMedia = await canonicalizeTemplateMediaBindings(
+    requestContext,
+    requirements.media,
+    prunedBindings.media
+  );
+  const mergedBindings = {
+    variables: prunedBindings.variables,
+    media: canonicalMedia,
+    locations: prunedBindings.locations,
+    products: prunedBindings.products,
+  };
+  const validation = validateTemplateBindings(requirements, mergedBindings);
+
+  if (!validation.isComplete) {
+    throw AppError.badRequest(
+      'Complete all required template inputs before saving or sending this campaign.',
+      validation.issues
+    );
+  }
+
+  return {
+    requirements,
+    templateBindings: buildPersistedTemplateBindings(mergedBindings),
+    legacyVariablesMapping: buildLegacyVariablesMapping(mergedBindings, legacyVariablesMapping),
+  };
+}
+
+async function resolveCampaignProductCatalogSupport(requestContext, waAccountId) {
+  try {
+    const response = await axios.post(
+      `${config.whatsappServiceUrl}/api/v1/whatsapp/internal/account-product-catalogs`,
+      {
+        wa_account_id: waAccountId,
+      },
+      {
+        headers: {
+          ...buildInternalOrganizationHeaders(requestContext),
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+
+    return response.data?.data?.product_catalogs || {
+      linked: false,
+      count: 0,
+      items: [],
+    };
+  } catch (err) {
+    console.error('[campaign-service] Failed to resolve campaign product catalog support:', {
+      status: err.response?.status || null,
+      message: err.message,
+      data: err.response?.data || null,
+    });
+
+    const responseMessage =
+      err.response?.data?.message
+      || err.response?.data?.error
+      || err.message
+      || 'Unable to verify Meta product catalog support for this campaign.';
+
+    throw AppError.badRequest(responseMessage);
+  }
+}
+
+async function assertTemplateAccountCapabilities(requestContext, waAccountId, template, requirements = null) {
+  const needsCatalogSupport =
+    Boolean(requirements?.requires_catalog_support)
+    || templateRequiresCatalogSupport(template);
+
+  if (!needsCatalogSupport) {
+    return null;
+  }
+
+  const productCatalogs = await resolveCampaignProductCatalogSupport(requestContext, waAccountId);
+  if ((productCatalogs?.count || 0) > 0) {
+    return productCatalogs;
+  }
+
+  throw AppError.badRequest(
+    'This template requires a Meta product catalog linked to the selected WhatsApp account. Link a catalog in Meta before creating or starting this campaign.'
+  );
+}
+
+async function resolveCampaignMediaBindings(requestContext, waAccountId, mediaBindings) {
+  const normalizedBindings =
+    mediaBindings && typeof mediaBindings === 'object' && !Array.isArray(mediaBindings)
+      ? mediaBindings
+      : {};
+
+  if (!Object.keys(normalizedBindings).length) {
+    return {};
+  }
+
+  try {
+    const response = await axios.post(
+      `${config.whatsappServiceUrl}/api/v1/whatsapp/internal/campaign-media/resolve`,
+      {
+        wa_account_id: waAccountId,
+        media_bindings: normalizedBindings,
+      },
+      {
+        headers: {
+          ...buildInternalOrganizationHeaders(requestContext),
+          'Content-Type': 'application/json',
+        },
+        timeout: 60000,
+      }
+    );
+
+    return response.data?.data?.media || {};
+  } catch (err) {
+    console.error('[campaign-service] Failed to resolve campaign media bindings:', {
+      status: err.response?.status || null,
+      message: err.message,
+      data: err.response?.data || null,
+    });
+
+    const responseMessage =
+      err.response?.data?.message
+      || err.response?.data?.error
+      || err.message
+      || 'Unable to prepare template media for this campaign.';
+    throw AppError.badRequest(
+      responseMessage
+    );
   }
 }
 
@@ -517,6 +749,13 @@ async function createCampaign(requestContext, data) {
     throw AppError.badRequest('Select an active WhatsApp account before creating a campaign.');
   }
   assertTemplateMatchesWaAccount(template, account);
+  await assertTemplateAccountCapabilities(requestContext, data.wa_account_id, template);
+  const normalizedBindings = await normalizeCampaignTemplateBindings(
+    requestContext,
+    template,
+    data.template_bindings,
+    data.variables_mapping
+  );
 
   // 3. Estimate recipient count based on target_type
   const estimatedRecipients = await estimateCampaignRecipients(
@@ -542,10 +781,8 @@ async function createCampaign(requestContext, data) {
     type: data.type || 'immediate',
     target_type: data.target_type,
     target_config: data.target_config,
-    variables_mapping:
-      data.variables_mapping && Object.keys(data.variables_mapping).length > 0
-        ? data.variables_mapping
-        : null,
+    variables_mapping: normalizedBindings.legacyVariablesMapping,
+    template_bindings: normalizedBindings.templateBindings,
     scheduled_at: data.scheduled_at ? new Date(data.scheduled_at) : null,
     estimated_cost: estimatedCost,
   });
@@ -651,6 +888,7 @@ async function updateCampaign(requestContext, campaignId, data) {
     const template = templateData.template || templateData;
     assertTemplateEligibleForCampaign(template);
     assertTemplateMatchesWaAccount(template, account);
+    await assertTemplateAccountCapabilities(requestContext, nextWaAccountId, template);
   }
 
   // Recalculate estimated cost if target changes
@@ -669,9 +907,22 @@ async function updateCampaign(requestContext, campaignId, data) {
     data.estimated_cost = pricing.estimatedCost;
   }
 
-  if (data.variables_mapping && Object.keys(data.variables_mapping).length === 0) {
-    data.variables_mapping = null;
-  }
+  const nextTemplateId = data.template_id || campaign.template_id;
+  const nextTemplateData = await fetchTemplate(requestContext, nextTemplateId);
+  const nextTemplate = nextTemplateData.template || nextTemplateData;
+  assertTemplateEligibleForCampaign(nextTemplate);
+  const nextWaAccountId = data.wa_account_id || campaign.wa_account_id;
+  await assertTemplateAccountCapabilities(requestContext, nextWaAccountId, nextTemplate);
+
+  const nextBindings = await normalizeCampaignTemplateBindings(
+    requestContext,
+    nextTemplate,
+    data.template_bindings !== undefined ? data.template_bindings : campaign.template_bindings,
+    data.variables_mapping !== undefined ? data.variables_mapping : campaign.variables_mapping
+  );
+
+  data.template_bindings = nextBindings.templateBindings;
+  data.variables_mapping = nextBindings.legacyVariablesMapping;
 
   await campaign.update(data);
   await campaign.reload();
@@ -735,6 +986,19 @@ async function startCampaign(requestContext, campaignId, kafkaProducer) {
   const template = templateData.template || templateData;
   assertTemplateEligibleForCampaign(template);
   assertTemplateMatchesWaAccount(template, account);
+  const templateRequirements = extractTemplateBindingRequirements(template);
+  await assertTemplateAccountCapabilities(
+    requestContext,
+    campaign.wa_account_id,
+    template,
+    templateRequirements
+  );
+  const normalizedBindings = await normalizeCampaignTemplateBindings(
+    requestContext,
+    template,
+    campaign.template_bindings,
+    campaign.variables_mapping
+  );
 
   // 1. Resolve target contacts
   const contacts = await resolveContacts(requestContext, campaign.target_type, campaign.target_config);
@@ -748,11 +1012,19 @@ async function startCampaign(requestContext, campaignId, kafkaProducer) {
     contacts.length,
     template.category
   );
+  const resolvedMediaBindings = await resolveCampaignMediaBindings(
+    requestContext,
+    campaign.wa_account_id,
+    normalizedBindings.templateBindings?.media
+  );
 
   // 2. Create CampaignMessage records for each contact
   const messageRecords = contacts.map((contact) => {
     const phone = contact.phone || contact.phone_number || contact.wa_id || '';
-    const resolvedVars = resolveVariables(contact, campaign.variables_mapping);
+    const resolvedVars = resolveVariables(
+      contact,
+      normalizedBindings.templateBindings?.variables || normalizedBindings.legacyVariablesMapping
+    );
 
     return {
       id: generateUUID(),
@@ -789,10 +1061,17 @@ async function startCampaign(requestContext, campaignId, kafkaProducer) {
     const batch = messageRecords.slice(i, i + batchSize);
     const publishPromises = batch.map((msg) => {
       const resolvedVars = msg.variables || {};
-      const components = buildTemplateComponents(template, resolvedVars);
+      const components = buildTemplateComponents(
+        template,
+        resolvedVars,
+        resolvedMediaBindings,
+        normalizedBindings.templateBindings?.locations || {},
+        normalizedBindings.templateBindings?.products || {}
+      );
 
       return publishEvent(kafkaProducer, TOPICS.CAMPAIGN_EXECUTE, campaign.id, {
         campaignId: campaign.id,
+        campaignMessageId: msg.id,
         userId: userId,
         waAccountId: campaign.wa_account_id,
         contactId: msg.contact_id,
@@ -869,6 +1148,24 @@ async function resumeCampaign(requestContext, campaignId, kafkaProducer) {
   const template = templateData.template || templateData;
   assertTemplateEligibleForCampaign(template);
   assertTemplateMatchesWaAccount(template, account);
+  const templateRequirements = extractTemplateBindingRequirements(template);
+  await assertTemplateAccountCapabilities(
+    requestContext,
+    campaign.wa_account_id,
+    template,
+    templateRequirements
+  );
+  const normalizedBindings = await normalizeCampaignTemplateBindings(
+    requestContext,
+    template,
+    campaign.template_bindings,
+    campaign.variables_mapping
+  );
+  const resolvedMediaBindings = await resolveCampaignMediaBindings(
+    requestContext,
+    campaign.wa_account_id,
+    normalizedBindings.templateBindings?.media
+  );
 
   // Find pending messages
   const pendingMessages = await CampaignMessage.findAll({
@@ -876,8 +1173,15 @@ async function resumeCampaign(requestContext, campaignId, kafkaProducer) {
   });
 
   if (pendingMessages.length === 0) {
-    // No pending messages, mark as completed
-    await campaign.update({ status: 'completed', completed_at: new Date() });
+    const failedMessages = await CampaignMessage.count({
+      where: { campaign_id: campaign.id, status: 'failed' },
+    });
+
+    await campaign.update({
+      status: failedMessages > 0 ? 'failed' : 'completed',
+      completed_at: new Date(),
+      pending_count: 0,
+    });
     await campaign.reload();
     return campaign;
   }
@@ -899,10 +1203,17 @@ async function resumeCampaign(requestContext, campaignId, kafkaProducer) {
     const batch = pendingMessages.slice(i, i + batchSize);
     const publishPromises = batch.map((msg) => {
       const resolvedVars = msg.variables || {};
-      const components = buildTemplateComponents(template, resolvedVars);
+      const components = buildTemplateComponents(
+        template,
+        resolvedVars,
+        resolvedMediaBindings,
+        normalizedBindings.templateBindings?.locations || {},
+        normalizedBindings.templateBindings?.products || {}
+      );
 
       return publishEvent(kafkaProducer, TOPICS.CAMPAIGN_EXECUTE, campaign.id, {
         campaignId: campaign.id,
+        campaignMessageId: msg.id,
         userId: userId,
         waAccountId: campaign.wa_account_id,
         contactId: msg.contact_id,
@@ -1001,6 +1312,24 @@ async function retryCampaign(requestContext, campaignId, kafkaProducer) {
   const template = templateData.template || templateData;
   assertTemplateEligibleForCampaign(template);
   assertTemplateMatchesWaAccount(template, account);
+  const templateRequirements = extractTemplateBindingRequirements(template);
+  await assertTemplateAccountCapabilities(
+    requestContext,
+    campaign.wa_account_id,
+    template,
+    templateRequirements
+  );
+  const normalizedBindings = await normalizeCampaignTemplateBindings(
+    requestContext,
+    template,
+    campaign.template_bindings,
+    campaign.variables_mapping
+  );
+  const resolvedMediaBindings = await resolveCampaignMediaBindings(
+    requestContext,
+    campaign.wa_account_id,
+    normalizedBindings.templateBindings?.media
+  );
 
   // Find failed messages eligible for retry
   const failedMessages = await CampaignMessage.findAll({
@@ -1021,11 +1350,11 @@ async function retryCampaign(requestContext, campaignId, kafkaProducer) {
     template.category
   );
 
-  // Increment retry_count and reset status to queued
+  // Increment retry_count and reset status to pending until WhatsApp accepts the retry.
   const messageIds = failedMessages.map((m) => m.id);
   await CampaignMessage.update(
     {
-      status: 'queued',
+      status: 'pending',
       retry_count: sequelize.literal('retry_count + 1'),
       error_code: null,
       error_message: null,
@@ -1048,10 +1377,17 @@ async function retryCampaign(requestContext, campaignId, kafkaProducer) {
     const batch = failedMessages.slice(i, i + batchSize);
     const publishPromises = batch.map((msg) => {
       const resolvedVars = msg.variables || {};
-      const components = buildTemplateComponents(template, resolvedVars);
+      const components = buildTemplateComponents(
+        template,
+        resolvedVars,
+        resolvedMediaBindings,
+        normalizedBindings.templateBindings?.locations || {},
+        normalizedBindings.templateBindings?.products || {}
+      );
 
       return publishEvent(kafkaProducer, TOPICS.CAMPAIGN_EXECUTE, campaign.id, {
         campaignId: campaign.id,
+        campaignMessageId: msg.id,
         userId: userId,
         waAccountId: campaign.wa_account_id,
         contactId: msg.contact_id,
@@ -1070,6 +1406,61 @@ async function retryCampaign(requestContext, campaignId, kafkaProducer) {
   await campaign.reload();
 
   return campaign;
+}
+
+async function getCampaignExecutionDispatchState(requestContext, campaignId, campaignMessageId) {
+  const userId = resolveScopeId(requestContext);
+  const campaignMessage = await CampaignMessage.findOne({
+    where: {
+      id: campaignMessageId,
+      campaign_id: campaignId,
+    },
+    include: [
+      {
+        model: Campaign,
+        as: 'campaign',
+        attributes: ['id', 'status', 'user_id'],
+        where: { user_id: userId },
+      },
+    ],
+  });
+
+  if (!campaignMessage) {
+    return {
+      executable: false,
+      reason: 'campaign_message_not_found',
+      campaignStatus: null,
+      messageStatus: null,
+    };
+  }
+
+  const campaignStatus = campaignMessage.campaign?.status || null;
+  const messageStatus = campaignMessage.status || null;
+
+  if (campaignStatus !== 'running') {
+    return {
+      executable: false,
+      reason: `campaign_${campaignStatus || 'unknown'}`,
+      campaignStatus,
+      messageStatus,
+    };
+  }
+
+  if (!['pending', 'queued'].includes(messageStatus)) {
+    return {
+      executable: false,
+      reason: `message_${messageStatus || 'unknown'}`,
+      campaignStatus,
+      messageStatus,
+    };
+  }
+
+  return {
+    executable: true,
+    reason: 'ready',
+    campaignStatus,
+    messageStatus,
+  };
 }
 
 /**
@@ -1376,10 +1767,17 @@ async function processStatusUpdate(campaignMessage, campaignId, status, messageI
     },
   });
 
-  if (pendingCount === 0 && campaign.status === 'running') {
+  if (pendingCount === 0 && ['running', 'paused'].includes(campaign.status)) {
+    const failedCount = await CampaignMessage.count({
+      where: {
+        campaign_id: campaignId,
+        status: 'failed',
+      },
+    });
+
     await Campaign.update(
       {
-        status: 'completed',
+        status: failedCount > 0 ? 'failed' : 'completed',
         completed_at: new Date(),
         pending_count: 0,
       },
@@ -1425,18 +1823,23 @@ module.exports = {
   resumeCampaign,
   cancelCampaign,
   retryCampaign,
+  getCampaignExecutionDispatchState,
   getCampaignMessages,
   getCampaignAnalytics,
   handleStatusUpdate,
   __private: {
     assertTemplateEligibleForCampaign,
     assertTargetSelection,
+    canonicalizeTemplateMediaBindings,
     fetchTemplate,
     fetchAllContactsByQuery,
     fetchContactsByGroupIds,
     fetchContactsByIds,
     fetchContactsByTagIds,
+    normalizeCampaignTemplateBindings,
     normalizeIdArray,
+    resolveCampaignProductCatalogSupport,
+    resolveCampaignMediaBindings,
     resolveContacts,
     splitIntoBatches,
   },

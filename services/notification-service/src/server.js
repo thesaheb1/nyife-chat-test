@@ -4,7 +4,12 @@ const http = require('http');
 const app = require('./app');
 const config = require('./config');
 const { sequelize } = require('./models');
-const { testConnection, createRedisClient, createKafkaConsumer, createKafkaProducer } = require('@nyife/shared-config');
+const {
+  testConnection,
+  createRedisClient,
+  createKafkaConsumerWithRetry,
+  createKafkaProducerWithRetry,
+} = require('@nyife/shared-config');
 const { TOPICS, publishEvent } = require('@nyife/shared-events');
 const { setupSocketIO } = require('./socket');
 const notificationService = require('./services/notification.service');
@@ -47,7 +52,7 @@ async function startServer() {
 
   // ── Kafka Producer ───────────────────────────────
   try {
-    kafkaProducer = await createKafkaProducer('notification-service-producer');
+    kafkaProducer = await createKafkaProducerWithRetry('notification-service-producer');
     app.locals.kafkaProducer = kafkaProducer;
     console.log('[notification-service] Kafka producer initialized');
   } catch (err) {
@@ -56,7 +61,7 @@ async function startServer() {
 
   // ── Kafka Consumer for notification.send + campaign.live ─────────
   try {
-    kafkaConsumer = await createKafkaConsumer('notification-service', 'notification-service-group');
+    kafkaConsumer = await createKafkaConsumerWithRetry('notification-service', 'notification-service-group');
 
     await kafkaConsumer.subscribe({
       topic: TOPICS.NOTIFICATION_SEND,

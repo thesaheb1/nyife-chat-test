@@ -130,6 +130,24 @@ const webhookVerifySchema = z.object({
 
 const flowDataExchangeSchema = z.object({}).passthrough();
 
+const campaignMediaBindingSchema = z.object({
+  file_id: z.string().uuid('Invalid media file ID'),
+  media_type: z.enum(['image', 'video', 'document']),
+  original_name: z.string().min(1).max(255),
+  mime_type: z.string().min(1).max(255),
+  size: z.number().int().nonnegative(),
+  preview_url: z.string().optional(),
+});
+
+const resolveCampaignMediaSchema = z.object({
+  wa_account_id: z.string().uuid('Invalid WhatsApp account ID'),
+  media_bindings: z.record(z.string(), campaignMediaBindingSchema),
+});
+
+const accountProductCatalogsSchema = z.object({
+  wa_account_id: z.string().uuid('Invalid WhatsApp account ID'),
+});
+
 module.exports = {
   embeddedSignupPreviewSchema,
   embeddedSignupCompleteSchema,
@@ -142,4 +160,6 @@ module.exports = {
   reconcileAccountSchema,
   webhookVerifySchema,
   flowDataExchangeSchema,
+  resolveCampaignMediaSchema,
+  accountProductCatalogsSchema,
 };

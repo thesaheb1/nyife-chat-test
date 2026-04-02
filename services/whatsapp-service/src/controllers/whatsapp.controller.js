@@ -3,7 +3,7 @@
 const accountService = require('../services/account.service');
 const messageService = require('../services/message.service');
 const webhookService = require('../services/webhook.service');
-const { successResponse } = require('@nyife/shared-utils');
+const { successResponse, AppError } = require('@nyife/shared-utils');
 const {
   embeddedSignupPreviewSchema,
   embeddedSignupCompleteSchema,
@@ -14,6 +14,8 @@ const {
   contactPhoneParamSchema,
   accountIdParamSchema,
   reconcileAccountSchema,
+  resolveCampaignMediaSchema,
+  accountProductCatalogsSchema,
   webhookVerifySchema,
   flowDataExchangeSchema,
 } = require('../validations/whatsapp.validation');
@@ -180,6 +182,35 @@ async function sendFlowMessage(req, res) {
   return successResponse(res, { message }, 'Flow message sent successfully', 201);
 }
 
+async function resolveCampaignMedia(req, res) {
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  if (!userId) {
+    throw AppError.unauthorized('Campaign media resolution requires internal organization context.');
+  }
+
+  const data = resolveCampaignMediaSchema.parse(req.body);
+
+  const media = await messageService.resolveCampaignMediaBindings(
+    userId,
+    data.wa_account_id,
+    data.media_bindings
+  );
+
+  return successResponse(res, { media }, 'Campaign media resolved successfully');
+}
+
+async function getAccountProductCatalogs(req, res) {
+  const userId = req.organizationId || req.headers['x-organization-id'] || req.headers['x-user-id'] || req.user?.id;
+  if (!userId) {
+    throw AppError.unauthorized('Product catalog lookup requires internal organization context.');
+  }
+
+  const data = accountProductCatalogsSchema.parse(req.body);
+  const productCatalogs = await accountService.getAccountProductCatalogs(userId, data.wa_account_id);
+
+  return successResponse(res, { product_catalogs: productCatalogs }, 'Account product catalogs retrieved successfully');
+}
+
 /**
  * GET /api/v1/whatsapp/messages
  * Lists messages with filters and pagination.
@@ -266,6 +297,7 @@ async function processWebhook(req, res) {
   }
 }
 
+
 /**
  * POST /api/v1/whatsapp/flows/data-exchange
  * Public Meta callback for WhatsApp Flow data exchange.
@@ -306,6 +338,8 @@ module.exports = {
   sendMessage,
   sendTemplateMessage,
   sendFlowMessage,
+  resolveCampaignMedia,
+  getAccountProductCatalogs,
   listMessages,
   getConversation,
   verifyWebhook,

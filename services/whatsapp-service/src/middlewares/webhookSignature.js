@@ -66,6 +66,7 @@ function verifyWebhookSignature(req, res, next) {
   const isLegacyForwarded = normalizedEnvelope?.format === 'legacy_forwarded';
   req.webhookEnvelopeFormat = normalizedEnvelope?.format || null;
 
+
   const rawBody = req.rawBody;
   if (!rawBody) {
     console.error('[whatsapp-service] rawBody not available — ensure express.json verify is configured');

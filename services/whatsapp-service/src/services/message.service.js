@@ -254,6 +254,15 @@ function badRequestError(message, code, errors = []) {
   return AppError.badRequest(message, errors, code);
 }
 
+function buildInternalServiceHeaders(scopeId, accessToken) {
+  return {
+    'x-user-id': scopeId,
+    'x-organization-id': scopeId,
+    'x-wa-access-token': accessToken,
+    'Content-Type': 'application/json',
+  };
+}
+
 function isStandaloneFlowContent(content) {
   if (!content || typeof content !== 'object') {
     return false;
@@ -1392,6 +1401,85 @@ async function sendCampaignMessage(params) {
   };
 }
 
+async function resolveCampaignMediaBindings(userId, waAccountId, mediaBindings) {
+  const normalizedBindings =
+    mediaBindings && typeof mediaBindings === 'object' && !Array.isArray(mediaBindings)
+      ? mediaBindings
+      : {};
+
+  if (!Object.keys(normalizedBindings).length) {
+    return {};
+  }
+
+  const account = await WaAccount.scope('withToken').findOne({
+    where: { id: waAccountId, user_id: userId },
+  });
+
+  if (!account || account.status !== 'active') {
+    throw badRequestError('This WhatsApp account is inactive and cannot resolve campaign media.', 'WHATSAPP_ACCOUNT_INACTIVE');
+  }
+
+  const credential = requireResolvedMetaCredential(account);
+  const uploadsByFileId = new Map();
+  const resolvedMedia = {};
+
+  for (const [key, binding] of Object.entries(normalizedBindings)) {
+    const fileId = String(binding?.file_id || '').trim();
+    if (!fileId) {
+      continue;
+    }
+
+    if (!uploadsByFileId.has(fileId)) {
+      try {
+        const response = await axios.post(
+          `${config.mediaServiceUrl}/api/v1/media/upload-to-whatsapp`,
+          {
+            file_id: fileId,
+            phone_number_id: String(account.phone_number_id || ''),
+          },
+          {
+            headers: buildInternalServiceHeaders(userId, credential.accessToken),
+            timeout: 60000,
+          }
+        );
+
+        uploadsByFileId.set(fileId, response.data?.data || response.data || {});
+      } catch (err) {
+        const upstreamMessage =
+          err.response?.data?.message
+          || err.response?.data?.error
+          || err.message
+          || 'Unable to prepare campaign media for WhatsApp.';
+
+        if (err.response?.status === 404) {
+          throw badRequestError(
+            'The selected campaign media file is no longer available. Please re-upload it and try again.',
+            'CAMPAIGN_MEDIA_FILE_MISSING'
+          );
+        }
+
+        throw badRequestError(upstreamMessage, 'CAMPAIGN_MEDIA_UPLOAD_FAILED');
+      }
+    }
+
+    const uploaded = uploadsByFileId.get(fileId) || {};
+    const mediaId = String(uploaded.whatsapp_media_id || '').trim();
+    if (!mediaId) {
+      throw AppError.internal('Meta did not return a WhatsApp media ID for the selected campaign media.');
+    }
+
+    resolvedMedia[key] = {
+      id: mediaId,
+      media_type: String(binding.media_type || '').trim().toLowerCase(),
+      original_name: String(binding.original_name || '').trim(),
+      mime_type: String(binding.mime_type || '').trim(),
+      size: Number(binding.size || 0),
+    };
+  }
+
+  return resolvedMedia;
+}
+
 async function handleFlowDataExchange(payload, tenantUserId) {
   try {
     const response = await axios.post(
@@ -1422,5 +1510,6 @@ module.exports = {
   getConversation,
   updateMessageStatus,
   sendCampaignMessage,
+  resolveCampaignMediaBindings,
   handleFlowDataExchange,
 };

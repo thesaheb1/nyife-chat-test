@@ -7,6 +7,57 @@ const { Kafka, logLevel } = require('kafkajs');
 const nodeEnv = process.env.NODE_ENV || 'development';
 const isProduction = nodeEnv === 'production';
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function retryKafkaStartup(factory, label, options = {}) {
+  const maxAttempts = parsePositiveInt(
+    options.maxAttempts || process.env.KAFKA_STARTUP_MAX_ATTEMPTS,
+    30
+  );
+  const initialDelayMs = parsePositiveInt(
+    options.initialDelayMs || process.env.KAFKA_STARTUP_INITIAL_DELAY_MS,
+    1000
+  );
+  const maxDelayMs = parsePositiveInt(
+    options.maxDelayMs || process.env.KAFKA_STARTUP_MAX_DELAY_MS,
+    15000
+  );
+
+  let attempt = 0;
+  let delayMs = initialDelayMs;
+
+  while (attempt < maxAttempts) {
+    attempt += 1;
+
+    try {
+      return await factory();
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        throw error;
+      }
+
+      const jitterMs = Math.floor(Math.random() * Math.min(1000, Math.max(250, delayMs / 3)));
+      const waitMs = Math.min(delayMs + jitterMs, maxDelayMs);
+
+      console.warn(
+        `[Kafka][${label}] Startup attempt ${attempt} failed: ${error.message}. Retrying in ${waitMs}ms`
+      );
+
+      await sleep(waitMs);
+      delayMs = Math.min(delayMs * 2, maxDelayMs);
+    }
+  }
+
+  throw new Error(`[Kafka][${label}] Kafka startup retries exhausted`);
+}
+
 /**
  * Parses the KAFKA_BROKERS environment variable into an array of broker addresses.
  *
@@ -87,6 +138,14 @@ async function createKafkaProducer(clientId) {
   return producer;
 }
 
+async function createKafkaProducerWithRetry(clientId, options = {}) {
+  return retryKafkaStartup(
+    () => createKafkaProducer(clientId),
+    `${clientId}:producer`,
+    options
+  );
+}
+
 /**
  * Creates and connects a Kafka consumer with the given group ID.
  *
@@ -143,8 +202,21 @@ async function createKafkaConsumer(clientId, groupId) {
   return consumer;
 }
 
+async function createKafkaConsumerWithRetry(clientId, groupId, options = {}) {
+  return retryKafkaStartup(
+    () => createKafkaConsumer(clientId, groupId),
+    `${clientId}:consumer:${groupId}`,
+    options
+  );
+}
+
 module.exports = {
   createKafkaClient,
   createKafkaProducer,
+  createKafkaProducerWithRetry,
   createKafkaConsumer,
+  createKafkaConsumerWithRetry,
+  __private: {
+    retryKafkaStartup,
+  },
 };

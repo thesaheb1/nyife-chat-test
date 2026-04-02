@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -18,39 +17,62 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCreateCampaign } from './useCampaigns';
+import {
+  useCampaign,
+  useCreateCampaign,
+  useUpdateCampaign,
+} from './useCampaigns';
 import { getApiErrorMessage } from '@/core/errors/apiError';
 import { createCampaignSchema } from './validations';
 import type { CreateCampaignFormData } from './validations';
 import { CampaignOptionPicker, type CampaignPickerOption } from './CampaignOptionPicker';
+import { CampaignTemplateInputsSection } from './CampaignTemplateInputsSection';
 import {
+  areCampaignLocationBindingsComplete,
+  areCampaignMediaBindingsComplete,
+  areCampaignProductBindingsComplete,
   areCampaignVariableBindingsComplete,
+  extractCampaignTemplateLocationFields,
+  extractCampaignTemplateMediaFields,
+  extractCampaignTemplateProductFields,
   extractCampaignTemplateVariables,
+  pruneCampaignLocationBindings,
+  pruneCampaignMediaBindings,
+  pruneCampaignProductBindings,
   pruneCampaignVariableBindings,
+  type CampaignLocationField,
+  type CampaignMediaField,
+  type CampaignProductField,
   type CampaignVariableBinding,
+  type CampaignVariableField,
   type CampaignVariableSource,
+  templateRequiresCatalogSupport,
 } from './campaignTemplateVariables';
-import { useTemplates } from '@/modules/templates/useTemplates';
+import { useTemplate, useTemplates } from '@/modules/templates/useTemplates';
 import {
   buildActivePhoneNumberOptions,
   findWhatsAppAccount,
   getWhatsAppPhoneNumberLabel,
 } from '@/modules/whatsapp/accountOptions';
-import { useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
+import { useWhatsAppAccountHealth, useWhatsAppAccounts } from '@/modules/whatsapp/useWhatsAppAccounts';
 import { useContacts, useGroups, useTags } from '@/modules/contacts/useContacts';
 import { hasFilledValue, useRequiredFieldsFilled } from '@/shared/hooks/useRequiredFieldsFilled';
-import type { Contact, Group, Tag, Template } from '@/core/types';
+import type {
+  CampaignLocationBinding,
+  CampaignMediaBinding,
+  CampaignProductBinding,
+  CampaignTemplateBindings,
+  Contact,
+  Group,
+  Tag,
+  Template,
+} from '@/core/types';
 
 type CampaignTargetType = CreateCampaignFormData['target_type'];
 type OptionMap = Record<string, CampaignPickerOption>;
 
 const PAGE_SIZE = 12;
 const EMPTY_TEMPLATES: Template[] = [];
-const DYNAMIC_VALUE_OPTIONS: Array<{ value: CampaignVariableSource; label: string }> = [
-  { value: 'full_name', label: 'Full name' },
-  { value: 'email', label: 'Email' },
-  { value: 'phone', label: 'Phone' },
-];
 
 function toggleOptionMap(current: OptionMap, option: CampaignPickerOption) {
   const next = { ...current };
@@ -80,6 +102,42 @@ function isRecordEmpty(map: Record<string, unknown>) {
 
 function toOptionArray(map: OptionMap) {
   return Object.values(map);
+}
+
+function buildFallbackOption(id: string, noun: string): CampaignPickerOption {
+  return {
+    value: id,
+    label: id,
+    description: `${noun} selected in this draft campaign`,
+  };
+}
+
+function buildOptionMapFromIds(ids: string[] | undefined, noun: string) {
+  return Object.fromEntries(
+    (ids || []).map((id) => [id, buildFallbackOption(id, noun)])
+  );
+}
+
+function mergeOptionsIntoMap(current: OptionMap, options: CampaignPickerOption[]) {
+  let hasChanges = false;
+  const next = { ...current };
+
+  options.forEach((option) => {
+    const existing = next[option.value];
+    const needsUpdate =
+      !existing
+      || existing.label !== option.label
+      || existing.description !== option.description
+      || existing.meta !== option.meta
+      || existing.badge !== option.badge;
+
+    if (needsUpdate) {
+      next[option.value] = option;
+      hasChanges = true;
+    }
+  });
+
+  return hasChanges ? next : current;
 }
 
 function areVariableBindingsEqual(
@@ -113,6 +171,252 @@ function areVariableBindingsEqual(
   });
 }
 
+function areMediaBindingsEqual(
+  current: Record<string, CampaignMediaBinding>,
+  next: Record<string, CampaignMediaBinding>
+) {
+  const currentKeys = Object.keys(current);
+  const nextKeys = Object.keys(next);
+
+  if (currentKeys.length !== nextKeys.length) {
+    return false;
+  }
+
+  return currentKeys.every((key) => {
+    const currentBinding = current[key];
+    const nextBinding = next[key];
+
+    if (!currentBinding || !nextBinding) {
+      return false;
+    }
+
+    return (
+      currentBinding.file_id === nextBinding.file_id
+      && currentBinding.media_type === nextBinding.media_type
+      && currentBinding.original_name === nextBinding.original_name
+      && currentBinding.mime_type === nextBinding.mime_type
+      && currentBinding.size === nextBinding.size
+      && currentBinding.preview_url === nextBinding.preview_url
+    );
+  });
+}
+
+function areLocationBindingsEqual(
+  current: Record<string, CampaignLocationBinding>,
+  next: Record<string, CampaignLocationBinding>
+) {
+  const currentKeys = Object.keys(current);
+  const nextKeys = Object.keys(next);
+
+  if (currentKeys.length !== nextKeys.length) {
+    return false;
+  }
+
+  return currentKeys.every((key) => {
+    const currentBinding = current[key];
+    const nextBinding = next[key];
+
+    if (!currentBinding || !nextBinding) {
+      return false;
+    }
+
+    return (
+      currentBinding.latitude === nextBinding.latitude
+      && currentBinding.longitude === nextBinding.longitude
+      && currentBinding.name === nextBinding.name
+      && currentBinding.address === nextBinding.address
+    );
+  });
+}
+
+function areProductBindingsEqual(
+  current: Record<string, CampaignProductBinding>,
+  next: Record<string, CampaignProductBinding>
+) {
+  const currentKeys = Object.keys(current);
+  const nextKeys = Object.keys(next);
+
+  if (currentKeys.length !== nextKeys.length) {
+    return false;
+  }
+
+  return currentKeys.every((key) => {
+    const currentBinding = current[key];
+    const nextBinding = next[key];
+
+    if (!currentBinding || !nextBinding) {
+      return false;
+    }
+
+    return currentBinding.product_retailer_id === nextBinding.product_retailer_id;
+  });
+}
+
+function normalizeVariableBindingsForForm(
+  bindings:
+    | CampaignTemplateBindings['variables']
+    | Record<string, CampaignVariableBinding>
+    | null
+    | undefined
+) {
+  if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)) {
+    return {};
+  }
+
+  const normalized: Record<string, CampaignVariableBinding> = {};
+
+  Object.entries(bindings).forEach(([key, value]) => {
+    if (typeof value === 'string') {
+      normalized[key] = { mode: 'static', value };
+      return;
+    }
+
+    if (
+      value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && value.mode === 'static'
+      && typeof value.value === 'string'
+    ) {
+      normalized[key] = { mode: 'static', value: value.value };
+      return;
+    }
+
+    if (
+      value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && value.mode === 'dynamic'
+      && ['full_name', 'email', 'phone'].includes(String(value.source || ''))
+    ) {
+      normalized[key] = {
+        mode: 'dynamic',
+        source: value.source as CampaignVariableSource,
+      };
+    }
+  });
+
+  return normalized;
+}
+
+function normalizeMediaBindingsForForm(bindings: CampaignTemplateBindings['media'] | null | undefined) {
+  if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(bindings).filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value))
+  ) as Record<string, CampaignMediaBinding>;
+}
+
+function normalizeLocationBindingsForForm(bindings: CampaignTemplateBindings['locations'] | null | undefined) {
+  if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(bindings).flatMap(([key, value]) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return [];
+      }
+
+      const latitude = typeof value.latitude === 'number' && Number.isFinite(value.latitude)
+        ? value.latitude
+        : undefined;
+      const longitude = typeof value.longitude === 'number' && Number.isFinite(value.longitude)
+        ? value.longitude
+        : undefined;
+      const name = typeof value.name === 'string' ? value.name : undefined;
+      const address = typeof value.address === 'string' ? value.address : undefined;
+
+      return [[key, {
+        ...(latitude !== undefined ? { latitude } : {}),
+        ...(longitude !== undefined ? { longitude } : {}),
+        ...(name ? { name } : {}),
+        ...(address ? { address } : {}),
+      }]];
+    })
+  ) as Record<string, CampaignLocationBinding>;
+}
+
+function normalizeProductBindingsForForm(bindings: CampaignTemplateBindings['products'] | null | undefined) {
+  if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(bindings).flatMap(([key, value]) => {
+      if (
+        !value
+        || typeof value !== 'object'
+        || Array.isArray(value)
+        || typeof value.product_retailer_id !== 'string'
+        || value.product_retailer_id.trim().length === 0
+      ) {
+        return [];
+      }
+
+      return [[key, { product_retailer_id: value.product_retailer_id.trim() }]];
+    })
+  ) as Record<string, CampaignProductBinding>;
+}
+
+function buildTemplateBindingsPayload(
+  variableBindings: Record<string, CampaignVariableBinding>,
+  mediaBindings: Record<string, CampaignMediaBinding>,
+  locationBindings: Record<string, CampaignLocationBinding>,
+  productBindings: Record<string, CampaignProductBinding>
+) {
+  const variables = Object.keys(variableBindings).length > 0 ? variableBindings : undefined;
+  const media = Object.keys(mediaBindings).length > 0 ? mediaBindings : undefined;
+  const completeLocationBindings = Object.fromEntries(
+    Object.entries(locationBindings).flatMap(([key, binding]) => {
+      if (
+        typeof binding.latitude !== 'number'
+        || !Number.isFinite(binding.latitude)
+        || typeof binding.longitude !== 'number'
+        || !Number.isFinite(binding.longitude)
+      ) {
+        return [];
+      }
+
+      return [[key, {
+        latitude: binding.latitude,
+        longitude: binding.longitude,
+        ...(binding.name ? { name: binding.name } : {}),
+        ...(binding.address ? { address: binding.address } : {}),
+      }]];
+    })
+  );
+  const locations = Object.keys(completeLocationBindings).length > 0 ? completeLocationBindings : undefined;
+  const completeProductBindings = Object.fromEntries(
+    Object.entries(productBindings).flatMap(([key, binding]) => {
+      if (
+        typeof binding.product_retailer_id !== 'string'
+        || binding.product_retailer_id.trim().length === 0
+      ) {
+        return [];
+      }
+
+      return [[key, {
+        product_retailer_id: binding.product_retailer_id.trim(),
+      }]];
+    })
+  );
+  const products = Object.keys(completeProductBindings).length > 0 ? completeProductBindings : undefined;
+
+  if (!variables && !media && !locations && !products) {
+    return null;
+  }
+
+  return {
+    ...(variables ? { variables } : {}),
+    ...(media ? { media } : {}),
+    ...(locations ? { locations } : {}),
+    ...(products ? { products } : {}),
+  } satisfies CampaignTemplateBindings;
+}
+
 function buildTargetConfig(
   targetType: CampaignTargetType,
   selectedContacts: OptionMap,
@@ -140,11 +444,31 @@ function formatDateTimeLocalMin(date = new Date()) {
   return local.toISOString().slice(0, 16);
 }
 
+function formatDateTimeLocalValue(value: string | null | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
 function buildTemplateOption(template: Template): CampaignPickerOption {
+  const requiresCatalog = templateRequiresCatalogSupport(template);
+
   return {
     value: template.id,
     label: template.display_name || template.name,
-    description: template.display_name ? template.name : `${template.type} template`,
+    description: requiresCatalog
+      ? `${template.display_name ? template.name : `${template.type} template`} · Requires Meta catalog`
+      : template.display_name
+        ? template.name
+        : `${template.type} template`,
     meta: `${template.type} · ${template.language}`,
     badge: template.category,
   };
@@ -178,13 +502,19 @@ function buildTagOption(tag: Tag): CampaignPickerOption {
 }
 
 export function CreateCampaignPage() {
+  const { id: campaignId } = useParams<{ id: string }>();
+  const isEditMode = Boolean(campaignId);
   const navigate = useNavigate();
   const createCampaign = useCreateCampaign();
+  const updateCampaign = useUpdateCampaign();
+  const editingCampaignQuery = useCampaign(campaignId);
+  const editingCampaign = editingCampaignQuery.data;
   const { data: waAccounts } = useWhatsAppAccounts();
 
   const {
     register,
     handleSubmit,
+    reset,
     setValue,
     watch,
     control,
@@ -203,12 +533,19 @@ export function CreateCampaignPage() {
   const targetType = watch('target_type');
   const selectedWaAccountId = watch('wa_account_id');
   const selectedTemplateId = watch('template_id');
-  const previousWaAccountIdRef = useRef(selectedWaAccountId);
+
+  const previousWaAccountIdRef = useRef<string | undefined>(undefined);
+  const hydratedCampaignIdRef = useRef<string | null>(null);
+
   const selectedWaAccount = useMemo(
     () => findWhatsAppAccount(waAccounts, selectedWaAccountId),
     [selectedWaAccountId, waAccounts]
   );
-  const activeAccountOptions = useMemo(() => buildActivePhoneNumberOptions(waAccounts), [waAccounts]);
+  const selectedWaAccountHealthQuery = useWhatsAppAccountHealth(selectedWaAccountId, Boolean(selectedWaAccountId));
+  const activeAccountOptions = useMemo(
+    () => buildActivePhoneNumberOptions(waAccounts),
+    [waAccounts]
+  );
   const requiredFieldsFilled = useRequiredFieldsFilled(control, [
     'name',
     'wa_account_id',
@@ -221,7 +558,6 @@ export function CreateCampaignPage() {
 
   const [templateSearch, setTemplateSearch] = useState('');
   const [templatePage, setTemplatePage] = useState(1);
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const debouncedTemplateSearch = useDebounce(templateSearch, 300);
 
   const [contactSearch, setContactSearch] = useState('');
@@ -241,8 +577,14 @@ export function CreateCampaignPage() {
   const [selectedGroups, setSelectedGroups] = useState<OptionMap>({});
   const [selectedTags, setSelectedTags] = useState<OptionMap>({});
   const [variableBindings, setVariableBindings] = useState<Record<string, CampaignVariableBinding>>({});
+  const [mediaBindings, setMediaBindings] = useState<Record<string, CampaignMediaBinding>>({});
+  const [locationBindings, setLocationBindings] = useState<Record<string, CampaignLocationBinding>>({});
+  const [productBindings, setProductBindings] = useState<Record<string, CampaignProductBinding>>({});
 
-  const { data: templatesData, isLoading: templatesLoading } = useTemplates({
+  const {
+    data: templatesData,
+    isLoading: templatesLoading,
+  } = useTemplates({
     page: templatePage,
     limit: PAGE_SIZE,
     search: debouncedTemplateSearch || undefined,
@@ -265,10 +607,49 @@ export function CreateCampaignPage() {
     limit: PAGE_SIZE,
     search: debouncedTagSearch || undefined,
   });
+  const selectedTemplateQuery = useTemplate(selectedTemplateId || undefined);
+
+  const editSelectedContactIds = editingCampaign?.target_config?.contact_ids || [];
+  const editExcludedContactIds = editingCampaign?.target_config?.exclude_contact_ids || [];
+  const editSelectedGroupIds = editingCampaign?.target_config?.group_ids || [];
+  const editSelectedTagIds = editingCampaign?.target_config?.tag_ids || [];
+
+  const editContactsQuery = useContacts({
+    ids: editSelectedContactIds.join(',') || undefined,
+    enabled: isEditMode && editSelectedContactIds.length > 0,
+  });
+  const editExcludedContactsQuery = useContacts({
+    ids: editExcludedContactIds.join(',') || undefined,
+    enabled: isEditMode && editExcludedContactIds.length > 0,
+  });
+  const editGroupsQuery = useGroups({
+    ids: editSelectedGroupIds.join(',') || undefined,
+    enabled: isEditMode && editSelectedGroupIds.length > 0,
+  });
+  const editTagsQuery = useTags({
+    ids: editSelectedTagIds.join(',') || undefined,
+    enabled: isEditMode && editSelectedTagIds.length > 0,
+  });
 
   const templates = templatesData?.data?.templates ?? EMPTY_TEMPLATES;
   const templatesMeta = templatesData?.meta;
-  const templateOptions = useMemo(() => templates.map(buildTemplateOption), [templates]);
+  const selectedWaAccountProductCatalogCount =
+    selectedWaAccountHealthQuery.data?.health.product_catalogs.count ?? 0;
+  const filteredTemplates = useMemo(
+    () => templates.filter((template) => {
+      if (selectedWaAccountHealthQuery.isLoading) {
+        return true;
+      }
+
+      if (selectedWaAccountProductCatalogCount > 0) {
+        return true;
+      }
+
+      return !templateRequiresCatalogSupport(template);
+    }),
+    [selectedWaAccountHealthQuery.isLoading, selectedWaAccountProductCatalogCount, templates]
+  );
+  const templateOptions = useMemo(() => filteredTemplates.map(buildTemplateOption), [filteredTemplates]);
 
   const contactOptions = useMemo(
     () => (contactsQuery.data?.data.contacts ?? []).map(buildContactOption),
@@ -288,14 +669,67 @@ export function CreateCampaignPage() {
   );
   const tagsMeta = tagsQuery.data?.meta;
 
-  const variableFields = useMemo(
+  const selectedTemplate = useMemo(() => {
+    if (!selectedTemplateId) {
+      return null;
+    }
+
+    return (
+      templates.find((template) => template.id === selectedTemplateId)
+      || selectedTemplateQuery.data
+      || null
+    );
+  }, [selectedTemplateId, selectedTemplateQuery.data, templates]);
+
+  const variableFields = useMemo<CampaignVariableField[]>(
     () => extractCampaignTemplateVariables(selectedTemplate),
+    [selectedTemplate]
+  );
+  const mediaFields = useMemo<CampaignMediaField[]>(
+    () => extractCampaignTemplateMediaFields(selectedTemplate),
+    [selectedTemplate]
+  );
+  const locationFields = useMemo<CampaignLocationField[]>(
+    () => extractCampaignTemplateLocationFields(selectedTemplate),
+    [selectedTemplate]
+  );
+  const productFields = useMemo<CampaignProductField[]>(
+    () => extractCampaignTemplateProductFields(selectedTemplate),
     [selectedTemplate]
   );
   const variableBindingsComplete = useMemo(
     () => areCampaignVariableBindingsComplete(variableFields, variableBindings),
     [variableBindings, variableFields]
   );
+  const mediaBindingsComplete = useMemo(
+    () => areCampaignMediaBindingsComplete(mediaFields, mediaBindings),
+    [mediaBindings, mediaFields]
+  );
+  const locationBindingsComplete = useMemo(
+    () => areCampaignLocationBindingsComplete(locationFields, locationBindings),
+    [locationBindings, locationFields]
+  );
+  const productBindingsComplete = useMemo(
+    () => areCampaignProductBindingsComplete(productFields, productBindings),
+    [productBindings, productFields]
+  );
+  const hasTemplateInputs =
+    variableFields.length > 0
+    || mediaFields.length > 0
+    || locationFields.length > 0
+    || productFields.length > 0;
+  const templateInputsComplete =
+    variableBindingsComplete
+    && mediaBindingsComplete
+    && locationBindingsComplete
+    && productBindingsComplete;
+  const selectedTemplatePending = Boolean(selectedTemplateId) && !selectedTemplate;
+  const shouldPruneTemplateInputs = !selectedTemplateId || Boolean(selectedTemplate);
+  const selectedTemplateRequiresCatalogSupport = templateRequiresCatalogSupport(selectedTemplate);
+  const selectedTemplateCatalogBlocked =
+    selectedTemplateRequiresCatalogSupport
+    && !selectedWaAccountHealthQuery.isLoading
+    && selectedWaAccountProductCatalogCount === 0;
 
   const targetConfig = useMemo(
     () => buildTargetConfig(targetType, selectedContacts, excludedContacts, selectedGroups, selectedTags),
@@ -313,7 +747,102 @@ export function CreateCampaignPage() {
       default:
         return true;
     }
-  }, [excludedContacts, selectedContacts, selectedGroups, selectedTags, targetType]);
+  }, [selectedContacts, selectedGroups, selectedTags, targetType]);
+
+  const editContactOptions = useMemo(
+    () => (editContactsQuery.data?.data.contacts ?? []).map(buildContactOption),
+    [editContactsQuery.data?.data.contacts]
+  );
+  const editExcludedContactOptions = useMemo(
+    () => (editExcludedContactsQuery.data?.data.contacts ?? []).map(buildContactOption),
+    [editExcludedContactsQuery.data?.data.contacts]
+  );
+  const editGroupOptions = useMemo(
+    () => (editGroupsQuery.data?.data.groups ?? []).map(buildGroupOption),
+    [editGroupsQuery.data?.data.groups]
+  );
+  const editTagOptions = useMemo(
+    () => (editTagsQuery.data?.data.tags ?? []).map(buildTagOption),
+    [editTagsQuery.data?.data.tags]
+  );
+
+  useEffect(() => {
+    if (!isEditMode || !editingCampaign || hydratedCampaignIdRef.current === editingCampaign.id) {
+      return;
+    }
+
+    const storedBindings = editingCampaign.template_bindings || null;
+
+    reset({
+      name: editingCampaign.name,
+      description: editingCampaign.description || '',
+      wa_account_id: editingCampaign.wa_account_id,
+      template_id: editingCampaign.template_id,
+      type: editingCampaign.type,
+      target_type: editingCampaign.target_type,
+      target_config: editingCampaign.target_config || {},
+      variables_mapping: normalizeVariableBindingsForForm(
+        storedBindings?.variables || editingCampaign.variables_mapping
+      ),
+      template_bindings: storedBindings || undefined,
+      scheduled_at: formatDateTimeLocalValue(editingCampaign.scheduled_at),
+    });
+
+    setSelectedContacts(buildOptionMapFromIds(editingCampaign.target_config?.contact_ids, 'Contact'));
+    setExcludedContacts(buildOptionMapFromIds(editingCampaign.target_config?.exclude_contact_ids, 'Contact'));
+    setSelectedGroups(buildOptionMapFromIds(editingCampaign.target_config?.group_ids, 'Group'));
+    setSelectedTags(buildOptionMapFromIds(editingCampaign.target_config?.tag_ids, 'Tag'));
+    setVariableBindings(
+      normalizeVariableBindingsForForm(storedBindings?.variables || editingCampaign.variables_mapping)
+    );
+    setMediaBindings(normalizeMediaBindingsForForm(storedBindings?.media));
+    setLocationBindings(normalizeLocationBindingsForForm(storedBindings?.locations));
+    setProductBindings(normalizeProductBindingsForForm(storedBindings?.products));
+
+    setTemplateSearch('');
+    setTemplatePage(1);
+    setContactSearch('');
+    setContactPage(1);
+    setGroupSearch('');
+    setGroupPage(1);
+    setTagSearch('');
+    setTagPage(1);
+
+    previousWaAccountIdRef.current = editingCampaign.wa_account_id;
+    hydratedCampaignIdRef.current = editingCampaign.id;
+  }, [editingCampaign, isEditMode, reset]);
+
+  useEffect(() => {
+    if (!editContactOptions.length) {
+      return;
+    }
+
+    setSelectedContacts((current) => mergeOptionsIntoMap(current, editContactOptions));
+  }, [editContactOptions]);
+
+  useEffect(() => {
+    if (!editExcludedContactOptions.length) {
+      return;
+    }
+
+    setExcludedContacts((current) => mergeOptionsIntoMap(current, editExcludedContactOptions));
+  }, [editExcludedContactOptions]);
+
+  useEffect(() => {
+    if (!editGroupOptions.length) {
+      return;
+    }
+
+    setSelectedGroups((current) => mergeOptionsIntoMap(current, editGroupOptions));
+  }, [editGroupOptions]);
+
+  useEffect(() => {
+    if (!editTagOptions.length) {
+      return;
+    }
+
+    setSelectedTags((current) => mergeOptionsIntoMap(current, editTagOptions));
+  }, [editTagOptions]);
 
   useEffect(() => {
     setValue('target_config', targetConfig, {
@@ -322,6 +851,11 @@ export function CreateCampaignPage() {
   }, [setValue, targetConfig]);
 
   useEffect(() => {
+    if (previousWaAccountIdRef.current === undefined) {
+      previousWaAccountIdRef.current = selectedWaAccountId;
+      return;
+    }
+
     if (previousWaAccountIdRef.current === selectedWaAccountId) {
       return;
     }
@@ -329,43 +863,85 @@ export function CreateCampaignPage() {
     previousWaAccountIdRef.current = selectedWaAccountId;
     setTemplateSearch('');
     setTemplatePage(1);
-    setSelectedTemplate((current) => (current ? null : current));
     setVariableBindings((current) => (isRecordEmpty(current) ? current : {}));
+    setMediaBindings((current) => (isRecordEmpty(current) ? current : {}));
+    setLocationBindings((current) => (isRecordEmpty(current) ? current : {}));
+    setProductBindings((current) => (isRecordEmpty(current) ? current : {}));
 
     if (selectedTemplateId) {
       setValue('template_id', '', { shouldValidate: true });
-      setValue('variables_mapping', undefined, { shouldValidate: true });
     }
   }, [selectedTemplateId, selectedWaAccountId, setValue]);
 
   useEffect(() => {
+    if (!shouldPruneTemplateInputs) {
+      return;
+    }
+
     setVariableBindings((current) => {
       const prunedBindings = pruneCampaignVariableBindings(current, variableFields);
-
-      if (areVariableBindingsEqual(current, prunedBindings)) {
-        return current;
-      }
-
-      setValue(
-        'variables_mapping',
-        Object.keys(prunedBindings).length > 0 ? prunedBindings : undefined,
-        { shouldValidate: true }
-      );
-      return prunedBindings;
+      return areVariableBindingsEqual(current, prunedBindings) ? current : prunedBindings;
     });
-  }, [setValue, variableFields]);
+  }, [shouldPruneTemplateInputs, variableFields]);
 
+  useEffect(() => {
+    if (!shouldPruneTemplateInputs) {
+      return;
+    }
+
+    setMediaBindings((current) => {
+      const prunedBindings = pruneCampaignMediaBindings(current, mediaFields);
+      return areMediaBindingsEqual(current, prunedBindings) ? current : prunedBindings;
+    });
+  }, [mediaFields, shouldPruneTemplateInputs]);
+
+  useEffect(() => {
+    if (!shouldPruneTemplateInputs) {
+      return;
+    }
+
+    setLocationBindings((current) => {
+      const prunedBindings = pruneCampaignLocationBindings(current, locationFields);
+      return areLocationBindingsEqual(current, prunedBindings) ? current : prunedBindings;
+    });
+  }, [locationFields, shouldPruneTemplateInputs]);
+
+  useEffect(() => {
+    if (!shouldPruneTemplateInputs) {
+      return;
+    }
+
+    setProductBindings((current) => {
+      const prunedBindings = pruneCampaignProductBindings(current, productFields);
+      return areProductBindingsEqual(current, prunedBindings) ? current : prunedBindings;
+    });
+  }, [productFields, shouldPruneTemplateInputs]);
+
+  const isMutationPending = createCampaign.isPending || updateCampaign.isPending;
   const isSubmitDisabled =
-    createCampaign.isPending
+    isMutationPending
     || !requiredFieldsFilled
     || !audienceSelectionFilled
-    || (variableFields.length > 0 && !variableBindingsComplete)
+    || selectedTemplatePending
+    || selectedTemplateCatalogBlocked
+    || (hasTemplateInputs && !templateInputsComplete)
     || Object.keys(errors).length > 0;
 
-  const templatePickerSelected = useMemo(
-    () => (selectedTemplate ? [buildTemplateOption(selectedTemplate)] : []),
-    [selectedTemplate]
-  );
+  const templatePickerSelected = useMemo(() => {
+    if (selectedTemplate) {
+      return [buildTemplateOption(selectedTemplate)];
+    }
+
+    if (selectedTemplateId) {
+      return [{
+        value: selectedTemplateId,
+        label: 'Loading template…',
+        description: 'Fetching template details for this campaign',
+      }];
+    }
+
+    return [];
+  }, [selectedTemplate, selectedTemplateId]);
 
   const updateVariableBinding = (key: string, nextBinding: CampaignVariableBinding) => {
     setVariableBindings((current) => {
@@ -381,29 +957,138 @@ export function CreateCampaignPage() {
         return current;
       }
 
-      const next = {
+      return {
         ...current,
         [key]: nextBinding,
       };
+    });
+  };
 
-      setValue('variables_mapping', next, { shouldValidate: true });
-      return next;
+  const updateMediaBinding = (key: string, nextBinding: CampaignMediaBinding | null) => {
+    setMediaBindings((current) => {
+      if (!nextBinding) {
+        if (!current[key]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[key];
+        return next;
+      }
+
+      const currentBinding = current[key];
+      if (
+        currentBinding
+        && currentBinding.file_id === nextBinding.file_id
+        && currentBinding.media_type === nextBinding.media_type
+        && currentBinding.original_name === nextBinding.original_name
+        && currentBinding.mime_type === nextBinding.mime_type
+        && currentBinding.size === nextBinding.size
+        && currentBinding.preview_url === nextBinding.preview_url
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [key]: nextBinding,
+      };
+    });
+  };
+
+  const updateLocationBinding = (key: string, nextBinding: CampaignLocationBinding | null) => {
+    setLocationBindings((current) => {
+      if (!nextBinding) {
+        if (!current[key]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[key];
+        return next;
+      }
+
+      const currentBinding = current[key];
+      if (
+        currentBinding
+        && currentBinding.latitude === nextBinding.latitude
+        && currentBinding.longitude === nextBinding.longitude
+        && currentBinding.name === nextBinding.name
+        && currentBinding.address === nextBinding.address
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [key]: nextBinding,
+      };
+    });
+  };
+
+  const updateProductBinding = (key: string, nextBinding: CampaignProductBinding | null) => {
+    setProductBindings((current) => {
+      if (!nextBinding) {
+        if (!current[key]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[key];
+        return next;
+      }
+
+      const currentBinding = current[key];
+      if (
+        currentBinding
+        && currentBinding.product_retailer_id === nextBinding.product_retailer_id
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [key]: nextBinding,
+      };
     });
   };
 
   const onSubmit = async (data: CreateCampaignFormData) => {
+    const templateBindings = buildTemplateBindingsPayload(
+      variableBindings,
+      mediaBindings,
+      locationBindings,
+      productBindings
+    );
     const payload: CreateCampaignFormData = {
       ...data,
       target_config: targetConfig,
-      variables_mapping: variableFields.length > 0 ? variableBindings : undefined,
+      variables_mapping: variableBindings,
+      template_bindings: templateBindings || undefined,
     };
 
     try {
+      if (isEditMode && campaignId) {
+        const updatedCampaign = await updateCampaign.mutateAsync({
+          id: campaignId,
+          ...payload,
+          template_bindings: templateBindings,
+        });
+        toast.success('Draft campaign updated successfully');
+        navigate(`/campaigns/${updatedCampaign.id}`);
+        return;
+      }
+
       await createCampaign.mutateAsync(payload);
       toast.success('Campaign created successfully');
       navigate('/campaigns');
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Failed to create campaign.'));
+      toast.error(
+        getApiErrorMessage(
+          error,
+          isEditMode ? 'Failed to update draft campaign.' : 'Failed to create campaign.'
+        )
+      );
     }
   };
 
@@ -424,13 +1109,94 @@ export function CreateCampaignPage() {
     }
   }, [audienceSelectionFilled, isSubmitted, targetType]);
 
+  const backPath = isEditMode && campaignId ? `/campaigns/${campaignId}` : '/campaigns';
+  const pageTitle = isEditMode ? 'Edit Draft Campaign' : 'Create Campaign';
+  const pageDescription = isEditMode
+    ? 'Update this draft campaign before scheduling or starting it.'
+    : 'Create a campaign with the right audience, template inputs, and schedule.';
+
+  if (isEditMode && editingCampaignQuery.isLoading) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/campaigns')}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">{pageTitle}</h1>
+            <p className="text-sm text-muted-foreground">Loading draft campaign details…</p>
+          </div>
+        </div>
+
+        <Card>
+          <CardContent className="flex items-center gap-3 py-8 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Preparing the draft campaign form.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isEditMode && !editingCampaignQuery.isLoading && !editingCampaign) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/campaigns')}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <h1 className="text-2xl font-bold tracking-tight">Draft Campaign Not Found</h1>
+        </div>
+
+        <Card>
+          <CardContent className="space-y-4 py-8">
+            <p className="text-sm text-muted-foreground">
+              This draft campaign could not be loaded. It may have been deleted or moved.
+            </p>
+            <Button type="button" onClick={() => navigate('/campaigns')}>
+              Back to Campaigns
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isEditMode && editingCampaign && editingCampaign.status !== 'draft') {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => navigate(`/campaigns/${editingCampaign.id}`)}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <h1 className="text-2xl font-bold tracking-tight">Only Draft Campaigns Can Be Edited</h1>
+        </div>
+
+        <Card>
+          <CardContent className="space-y-4 py-8">
+            <p className="text-sm text-muted-foreground">
+              This campaign is currently <span className="font-medium capitalize">{editingCampaign.status}</span>.
+              Open the campaign detail page to review it or use the available campaign actions there.
+            </p>
+            <Button type="button" onClick={() => navigate(`/campaigns/${editingCampaign.id}`)}>
+              Open Campaign Detail
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/campaigns')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate(backPath)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <h1 className="text-2xl font-bold tracking-tight">Create Campaign</h1>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">{pageTitle}</h1>
+          <p className="text-sm text-muted-foreground">{pageDescription}</p>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -455,7 +1221,12 @@ export function CreateCampaignPage() {
                 <Label required>Phone number</Label>
                 <Select
                   value={selectedWaAccountId || ''}
-                  onValueChange={(value) => setValue('wa_account_id', value, { shouldValidate: true })}
+                  onValueChange={(value) =>
+                    setValue('wa_account_id', value, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select phone number" />
@@ -501,24 +1272,35 @@ export function CreateCampaignPage() {
                   onSearchChange={setTemplateSearch}
                   onPageChange={setTemplatePage}
                   onSelect={(option) => {
-                    const template = templates.find((item) => item.id === option.value);
-                    if (!template) {
-                      return;
-                    }
-
-                    setSelectedTemplate(template);
-                    setValue('template_id', template.id, { shouldValidate: true });
+                    setValue('template_id', option.value, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    });
                     setTemplateSearch('');
                     setTemplatePage(1);
                   }}
                   onRemove={() => {
-                    setSelectedTemplate(null);
-                    setVariableBindings({});
                     setValue('template_id', '', { shouldValidate: true });
-                    setValue('variables_mapping', undefined, { shouldValidate: true });
+                    setVariableBindings({});
+                    setMediaBindings({});
+                    setLocationBindings({});
+                    setProductBindings({});
                   }}
                 />
                 {errors.template_id ? <p className="text-sm text-destructive">{errors.template_id.message}</p> : null}
+                {selectedTemplatePending ? (
+                  <p className="text-xs text-muted-foreground">Loading template details and required inputs…</p>
+                ) : null}
+                {!selectedTemplate && selectedWaAccount && !selectedWaAccountHealthQuery.isLoading && selectedWaAccountProductCatalogCount === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Commerce templates that require a Meta product catalog are hidden for this phone number because no linked catalog was found.
+                  </p>
+                ) : null}
+                {selectedTemplateCatalogBlocked ? (
+                  <p className="text-sm text-destructive">
+                    This template requires a Meta product catalog linked to the selected WhatsApp account. Link a catalog in Meta or choose another template.
+                  </p>
+                ) : null}
               </div>
             </div>
           </CardContent>
@@ -710,115 +1492,38 @@ export function CreateCampaignPage() {
           </CardContent>
         </Card>
 
-        {selectedTemplate && variableFields.length > 0 ? (
+        {selectedTemplate && hasTemplateInputs ? (
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Template Variables</CardTitle>
+              <CardTitle className="text-lg">Template Inputs</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                This template uses variables. Set each one to a static value or choose a dynamic contact field so every message is personalized safely.
-              </p>
-
-              {variableFields.map((field) => {
-                const binding = variableBindings[field.key];
-
-                return (
-                  <div key={field.key} className="space-y-4 rounded-2xl border border-border/70 p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <div className="font-medium">{field.label}</div>
-                        <p className="text-xs text-muted-foreground">{field.hint}</p>
-                      </div>
-                      <Badge variant="outline">{field.key}</Badge>
-                    </div>
-
-                    <div className="grid gap-4 lg:grid-cols-[14rem_minmax(0,1fr)]">
-                      <div className="space-y-2">
-                        <Label>Value Type</Label>
-                        <Select
-                          value={binding?.mode || ''}
-                          onValueChange={(value) => {
-                            if (value === 'static') {
-                              updateVariableBinding(field.key, { mode: 'static', value: '' });
-                            }
-
-                            if (value === 'dynamic') {
-                              updateVariableBinding(field.key, { mode: 'dynamic', source: 'full_name' });
-                            }
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Choose value type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="static">Static value</SelectItem>
-                            <SelectItem value="dynamic">Dynamic value</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>{binding?.mode === 'dynamic' ? 'Dynamic Source' : 'Static Value'}</Label>
-                        {binding?.mode === 'dynamic' ? (
-                          <Select
-                            value={binding.source || 'full_name'}
-                            onValueChange={(value) =>
-                              updateVariableBinding(field.key, {
-                                mode: 'dynamic',
-                                source: value as CampaignVariableSource,
-                              })
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DYNAMIC_VALUE_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : binding?.mode === 'static' ? (
-                          <Input
-                            value={binding.value || ''}
-                            onChange={(event) =>
-                              updateVariableBinding(field.key, {
-                                mode: 'static',
-                                value: event.target.value,
-                              })
-                            }
-                            placeholder="Enter the exact value to send"
-                          />
-                        ) : (
-                          <div className="rounded-xl border border-dashed px-3 py-2 text-sm text-muted-foreground">
-                            Choose how this variable should be populated before creating the campaign.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {!variableBindingsComplete ? (
-                <p className="text-sm text-destructive">
-                  Complete every variable binding before creating the campaign.
-                </p>
-              ) : null}
+              <CampaignTemplateInputsSection
+                variableFields={variableFields}
+                mediaFields={mediaFields}
+                locationFields={locationFields}
+                productFields={productFields}
+                variableBindings={variableBindings}
+                mediaBindings={mediaBindings}
+                locationBindings={locationBindings}
+                productBindings={productBindings}
+                onVariableBindingChange={updateVariableBinding}
+                onMediaBindingChange={updateMediaBinding}
+                onLocationBindingChange={updateLocationBinding}
+                onProductBindingChange={updateProductBinding}
+                showIncompleteError={isSubmitted && !templateInputsComplete}
+              />
             </CardContent>
           </Card>
         ) : null}
 
         <div className="flex justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => navigate('/campaigns')}>
+          <Button type="button" variant="outline" onClick={() => navigate(backPath)}>
             Cancel
           </Button>
           <Button type="submit" disabled={isSubmitDisabled}>
-            {createCampaign.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Create Campaign
+            {isMutationPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {isEditMode ? 'Save Draft Changes' : 'Create Campaign'}
           </Button>
         </div>
       </form>

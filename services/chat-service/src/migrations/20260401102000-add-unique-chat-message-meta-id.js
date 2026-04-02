@@ -25,6 +25,7 @@ module.exports = {
     });
   },
 
+
   async down(queryInterface) {
     await queryInterface.removeIndex('chat_messages', 'uq_chat_msg_user_meta_id');
   },

@@ -4,7 +4,12 @@ const http = require('http');
 const app = require('./app');
 const config = require('./config');
 const { sequelize } = require('./models');
-const { testConnection, createRedisClient } = require('@nyife/shared-config');
+const {
+  testConnection,
+  createRedisClient,
+  createKafkaProducerWithRetry,
+  createKafkaConsumerWithRetry,
+} = require('@nyife/shared-config');
 
 const server = http.createServer(app);
 
@@ -31,8 +36,7 @@ async function startServer() {
 
   // Connect to Kafka producer (for publishing webhook events)
   try {
-    const { createKafkaProducer } = require('@nyife/shared-config');
-    kafkaProducer = await createKafkaProducer('whatsapp-service');
+    kafkaProducer = await createKafkaProducerWithRetry('whatsapp-service');
     app.locals.kafkaProducer = kafkaProducer;
     console.log('[whatsapp-service] Kafka producer connected');
   } catch (err) {
@@ -42,11 +46,10 @@ async function startServer() {
 
   // Connect to Kafka consumer for campaign.execute topic
   try {
-    const { createKafkaConsumer } = require('@nyife/shared-config');
     const { TOPICS } = require('@nyife/shared-events');
     const { processCampaignExecuteMessage } = require('./services/campaignExecution.service');
 
-    kafkaConsumer = await createKafkaConsumer('whatsapp-service', 'whatsapp-service-campaign-group');
+    kafkaConsumer = await createKafkaConsumerWithRetry('whatsapp-service', 'whatsapp-service-campaign-group');
 
     await kafkaConsumer.subscribe({
       topic: TOPICS.CAMPAIGN_EXECUTE,
@@ -69,6 +72,10 @@ async function startServer() {
             `[whatsapp-service] Failed to process campaign.execute message:`,
             err.message
           );
+
+          if (err.code === 'CAMPAIGN_DISPATCH_STATE_UNAVAILABLE') {
+            throw err;
+          }
         }
       },
     });

@@ -53,6 +53,10 @@ module.exports = (sequelize) => {
         type: DataTypes.JSON,
         allowNull: true,
       },
+      template_bindings: {
+        type: DataTypes.JSON,
+        allowNull: true,
+      },
       scheduled_at: {
         type: DataTypes.DATE,
         allowNull: true,

@@ -333,6 +333,12 @@ services:
       NODE_ENV: production
       CAMPAIGN_SERVICE_PORT: 3007
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
+      WALLET_SERVICE_URL: http://wallet-service:3004
+      CONTACT_SERVICE_URL: http://contact-service:3005
+      TEMPLATE_SERVICE_URL: http://template-service:3006
+      WHATSAPP_SERVICE_URL: http://whatsapp-service:3009
+      ORGANIZATION_SERVICE_URL: http://organization-service:3011
+      MEDIA_SERVICE_URL: http://media-service:3017
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       REDIS_HOST: redis
@@ -363,6 +369,8 @@ services:
     environment:
       NODE_ENV: production
       CHAT_SERVICE_PORT: 3008
+      WHATSAPP_SERVICE_URL: http://whatsapp-service:3009
+      ORGANIZATION_SERVICE_URL: http://organization-service:3011
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       REDIS_HOST: redis
@@ -392,6 +400,11 @@ services:
       NODE_ENV: production
       WHATSAPP_SERVICE_PORT: 3009
       SUBSCRIPTION_SERVICE_URL: http://subscription-service:3003
+      WALLET_SERVICE_URL: http://wallet-service:3004
+      TEMPLATE_SERVICE_URL: http://template-service:3006
+      CAMPAIGN_SERVICE_URL: http://campaign-service:3007
+      ORGANIZATION_SERVICE_URL: http://organization-service:3011
+      MEDIA_SERVICE_URL: http://media-service:3017
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       REDIS_HOST: redis

@@ -16,6 +16,8 @@ router.get('/webhook', asyncHandler(whatsappController.verifyWebhook));
 // POST /webhook — Meta webhook events (signature verified by middleware)
 router.post('/webhook', verifyWebhookSignature, asyncHandler(whatsappController.processWebhook));
 router.post('/flows/data-exchange', asyncHandler(whatsappController.handleFlowDataExchange));
+router.post('/internal/campaign-media/resolve', asyncHandler(whatsappController.resolveCampaignMedia));
+router.post('/internal/account-product-catalogs', asyncHandler(whatsappController.getAccountProductCatalogs));
 
 // ────────────────────────────────────────────────
 // Account routes (authenticated)

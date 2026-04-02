@@ -1,6 +1,8 @@
 'use strict';
 
+const axios = require('axios');
 const { TOPICS, publishEvent } = require('@nyife/shared-events');
+const config = require('../config');
 const { WaAccount } = require('../models');
 const messageService = require('./message.service');
 
@@ -75,9 +77,24 @@ async function processCampaignExecuteMessage(
     sendCampaignMessage = messageService.sendCampaignMessage,
     publishEventFn = publishEvent,
     accountLookup,
+    loadDispatchState = loadCampaignDispatchState,
     logger = console,
   } = {}
 ) {
+  const dispatchState = await loadDispatchState(payload);
+
+  if (dispatchState && dispatchState.executable === false) {
+    logger.info(
+      `[whatsapp-service] Skipping campaign message dispatch: campaign=${payload.campaignId} message=${payload.campaignMessageId || 'unknown'} reason=${dispatchState.reason}`
+    );
+    return {
+      skipped: true,
+      reason: dispatchState.reason,
+      campaignStatus: dispatchState.campaignStatus || null,
+      messageStatus: dispatchState.messageStatus || null,
+    };
+  }
+
   try {
     const result = await sendCampaignMessage({
       userId: payload.userId,
@@ -142,11 +159,45 @@ async function processCampaignExecuteMessage(
   }
 }
 
+async function loadCampaignDispatchState(payload) {
+  if (!payload?.campaignId || !payload?.campaignMessageId || !payload?.userId) {
+    return { executable: true, reason: 'missing_dispatch_context' };
+  }
+
+  try {
+    const response = await axios.post(
+      `${config.campaignServiceUrl}/api/v1/campaigns/internal/execution/dispatch-state`,
+      {
+        campaignId: payload.campaignId,
+        campaignMessageId: payload.campaignMessageId,
+      },
+      {
+        headers: {
+          'x-user-id': payload.userId,
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000,
+      }
+    );
+
+    return response.data?.data?.dispatchState || {
+      executable: true,
+      reason: 'missing_dispatch_state',
+    };
+  } catch (error) {
+    const dispatchError = new Error('Unable to load campaign execution dispatch state');
+    dispatchError.code = 'CAMPAIGN_DISPATCH_STATE_UNAVAILABLE';
+    dispatchError.cause = error;
+    throw dispatchError;
+  }
+}
+
 module.exports = {
   processCampaignExecuteMessage,
   __private: {
     buildCampaignStatusEvent,
     publishCampaignStatus,
     publishWhatsAppMessageStatus,
+    loadCampaignDispatchState,
   },
 };

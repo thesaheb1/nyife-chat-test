@@ -7,12 +7,17 @@ const assert = require('node:assert/strict');
 const axios = require('axios');
 
 const campaignService = require('../src/services/campaign.service');
+const { CampaignMessage } = require('../src/models');
 
 const { __private } = campaignService;
 const originalAxiosGet = axios.get;
+const originalAxiosPost = axios.post;
+const originalCampaignMessageFindOne = CampaignMessage.findOne;
 
 afterEach(() => {
   axios.get = originalAxiosGet;
+  axios.post = originalAxiosPost;
+  CampaignMessage.findOne = originalCampaignMessageFindOne;
 });
 
 test('fetchContactsByIds batches large contact id lists into contact-service sized requests', async () => {
@@ -169,5 +174,216 @@ test('fetchContactsByIds forwards actor and organization headers for internal co
   assert.deepEqual(capturedOptions.headers, {
     'x-user-id': 'user-1',
     'x-organization-id': 'org-1',
+  });
+});
+
+test('resolveCampaignMediaBindings forwards internal organization headers to whatsapp-service', async () => {
+  let capturedBody = null;
+  let capturedOptions = null;
+
+  axios.post = async (_url, body, options) => {
+    capturedBody = body;
+    capturedOptions = options;
+    return {
+      data: {
+        data: {
+          media: {
+            header_media: {
+              id: 'wa-media-1',
+            },
+          },
+        },
+      },
+    };
+  };
+
+  const media = await __private.resolveCampaignMediaBindings(
+    {
+      actorUserId: 'user-1',
+      organizationId: 'org-1',
+      scopeId: 'org-1',
+    },
+    'wa-account-1',
+    {
+      header_media: {
+        file_id: 'file-1',
+        media_type: 'document',
+        original_name: 'invoice.pdf',
+        mime_type: 'application/pdf',
+        size: 2048,
+      },
+    }
+  );
+
+  assert.deepEqual(capturedBody, {
+    wa_account_id: 'wa-account-1',
+    media_bindings: {
+      header_media: {
+        file_id: 'file-1',
+        media_type: 'document',
+        original_name: 'invoice.pdf',
+        mime_type: 'application/pdf',
+        size: 2048,
+      },
+    },
+  });
+  assert.deepEqual(capturedOptions.headers, {
+    'x-user-id': 'user-1',
+    'x-organization-id': 'org-1',
+    'Content-Type': 'application/json',
+  });
+  assert.deepEqual(media, {
+    header_media: {
+      id: 'wa-media-1',
+    },
+  });
+});
+
+test('resolveCampaignMediaBindings surfaces downstream permission or validation messages', async () => {
+  axios.post = async () => {
+    const error = new Error('Request failed with status code 403');
+    error.response = {
+      status: 403,
+      data: {
+        message: 'You do not have permission to perform this action in the organization.',
+      },
+    };
+    throw error;
+  };
+
+  await assert.rejects(
+    () =>
+      __private.resolveCampaignMediaBindings(
+        {
+          actorUserId: 'user-1',
+          organizationId: 'org-1',
+          scopeId: 'org-1',
+        },
+        'wa-account-1',
+        {
+          header_media: {
+            file_id: 'file-1',
+            media_type: 'document',
+            original_name: 'invoice.pdf',
+            mime_type: 'application/pdf',
+            size: 2048,
+          },
+        }
+      ),
+    /You do not have permission to perform this action in the organization\./
+  );
+});
+
+test('resolveCampaignProductCatalogSupport forwards internal organization headers to whatsapp-service', async () => {
+  let capturedBody = null;
+  let capturedOptions = null;
+
+  axios.post = async (_url, body, options) => {
+    capturedBody = body;
+    capturedOptions = options;
+    return {
+      data: {
+        data: {
+          product_catalogs: {
+            linked: true,
+            count: 1,
+            items: [{ id: 'catalog-1', name: 'Primary Catalog' }],
+          },
+        },
+      },
+    };
+  };
+
+  const productCatalogs = await __private.resolveCampaignProductCatalogSupport(
+    {
+      actorUserId: 'user-1',
+      organizationId: 'org-1',
+      scopeId: 'org-1',
+    },
+    'wa-account-1'
+  );
+
+  assert.deepEqual(capturedBody, {
+    wa_account_id: 'wa-account-1',
+  });
+  assert.deepEqual(capturedOptions.headers, {
+    'x-user-id': 'user-1',
+    'x-organization-id': 'org-1',
+    'Content-Type': 'application/json',
+  });
+  assert.deepEqual(productCatalogs, {
+    linked: true,
+    count: 1,
+    items: [{ id: 'catalog-1', name: 'Primary Catalog' }],
+  });
+});
+
+test('resolveCampaignProductCatalogSupport surfaces downstream validation messages', async () => {
+  axios.post = async () => {
+    const error = new Error('Request failed with status code 400');
+    error.response = {
+      status: 400,
+      data: {
+        message: 'This template requires a linked Meta product catalog.',
+      },
+    };
+    throw error;
+  };
+
+  await assert.rejects(
+    () =>
+      __private.resolveCampaignProductCatalogSupport(
+        {
+          actorUserId: 'user-1',
+          organizationId: 'org-1',
+          scopeId: 'org-1',
+        },
+        'wa-account-1'
+      ),
+    /This template requires a linked Meta product catalog\./
+  );
+});
+
+test('getCampaignExecutionDispatchState blocks paused campaigns from dispatching pending messages', async () => {
+  CampaignMessage.findOne = async () => ({
+    status: 'pending',
+    campaign: {
+      status: 'paused',
+    },
+  });
+
+  const result = await campaignService.getCampaignExecutionDispatchState(
+    { scopeId: 'org-1' },
+    'campaign-1',
+    'campaign-message-1'
+  );
+
+  assert.deepEqual(result, {
+    executable: false,
+    reason: 'campaign_paused',
+    campaignStatus: 'paused',
+    messageStatus: 'pending',
+  });
+});
+
+test('getCampaignExecutionDispatchState allows running pending messages to dispatch', async () => {
+  CampaignMessage.findOne = async () => ({
+    status: 'pending',
+    campaign: {
+      status: 'running',
+    },
+  });
+
+  const result = await campaignService.getCampaignExecutionDispatchState(
+    { scopeId: 'org-1' },
+    'campaign-1',
+    'campaign-message-1'
+  );
+
+  assert.deepEqual(result, {
+    executable: true,
+    reason: 'ready',
+    campaignStatus: 'running',
+    messageStatus: 'pending',
   });
 });

@@ -5,6 +5,8 @@ const router = express.Router();
 const campaignController = require('../controllers/campaign.controller');
 const { organizationResolver, asyncHandler, requireActiveSubscription, rbac } = require('@nyife/shared-middleware');
 
+router.post('/internal/execution/dispatch-state', asyncHandler(campaignController.getExecutionDispatchState));
+
 router.use(organizationResolver);
 
 // ────────────────────────────────────────────────

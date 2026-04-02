@@ -668,6 +668,27 @@ async function fetchSubscribedApps(accessToken, wabaId) {
   }
 }
 
+async function fetchProductCatalogs(accessToken, wabaId) {
+  try {
+    const response = await axios.get(
+      `${config.meta.baseUrl}/${wabaId}/product_catalogs`,
+      {
+        params: {
+          fields: 'id,name',
+        },
+        headers: buildMetaHeaders(accessToken),
+        timeout: 10000,
+      }
+    );
+
+    return Array.isArray(response.data?.data) ? response.data.data : [];
+  } catch (err) {
+    throw AppError.badRequest(
+      `Failed to fetch linked product catalogs for WABA ${wabaId}. ${getMetaErrorMessage(err, 'Product catalog lookup failed.')}`
+    );
+  }
+}
+
 async function fetchProviderSystemUsers() {
   const response = await axios.get(
     `${config.meta.baseUrl}/${config.meta.providerBusinessId}/system_users`,
@@ -1551,19 +1572,25 @@ async function getAccountHealth(userId, accountId, kafkaProducer = null, redis =
   }
 
   const credential = requireResolvedMetaCredential(account);
-  const [phoneDetails, initialSubscribedApps, assignedUser, accountReviewStatus] = await Promise.all([
+  const [phoneDetails, initialSubscribedApps, assignedUser, accountReviewStatus, productCatalogsResult] = await Promise.all([
     fetchPhoneNumberHealth(credential.accessToken, account.phone_number_id),
     fetchSubscribedApps(credential.accessToken, account.waba_id),
     hasProviderManagementConfig()
       ? verifyAssignedSystemUser(account.waba_id).catch(() => null)
       : Promise.resolve(null),
     fetchAccountReviewStatus(credential.accessToken, account.waba_id).catch(() => null),
+    fetchProductCatalogs(credential.accessToken, account.waba_id).catch(() => null),
   ]);
 
   let subscribedApps = initialSubscribedApps;
   let appSubscribed = subscribedApps.some((app) => String(app.id || '') === String(config.meta.appId));
   const warnings = [];
   const webhookAlignment = await getWebhookAlignmentDiagnostics(redis, account);
+  const productCatalogs = Array.isArray(productCatalogsResult) ? productCatalogsResult : [];
+
+  if (productCatalogsResult === null) {
+    warnings.push('Linked Meta product catalogs could not be verified during this health check.');
+  }
 
   if (!appSubscribed) {
     try {
@@ -1624,9 +1651,39 @@ async function getAccountHealth(userId, accountId, kafkaProducer = null, redis =
       name_status: phoneDetails?.name_status || null,
       quality_rating: account.quality_rating,
       subscribed_apps_count: subscribedApps.length,
+      product_catalogs: {
+        linked: productCatalogs.length > 0,
+        count: productCatalogs.length,
+        items: productCatalogs.map((catalog) => ({
+          id: String(catalog.id || ''),
+          name: catalog.name || null,
+        })),
+      },
       webhook_alignment: webhookAlignment,
       warnings,
     },
+  };
+}
+
+async function getAccountProductCatalogs(userId, accountId) {
+  const account = await WaAccount.scope('withToken').findOne({
+    where: { id: accountId, user_id: userId },
+  });
+
+  if (!account) {
+    throw AppError.notFound('WhatsApp account not found');
+  }
+
+  const credential = requireResolvedMetaCredential(account);
+  const productCatalogs = await fetchProductCatalogs(credential.accessToken, account.waba_id);
+
+  return {
+    linked: productCatalogs.length > 0,
+    count: productCatalogs.length,
+    items: productCatalogs.map((catalog) => ({
+      id: String(catalog.id || ''),
+      name: catalog.name || null,
+    })),
   };
 }
 
@@ -1827,6 +1884,7 @@ module.exports = {
   getAccount,
   deactivateAccount,
   getAccountHealth,
+  getAccountProductCatalogs,
   reconcileAccount,
   getPhoneNumbers,
   getDecryptedToken,
@@ -1842,6 +1900,7 @@ module.exports = {
     buildRegisterPhonePayload,
     registerPhoneNumber,
     ensurePhoneRegistrationForSignup,
+    fetchProductCatalogs,
     repairLegacyRegistrationCompatibility,
   },
 };

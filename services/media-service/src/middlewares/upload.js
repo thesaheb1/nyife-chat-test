@@ -5,6 +5,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const { AppError } = require('@nyife/shared-utils');
+const config = require('../config');
 
 const ALLOWED_MIME_TYPES = {
   image: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
@@ -41,7 +42,7 @@ const storage = multer.diskStorage({
     const userId = req.headers['x-user-id'] || 'unknown';
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const uploadDir = path.join(process.cwd(), 'uploads', userId, yearMonth);
+    const uploadDir = path.join(config.upload.rootDir, userId, yearMonth);
 
     fs.mkdirSync(uploadDir, { recursive: true });
     cb(null, uploadDir);

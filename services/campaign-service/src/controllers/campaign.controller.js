@@ -10,6 +10,7 @@ const {
   campaignIdSchema,
   listCampaignMessagesSchema,
   retryCampaignSchema,
+  executionDispatchStateSchema,
 } = require('../validations/campaign.validation');
 
 // ────────────────────────────────────────────────
@@ -154,6 +155,19 @@ async function retryCampaign(req, res) {
   return successResponse(res, { campaign }, 'Campaign retry initiated successfully');
 }
 
+async function getExecutionDispatchState(req, res) {
+  const requestContext = resolveCampaignRequestContext(req);
+  const payload = executionDispatchStateSchema.parse(req.body);
+
+  const dispatchState = await campaignService.getCampaignExecutionDispatchState(
+    requestContext,
+    payload.campaignId,
+    payload.campaignMessageId
+  );
+
+  return successResponse(res, { dispatchState }, 'Campaign execution state retrieved');
+}
+
 // ────────────────────────────────────────────────
 // Campaign Messages & Analytics
 // ────────────────────────────────────────────────
@@ -196,6 +210,7 @@ module.exports = {
   resumeCampaign,
   cancelCampaign,
   retryCampaign,
+  getExecutionDispatchState,
   getCampaignMessages,
   getCampaignAnalytics,
 };

@@ -71,7 +71,22 @@ async function emitWebhookDiagnostic(context, observation) {
     received_at: observation.received_at || new Date().toISOString(),
   };
 
-  console.log('[whatsapp-service] Webhook diagnostic', JSON.stringify(payload));
+  console.log(
+    '[whatsapp-service] Webhook diagnostic',
+    JSON.stringify({
+      envelope_format: payload.envelope_format,
+      event_name: payload.event_name,
+      field: payload.field,
+      phone_number_id: payload.phone_number_id,
+      waba_id: payload.waba_id,
+      meta_message_id: payload.meta_message_id,
+      status: payload.status,
+      local_wa_account_id: payload.local_wa_account_id,
+      matched_wa_message_id: payload.matched_wa_message_id,
+      matched_campaign_id: payload.matched_campaign_id,
+      notes: payload.notes,
+    })
+  );
   await recordWebhookObservation(context.redis, payload);
 }
 
@@ -176,6 +191,20 @@ async function handleMessagesField(wabaId, value, kafkaProducer, webhookContext)
   const metadata = value.metadata || {};
   const phoneNumberId = metadata.phone_number_id;
   const displayPhone = metadata.display_phone_number;
+  const messageCount = Array.isArray(value.messages) ? value.messages.length : 0;
+  const statusCount = Array.isArray(value.statuses) ? value.statuses.length : 0;
+
+  console.log(
+    '[whatsapp-service] Handling messages field',
+    JSON.stringify({
+      envelope_format: webhookContext.envelopeFormat,
+      event_name: webhookContext.eventName,
+      waba_id: wabaId,
+      phone_number_id: phoneNumberId || null,
+      message_count: messageCount,
+      status_count: statusCount,
+    })
+  );
 
   // Find the WA account by phone_number_id
   let account = null;
@@ -202,6 +231,8 @@ async function handleMessagesField(wabaId, value, kafkaProducer, webhookContext)
     }
   }
 }
+
+
 
 /**
  * Handles a single incoming message from a webhook.
@@ -681,7 +712,7 @@ async function handleTemplateStatusUpdate(wabaId, value, kafkaProducer) {
 
   console.log(
     `[whatsapp-service] Template status update for WABA ${wabaId}: ` +
-      `template="${templateEvent.message_template_name}" status="${templateEvent.event}"`
+    `template="${templateEvent.message_template_name}" status="${templateEvent.event}"`
   );
 
   // Publish to Kafka for template-service or notification-service
@@ -732,7 +763,7 @@ async function handleTemplateQualityUpdate(wabaId, value, kafkaProducer) {
 
   console.log(
     `[whatsapp-service] Template quality update for WABA ${wabaId}: ` +
-      `template="${qualityEvent.message_template_name}" quality="${qualityEvent.new_quality_score}"`
+    `template="${qualityEvent.message_template_name}" quality="${qualityEvent.new_quality_score}"`
   );
 
   if (kafkaProducer) {
@@ -799,7 +830,7 @@ async function handlePhoneQualityUpdate(wabaId, value, kafkaProducer) {
 
   console.log(
     `[whatsapp-service] Phone quality update for WABA ${wabaId}: ` +
-      `phone="${displayPhone}" quality="${qualityRating}" limit="${currentLimit}"`
+    `phone="${displayPhone}" quality="${qualityRating}" limit="${currentLimit}"`
   );
 
   // Find account by WABA and update quality rating

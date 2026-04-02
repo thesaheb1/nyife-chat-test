@@ -4,7 +4,7 @@ const http = require('http');
 const app = require('./app');
 const config = require('./config');
 const { sequelize } = require('./models');
-const { testConnection, createRedisClient } = require('@nyife/shared-config');
+const { testConnection, createRedisClient, createKafkaConsumerWithRetry } = require('@nyife/shared-config');
 const { setupSocketIO } = require('./socket');
 
 const server = http.createServer(app);
@@ -40,11 +40,10 @@ async function startServer() {
 
   // ── Kafka Consumer for webhook.inbound ───────────
   try {
-    const { createKafkaConsumer } = require('@nyife/shared-config');
     const { TOPICS } = require('@nyife/shared-events');
     const chatService = require('./services/chat.service');
 
-    kafkaConsumer = await createKafkaConsumer('chat-service', 'chat-service-inbound-group');
+    kafkaConsumer = await createKafkaConsumerWithRetry('chat-service', 'chat-service-inbound-group');
 
     await kafkaConsumer.subscribe({
       topic: TOPICS.WEBHOOK_INBOUND,
